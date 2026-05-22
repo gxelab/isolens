@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lrkit"
+name = "isolens"
 version = "0.1.0"
 description = "Long-Read Kit"
 readme = "README.md"
@@ -28,10 +28,10 @@ keywords = ["long-read", "bioinformatics", "sequencing", "genomics"]
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/mt1022/lrkit"
-Repository = "https://github.com/mt1022/lrkit"
-"Bug Tracker" = "https://github.com/mt1022/lrkit/issues"
-Changelog = "https://github.com/mt1022/lrkit/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/mt1022/isolens"
+Repository = "https://github.com/mt1022/isolens"
+"Bug Tracker" = "https://github.com/mt1022/isolens/issues"
+Changelog = "https://github.com/mt1022/isolens/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
@@ -44,7 +44,7 @@ dev = [
 include = ["/src", "/tests", "/CHANGELOG.md"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lrkit"]
+packages = ["src/isolens"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -59,7 +59,7 @@ target-version = "py310"
 select = ["E", "F", "I", "UP"]
 
 [tool.coverage.run]
-source = ["lrkit"]
+source = ["isolens"]
 branch = true
 
 [tool.coverage.report]

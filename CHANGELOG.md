@@ -17,5 +17,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` with `hatchling` build backend.
 - CI workflow for testing and publishing to PyPI.
 
-[Unreleased]: https://github.com/mt1022/lrkit/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/mt1022/lrkit/releases/tag/v0.1.0
+[Unreleased]: https://github.com/mt1022/isolens/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mt1022/isolens/releases/tag/v0.1.0

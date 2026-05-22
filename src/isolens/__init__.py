@@ -1,4 +1,4 @@
-"""Long-Read Kit (lrkit).
+"""Long-Read Kit (isolens).
 
 A toolkit for analysis of long-read sequencing data.
 """
