@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lrkit"
+version = "0.1.0"
+description = "Long-Read Kit"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Hong Zhang" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
+]
+keywords = ["long-read", "bioinformatics", "sequencing", "genomics"]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/mt1022/lrkit"
+Repository = "https://github.com/mt1022/lrkit"
+"Bug Tracker" = "https://github.com/mt1022/lrkit/issues"
+Changelog = "https://github.com/mt1022/lrkit/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.9",
+]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/CHANGELOG.md"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lrkit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-v", "--tb=short"]
+
+[tool.ruff]
+src = ["src"]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.coverage.run]
+source = ["lrkit"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
