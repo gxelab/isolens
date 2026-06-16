@@ -318,6 +318,14 @@ def parse_args():
         help="Modification probability cutoff [default: 0.95]",
     )
     parser.add_argument(
+        "-d", "--max-depth",
+        type=int,
+        default=5000,
+        help="Maximum number of reads per transcript. When the number of "
+             "reads mapped to a transcript exceeds this limit, only the "
+             "first N reads are retained [default: 5000]",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Print progress to stderr",
@@ -397,6 +405,10 @@ def main():
         # Find the exact assignment for this transcript
         assignment = next((a for a in assignments if a.tx_id == tx_id), None)
         if not assignment:
+            continue
+
+        # Depth limit: skip if this transcript already has enough reads
+        if args.max_depth is not None and len(reads_by_tx[tx_id]) >= args.max_depth:
             continue
 
         matched_reads += 1

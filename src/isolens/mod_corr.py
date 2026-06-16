@@ -50,6 +50,47 @@ _OUTPUT_COLS = [
 
 _TSV_HEADER = "\t".join(_OUTPUT_COLS)
 
+# SAM modification codes → human-readable names (from notebooks/01_mod.md).
+# 2'-O-methyl variants on C/A/G/U are combined under a single "2Ome" label.
+_SAM_TO_HUMAN = {
+    "m": "m5C",
+    "a": "m6A",
+    "17596": "inosine",
+    "17802": "pseU",
+    "19227": "2Ome",
+    "19228": "2Ome",
+    "19229": "2Ome",
+    "69426": "2Ome",
+}
+
+# Consistent, publication-friendly colours per modification type (ColorBrewer Set1).
+_MOD_COLORS = {
+    "m5C": "#377EB8",      # blue
+    "m6A": "#E41A1C",      # red
+    "inosine": "#4DAF4A",  # green
+    "pseU": "#FF7F00",     # orange
+    "2Ome": "#984EA3",     # purple
+}
+
+
+# ---------- helpers ----------
+
+
+def _sam_to_human(sam_code):
+    """Convert a SAM modification code to a human-readable name."""
+    return _SAM_TO_HUMAN.get(sam_code, sam_code)
+
+
+def _nice_tick_step(rna_length):
+    """Choose a regular tick interval for the transcript axis.
+
+    Returns a step size that yields ~3-7 ticks across the transcript.
+    """
+    for step in (100, 200, 500, 1000, 2000, 5000, 10000):
+        if rna_length / step <= 6:
+            return step
+    return 10000
+
 
 # ---------- CLI ----------
 
@@ -406,7 +447,8 @@ def _plot_transcript_heatmap(ax, matrix, positions, mod_types_str,
             va="center", ha="left", fontsize=12)
 
     # ---- physical coordinate ticks (downward-pointing) ----
-    tick_positions = np.linspace(0, rna_length, 5, dtype=int)
+    step = _nice_tick_step(rna_length)
+    tick_positions = np.arange(0, rna_length + 1, step)
     for tick in tick_positions:
         tick_fraction = tick / rna_length
         tick_x = axis_start_x + (tick_fraction * axis_width)
@@ -426,7 +468,7 @@ def _plot_transcript_heatmap(ax, matrix, positions, mod_types_str,
         label = mt if mt not in seen else None
         if label is not None:
             seen.add(mt)
-        ax.scatter(x_axis, 0, color=col, s=80, zorder=4, label=label)
+        ax.scatter(x_axis, 0, color=col, s=40, zorder=4, label=label)
 
         # Connecting line from physical position to pyramid column base
         x_matrix = i
@@ -461,17 +503,14 @@ def _generate_plots(all_rows, h5_path, out_dir):
     """
     os.makedirs(out_dir, exist_ok=True)
 
-    # ---- collect single mod types and assign colours ----
+    # ---- collect single mod types (human-readable) and assign colours ----
     raw_mod_types: set[str] = set()
     for row in all_rows:
         for part in row["modification_type"].split(":"):
-            raw_mod_types.add(part)
-    mod_types = sorted(raw_mod_types)
-    _palette = ["#E64B35", "#4DBBD5", "#00A087", "#F39B7F", "#8491B4",
-                "#91D1C2", "#DC0000", "#7E6148", "#B09C85", "#3C5588",
-                "#E64B35B2", "#4DBBD5B2", "#00A087B2", "#F39B7FB2",
-                "#8491B4B2"]
-    mod_color = {mt: _palette[i % len(_palette)] for i, mt in enumerate(mod_types)}
+            raw_mod_types.add(_sam_to_human(part))
+    # Use predefined colours for known types; grey fallback for unknowns
+    mod_color = {mt: _MOD_COLORS.get(mt, "#999999")
+                 for mt in sorted(raw_mod_types)}
 
     # ---- group by transcript ----
     tx_groups: dict[str, list] = defaultdict(list)
@@ -503,7 +542,8 @@ def _generate_plots(all_rows, h5_path, out_dir):
             for s1, s2, _, mt in pairs:
                 if s1 == pos or s2 == pos:
                     mods.extend(mt.split(":"))
-            site_mod[pos] = max(set(mods), key=mods.count) if mods else "?"
+            site_mod[pos] = _sam_to_human(
+                max(set(mods), key=mods.count)) if mods else "?"
 
         site_to_idx = {s: i for i, s in enumerate(sites)}
         mod_types_str = [site_mod[s] for s in sites]
