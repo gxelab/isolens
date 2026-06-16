@@ -208,3 +208,7 @@ __marimo__/
 examples/
 .DS_Store
 docs/
+.vscode/
+CLAUDE.md
+uv.lock
+

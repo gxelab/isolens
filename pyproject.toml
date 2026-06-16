@@ -25,7 +25,15 @@ classifiers = [
     "Typing :: Typed",
 ]
 keywords = ["long-read", "bioinformatics", "sequencing", "genomics"]
-dependencies = []
+dependencies = [
+    "lz4>=4.0",
+    "pysam>=0.22",
+    "numpy>=1.24",
+    "h5py>=3.8",
+    "pyarrow>=24.0.0",
+    "scipy>=1.15.3",
+    "matplotlib>=3.10.9",
+]
 
 [project.urls]
 Homepage = "https://github.com/gxelab/isolens"
@@ -64,3 +72,10 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.17",
+]

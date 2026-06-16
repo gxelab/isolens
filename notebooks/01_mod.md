@@ -652,9 +652,12 @@ mutual_information
 weighted_mutual_information
 ```
 
-Store as Parquet.
+Store as Parquet or tsv file that can be optionally compressed with gzip.
 
 ---
+
+## Visualization
+Optionally generate a PDF visualization for each transcript containing a triangular correlation heatmap similar to linkage disequilibrium (LD) or Hi-C contact maps. The x-axis should represent transcript coordinates, and only the upper or lower triangle of the site-by-site correlation matrix should be displayed. Correlation values should be rendered using a diverging blue-white-red color scale, where blue indicates negative correlations (antagonistic relationships), white indicates no correlation, and red indicates positive correlations (cooperative relationships). Modification sites should be annotated or color-coded by modification type, with a clear legend indicating the mapping between colors and modification classes. The visualization should include transcript identifiers, coordinate scales, color bars for correlation coefficients, and support transcripts of varying lengths while maintaining readability for large numbers of modification sites.
 
 # Performance Requirements
 
