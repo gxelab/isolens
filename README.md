@@ -84,3 +84,7 @@ Contributions are welcome! Please open an issue or pull request on
 ## License
 
 Distributed under the [MIT License](LICENSE).
+
+## TODO
+- [ ] minimum assignment probability for mod_corr
+- [ ] mod_scan memory usage
