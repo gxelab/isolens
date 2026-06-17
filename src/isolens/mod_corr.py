@@ -110,6 +110,10 @@ def parse_args():
         "-m", "--min-support", type=int, default=10,
         help="Minimum n_modified for a site to be considered [default: 10]")
     parser.add_argument(
+        "-p", "--min-asp", type=float, default=0.0,
+        help="Minimum Oarfish assignment probability for a read to be "
+             "included [default: 0.0 (no filter)]")
+    parser.add_argument(
         "-f", "--format", choices=["parquet", "tsv"], default="parquet",
         help="Output format: parquet (default) or tsv")
     parser.add_argument(
@@ -219,11 +223,19 @@ def _bh_fdr(p_values):
 
 
 def process_transcript(tx_name, matrix, weights, sites_by_mod,
-                       mod_code_map, min_support):
+                       mod_code_map, min_support, min_asp=0.0):
     """Compute pairwise correlation statistics for one transcript.
 
     Computes both same-type and cross-type pairs.
     """
+    # ---- filter reads by minimum assignment probability ----
+    if min_asp > 0.0:
+        read_mask = weights >= min_asp
+        if read_mask.sum() == 0:
+            return []
+        matrix = matrix[read_mask]
+        weights = weights[read_mask]
+
     # ---- flatten all candidates across modification types ----
     candidates = []  # (pos_1based, mod_str, mod_code)
     for mod_str, site_list in sites_by_mod.items():
@@ -607,7 +619,7 @@ def main():
             tx_results = process_transcript(
                 tx_name, matrix, weights,
                 all_sites.get(tx_name, {}),
-                mod_code_map, args.min_support)
+                mod_code_map, args.min_support, args.min_asp)
             all_rows.extend(tx_results)
             processed += 1
             if args.verbose and processed % 1000 == 0:

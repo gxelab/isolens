@@ -490,7 +490,7 @@ def parse_args():
         help="Path to transcriptome BAM alignment file",
     )
     parser.add_argument(
-        "-p", "--oarfish",
+        "-a", "--oarfish",
         required=True,
         help="Path to Oarfish isoform assignment probability file (.lz4)",
     )
@@ -505,6 +505,10 @@ def parse_args():
         default=0.95,
         help="Modification probability cutoff [default: 0.95]",
     )
+    parser.add_argument(
+        "-p", "--min-asp", type=float, default=0.0,
+        help="Minimum Oarfish assignment probability for a read to be "
+             "included [default: 0.0 (no filter)]")
     parser.add_argument(
         "-d", "--max-depth",
         type=int,
@@ -623,6 +627,10 @@ def _run_sequential(bam, args, h5, tx_names, prob_map,
                 and len(current_reads) >= args.max_depth):
             continue
 
+        # Assignment probability filter
+        if args.min_asp > 0.0 and assignment.prob < args.min_asp:
+            continue
+
         matched_reads += 1
 
         # ---- Build matrix row ----
@@ -654,6 +662,7 @@ def _run_sequential(bam, args, h5, tx_names, prob_map,
     # ---- Global /metadata ----
     meta = h5.create_group("metadata")
     meta.attrs["mod_cutoff"] = args.mod_cutoff
+    meta.attrs["min_asp"] = args.min_asp
     meta.attrs["pipeline_version"] = "0.1.0"
     meta.attrs["n_transcripts"] = n_transcripts_written
     meta.attrs["n_assignments"] = n_assignments_written
@@ -761,6 +770,10 @@ def _run_parallel(bam, args, h5, tx_names, prob_map,
                     and len(current_batch) >= args.max_depth):
                 continue
 
+            # Assignment probability filter
+            if args.min_asp > 0.0 and assignment.prob < args.min_asp:
+                continue
+
             matched_reads += 1
 
             # Extract read data for worker process
@@ -794,6 +807,7 @@ def _run_parallel(bam, args, h5, tx_names, prob_map,
     # ---- Global /metadata ----
     meta = h5.create_group("metadata")
     meta.attrs["mod_cutoff"] = args.mod_cutoff
+    meta.attrs["min_asp"] = args.min_asp
     meta.attrs["pipeline_version"] = "0.1.0"
     meta.attrs["n_transcripts"] = n_transcripts_written
     meta.attrs["n_assignments"] = n_assignments_written

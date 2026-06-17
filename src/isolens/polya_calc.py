@@ -21,7 +21,7 @@ def parse_args():
                     "using Oarfish assignments and Dorado BAM."
     )
     parser.add_argument(
-        "-p", "--oarfish", required=True,
+        "-a", "--oarfish", required=True,
         help="Oarfish read assignment probability file (.lz4)")
     parser.add_argument(
         "-b", "--bam", required=True,

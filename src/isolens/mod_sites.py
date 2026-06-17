@@ -48,6 +48,10 @@ def parse_args():
         help="Gzip-compress TSV output (ignored for parquet)",
     )
     parser.add_argument(
+        "-p", "--min-asp", type=float, default=0.0,
+        help="Minimum Oarfish assignment probability for a read to be "
+             "included [default: 0.0 (no filter)]")
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Print progress to stderr",
@@ -164,6 +168,14 @@ def main():
             grp = h5[f"transcripts/{tx_name}"]
             matrix = grp["matrix"][:]           # (n_reads, tx_length) uint8
             weights = grp["read_weights"][:]    # (n_reads,) float32
+
+            if args.min_asp > 0.0:
+                read_mask = weights >= args.min_asp
+                if read_mask.sum() == 0:
+                    processed += 1
+                    continue
+                matrix = matrix[read_mask]
+                weights = weights[read_mask]
 
             tx_rows = compute_transcript_stats(matrix, weights, mod_codes)
             for row in tx_rows:

@@ -20,14 +20,14 @@ pip install isolens
 ```bash
 # Generate HDF5 read × position matrices
 python -m isolens.mod_scan \
-  -b alignments.bam -p oarfish.lz4 -o mod_scan.h5 -c 0.95 -v
+  -b alignments.bam -a oarfish.lz4 -o mod_scan.h5 -c 0.95 -v
 
 # Per-position modification summaries
 python -m isolens.mod_sites -i mod_scan.h5 -o sites.parquet
 
 # Poly(A) tail length estimation
 python -m isolens.polya_calc \
-  -b alignments.bam -p oarfish.lz4 -o polya.tsv.gz -z
+  -b alignments.bam -a oarfish.lz4 -o polya.tsv.gz -z
 
 # Merge poly(A) replicates
 python -m isolens.polya_merge -i1 rep1.tsv.gz -i2 rep2.tsv.gz -o merged.tsv.gz
@@ -64,10 +64,10 @@ without any installation:
 
 ```bash
 # Using uv (auto-handles the src/ layout)
-uv run python -m isolens.mod_scan -b ... -p ... -o ...
+uv run python -m isolens.mod_scan -b ... -a ... -o ...
 
 # Or set PYTHONPATH manually
-PYTHONPATH=src python -m isolens.mod_scan -b ... -p ... -o ...
+PYTHONPATH=src python -m isolens.mod_scan -b ... -a ... -o ...
 ```
 
 Run the test suite:
@@ -86,5 +86,4 @@ Contributions are welcome! Please open an issue or pull request on
 Distributed under the [MIT License](LICENSE).
 
 ## TODO
-- [ ] minimum assignment probability for mod_corr
 - [ ] mod_scan memory usage

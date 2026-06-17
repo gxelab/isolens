@@ -495,7 +495,7 @@ def test_integration_example_data():
             [
                 sys.executable, "-m", "isolens.mod_scan",
                 "-b", bam_path,
-                "-p", lz4_path,
+                "-a", lz4_path,
                 "--output", out_path,
                 "--mod-cutoff", "0.95",
             ],
