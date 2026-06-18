@@ -48,6 +48,13 @@ def parse_args():
         help="Gzip-compress TSV output (ignored for parquet)",
     )
     parser.add_argument(
+        "-s", "--sites",
+        default=None,
+        help="Predefined modification sites TSV (columns: tx_name, posn). "
+             "When provided, only these positions are emitted, for all "
+             "modification types, even if n_modified == 0.",
+    )
+    parser.add_argument(
         "-p", "--min-asp", type=float, default=0.0,
         help="Minimum Oarfish assignment probability for a read to be "
              "included [default: 0.0 (no filter)]")
@@ -59,13 +66,59 @@ def parse_args():
     return parser.parse_args()
 
 
-def compute_transcript_stats(matrix, weights, mod_codes):
+def read_predefined_sites(path):
+    """Read a predefined modification sites TSV file.
+
+    The file must have a header row with columns ``tx_name`` (transcript
+    name) and ``posn`` (1-based position).  Additional columns are ignored.
+
+    Args:
+        path: Path to the TSV file.
+
+    Returns:
+        ``dict[str, set[int]]`` — ``{tx_name: {pos1, pos2, ...}}`` with
+        1-based positions.
+    """
+    sites: dict[str, set[int]] = {}
+    with open(path, "r", encoding="utf-8") as f:
+        header = f.readline().strip().split("\t")
+        try:
+            tx_col = header.index("tx_name")
+            pos_col = header.index("posn")
+        except ValueError as exc:
+            raise ValueError(
+                f"Sites file must have 'tx_name' and 'posn' columns; "
+                f"found: {header}"
+            ) from exc
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) <= max(tx_col, pos_col):
+                continue
+            tx = parts[tx_col]
+            try:
+                pos = int(parts[pos_col])
+            except ValueError:
+                continue
+            sites.setdefault(tx, set()).add(pos)
+    return sites
+
+
+def compute_transcript_stats(matrix, weights, mod_codes,
+                             predefined_positions=None):
     """Compute per-position statistics for a single transcript.
 
     Args:
         matrix: ``numpy.ndarray`` of shape ``(n_reads, tx_length)``, dtype uint8.
         weights: ``numpy.ndarray`` of shape ``(n_reads,)``, dtype float32.
         mod_codes: ``list[(mod_type_str, code)]`` — modification codes (code ≥ 4).
+        predefined_positions: Optional ``set[int]`` of 1-based positions to
+            restrict output to.  When provided, only these positions are
+            emitted for every modification type, even if ``n_modified == 0``.
+            When ``None`` (the default), all positions with at least one
+            modification call are emitted.
 
     Returns:
         ``list[dict]`` — one dict per (position, modification_type) with columns:
@@ -100,10 +153,21 @@ def compute_transcript_stats(matrix, weights, mod_codes):
         n_mod = mod_mask.sum(axis=0).astype(np.int32)
         w_mod = (mod_mask * weights_2d).sum(axis=0).astype(np.float64)
 
-        # Only emit positions with at least one modification call
-        positions = np.flatnonzero(n_mod > 0)
-        if len(positions) == 0:
-            continue
+        # Determine which positions to emit
+        if predefined_positions is not None:
+            # Only emit predefined positions (within transcript bounds)
+            positions_0b = sorted(
+                p - 1 for p in predefined_positions
+                if 1 <= p <= tx_length
+            )
+            if not positions_0b:
+                continue
+            positions = np.array(positions_0b, dtype=np.intp)
+        else:
+            # Emit all positions with at least one modification call
+            positions = np.flatnonzero(n_mod > 0)
+            if len(positions) == 0:
+                continue
 
         n_mod_pos = n_mod[positions]
         w_mod_pos = w_mod[positions]
@@ -143,6 +207,17 @@ def compute_transcript_stats(matrix, weights, mod_codes):
 def main():
     args = parse_args()
 
+    # ---- 0. Read predefined sites (optional) ----
+
+    predefined_sites = None
+    if args.sites is not None:
+        predefined_sites = read_predefined_sites(args.sites)
+        if args.verbose:
+            n_tx = len(predefined_sites)
+            n_pos = sum(len(v) for v in predefined_sites.values())
+            print(f"[mod_sites] Predefined sites: {n_pos} positions across "
+                  f"{n_tx} transcripts", file=sys.stderr)
+
     # ---- 1. Read modification codes from HDF5 ----
 
     with h5py.File(args.h5, "r") as h5:
@@ -177,7 +252,13 @@ def main():
                 matrix = matrix[read_mask]
                 weights = weights[read_mask]
 
-            tx_rows = compute_transcript_stats(matrix, weights, mod_codes)
+            tx_rows = compute_transcript_stats(
+                matrix, weights, mod_codes,
+                predefined_positions=(
+                    predefined_sites.get(tx_name)
+                    if predefined_sites is not None else None
+                ),
+            )
             for row in tx_rows:
                 row["transcript_id"] = tx_name
             all_rows.extend(tx_rows)

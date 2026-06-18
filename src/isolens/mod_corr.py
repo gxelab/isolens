@@ -102,8 +102,8 @@ def parse_args():
     parser.add_argument(
         "-i", "--h5", required=True, help="Input HDF5 file from mod_scan")
     parser.add_argument(
-        "-s", "--site-summary", required=True,
-        help="Input site summary from mod_sites (Parquet or TSV/TSV.GZ)")
+        "-s", "--sites", required=True,
+        help="Input modification sites from mod_sites (Parquet or TSV/TSV.GZ)")
     parser.add_argument(
         "-o", "--output", required=True, help="Output file path")
     parser.add_argument(
@@ -590,7 +590,7 @@ def main():
 
     if args.verbose:
         print("[mod_corr] Reading site summary...", file=sys.stderr)
-    all_sites = read_site_summary(args.site_summary)
+    all_sites = read_site_summary(args.sites)
 
     if args.verbose:
         n_tx, n_mod = len(all_sites), sum(len(m) for m in all_sites.values())
