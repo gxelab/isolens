@@ -59,6 +59,14 @@ def parse_args():
         help="Minimum Oarfish assignment probability for a read to be "
              "included [default: 0.0 (no filter)]")
     parser.add_argument(
+        "-x", "--transcripts",
+        nargs="+",
+        default=None,
+        metavar="TX",
+        help="Only process the specified transcript ID(s). "
+             "[default: all transcripts in the HDF5]",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Print progress to stderr",
@@ -228,6 +236,13 @@ def main():
             mod_codes.append((mod_str, int(code)))
 
         tx_names = sorted(h5["transcripts"].keys())
+        if args.transcripts is not None:
+            requested = set(args.transcripts)
+            tx_names = sorted(tx for tx in tx_names if tx in requested)
+            if args.verbose:
+                print(f"[mod_sites] Filtered to {len(tx_names)}/"
+                      f"{len(requested)} requested transcripts",
+                      file=sys.stderr)
         n_transcripts = len(tx_names)
 
         if args.verbose:

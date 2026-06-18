@@ -124,6 +124,14 @@ def parse_args():
         help="Generate rotated triangular heatmap PDFs per transcript "
              "in the given output directory")
     parser.add_argument(
+        "-x", "--transcripts",
+        nargs="+",
+        default=None,
+        metavar="TX",
+        help="Only process the specified transcript ID(s). "
+             "[default: all transcripts in the HDF5]",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true",
         help="Print progress to stderr")
     return parser.parse_args()
@@ -603,6 +611,13 @@ def main():
             mod_code_map[mod_str] = int(code)
 
         h5_tx = set(h5["transcripts"].keys())
+        if args.transcripts is not None:
+            requested = set(args.transcripts)
+            h5_tx &= requested
+            if args.verbose:
+                print(f"[mod_corr] Filtered to {len(h5_tx)}/"
+                      f"{len(requested)} requested transcripts in HDF5",
+                      file=sys.stderr)
         site_tx = set(all_sites.keys())
         common_tx = sorted(h5_tx & site_tx)
 
