@@ -28,11 +28,16 @@ from matplotlib.patches import Polygon
 from scipy.stats import fisher_exact
 
 try:
-    from isolens.mod_scan import (CODE_UNCOVERED, CODE_CANONICAL,
-                                   CODE_MISMATCH, CODE_DELETION)
+    from isolens.mod_scan import (
+        CODE_DELETION,
+        CODE_MISMATCH,
+        CODE_UNCOVERED,
+    )
 except ImportError:
     from mod_scan import (  # type: ignore[no-redef]
-        CODE_UNCOVERED, CODE_CANONICAL, CODE_MISMATCH, CODE_DELETION,
+        CODE_DELETION,
+        CODE_MISMATCH,
+        CODE_UNCOVERED,
     )
 
 # ---------- constants ----------
@@ -40,12 +45,25 @@ except ImportError:
 _HAC = 0.5  # Haldane-Anscombe correction for odds ratio zeros
 
 _OUTPUT_COLS = [
-    "transcript_id", "site1", "site2", "modification_type",
-    "n11", "n10", "n01", "n00",
-    "weighted_n11", "weighted_n10", "weighted_n01", "weighted_n00",
-    "phi", "weighted_phi", "odds_ratio",
-    "p_value", "q_value",
-    "mutual_information", "weighted_mutual_information",
+    "transcript_id",
+    "site1",
+    "site2",
+    "modification_type",
+    "n11",
+    "n10",
+    "n01",
+    "n00",
+    "weighted_n11",
+    "weighted_n10",
+    "weighted_n01",
+    "weighted_n00",
+    "phi",
+    "weighted_phi",
+    "odds_ratio",
+    "p_value",
+    "q_value",
+    "mutual_information",
+    "weighted_mutual_information",
 ]
 
 _TSV_HEADER = "\t".join(_OUTPUT_COLS)
@@ -65,11 +83,11 @@ _SAM_TO_HUMAN = {
 
 # Consistent, publication-friendly colours per modification type (ColorBrewer Set1).
 _MOD_COLORS = {
-    "m5C": "#377EB8",      # blue
-    "m6A": "#E41A1C",      # red
+    "m5C": "#377EB8",  # blue
+    "m6A": "#E41A1C",  # red
     "inosine": "#4DAF4A",  # green
-    "pseU": "#FF7F00",     # orange
-    "2Ome": "#984EA3",     # purple
+    "pseU": "#FF7F00",  # orange
+    "2Ome": "#984EA3",  # purple
 }
 
 
@@ -100,40 +118,63 @@ def parse_args():
         description="mod_corr: Pairwise modification site correlation analysis"
     )
     parser.add_argument(
-        "-i", "--h5", required=True, help="Input HDF5 file from mod_scan")
+        "-i", "--h5", required=True, help="Input HDF5 file from mod_scan"
+    )
     parser.add_argument(
-        "-s", "--sites", required=True,
-        help="Input modification sites from mod_sites (Parquet or TSV/TSV.GZ)")
+        "-s",
+        "--sites",
+        required=True,
+        help="Input modification sites from mod_sites (Parquet or TSV/TSV.GZ)",
+    )
+    parser.add_argument("-o", "--output", required=True, help="Output file path")
     parser.add_argument(
-        "-o", "--output", required=True, help="Output file path")
+        "-m",
+        "--min-support",
+        type=int,
+        default=10,
+        help="Minimum n_modified for a site to be considered [default: 10]",
+    )
     parser.add_argument(
-        "-m", "--min-support", type=int, default=10,
-        help="Minimum n_modified for a site to be considered [default: 10]")
-    parser.add_argument(
-        "-p", "--min-asp", type=float, default=0.0,
+        "-p",
+        "--min-asp",
+        type=float,
+        default=0.0,
         help="Minimum Oarfish assignment probability for a read to be "
-             "included [default: 0.0 (no filter)]")
+        "included [default: 0.0 (no filter)]",
+    )
     parser.add_argument(
-        "-f", "--format", choices=["parquet", "tsv"], default="parquet",
-        help="Output format: parquet (default) or tsv")
+        "-f",
+        "--format",
+        choices=["parquet", "tsv"],
+        default="parquet",
+        help="Output format: parquet (default) or tsv",
+    )
     parser.add_argument(
-        "-z", "--gzip", action="store_true",
-        help="Gzip-compress TSV output (ignored for parquet)")
+        "-z",
+        "--gzip",
+        action="store_true",
+        help="Gzip-compress TSV output (ignored for parquet)",
+    )
     parser.add_argument(
-        "-P", "--plot", metavar="DIR", default=None,
+        "-P",
+        "--plot",
+        metavar="DIR",
+        default=None,
         help="Generate rotated triangular heatmap PDFs per transcript "
-             "in the given output directory")
+        "in the given output directory",
+    )
     parser.add_argument(
-        "-x", "--transcripts",
+        "-x",
+        "--transcripts",
         nargs="+",
         default=None,
         metavar="TX",
         help="Only process the specified transcript ID(s). "
-             "[default: all transcripts in the HDF5]",
+        "[default: all transcripts in the HDF5]",
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true",
-        help="Print progress to stderr")
+        "-v", "--verbose", action="store_true", help="Print progress to stderr"
+    )
     return parser.parse_args()
 
 
@@ -148,8 +189,9 @@ def read_site_summary(path):
 
 
 def _read_sites_parquet(path):
-    table = pq.read_table(path, columns=[
-        "transcript_id", "position", "modification_type", "n_modified"])
+    table = pq.read_table(
+        path, columns=["transcript_id", "position", "modification_type", "n_modified"]
+    )
     sites = {}
     for i in range(len(table)):
         tx = table.column("transcript_id")[i].as_py()
@@ -175,9 +217,9 @@ def _read_sites_tsv(path):
             if len(parts) <= max(tx_col, pos_col, mod_col, nmod_col):
                 continue
             tx = parts[tx_col]
-            sites.setdefault(tx, {}).setdefault(
-                parts[mod_col], []).append(
-                (int(parts[pos_col]), int(parts[nmod_col])))
+            sites.setdefault(tx, {}).setdefault(parts[mod_col], []).append(
+                (int(parts[pos_col]), int(parts[nmod_col]))
+            )
     return sites
 
 
@@ -207,8 +249,12 @@ def _mutual_information(n11, n10, n01, n00):
     p1x, p0x = p11 + p10, p01 + p00
     px1, px0 = p11 + p01, p10 + p00
     mi = 0.0
-    for pj, pr, pc in [(p11, p1x, px1), (p10, p1x, px0),
-                        (p01, p0x, px1), (p00, p0x, px0)]:
+    for pj, pr, pc in [
+        (p11, p1x, px1),
+        (p10, p1x, px0),
+        (p01, p0x, px1),
+        (p00, p0x, px0),
+    ]:
         if pj > 0 and pr > 0 and pc > 0:
             mi += pj * np.log2(pj / (pr * pc))
     return mi
@@ -230,8 +276,9 @@ def _bh_fdr(p_values):
 # ---------- per-transcript processing ----------
 
 
-def process_transcript(tx_name, matrix, weights, sites_by_mod,
-                       mod_code_map, min_support, min_asp=0.0):
+def process_transcript(
+    tx_name, matrix, weights, sites_by_mod, mod_code_map, min_support, min_asp=0.0
+):
     """Compute pairwise correlation statistics for one transcript.
 
     Computes both same-type and cross-type pairs.
@@ -251,8 +298,7 @@ def process_transcript(tx_name, matrix, weights, sites_by_mod,
         if mod_code is None:
             continue
         candidates.extend(
-            (pos, mod_str, mod_code)
-            for pos, n_mod in site_list if n_mod >= min_support
+            (pos, mod_str, mod_code) for pos, n_mod in site_list if n_mod >= min_support
         )
     if len(candidates) < 2:
         return []
@@ -264,8 +310,9 @@ def process_transcript(tx_name, matrix, weights, sites_by_mod,
     pre = []  # (pos, mod_str, mod_code, valid_mask, binary_int8)
     for pos_1b, mod_str, mod_code in candidates:
         col = matrix[:, pos_1b - 1]
-        valid = ((col != CODE_UNCOVERED) & (col != CODE_MISMATCH)
-                 & (col != CODE_DELETION))
+        valid = (
+            (col != CODE_UNCOVERED) & (col != CODE_MISMATCH) & (col != CODE_DELETION)
+        )
         other_mod = (col >= 4) & (col != mod_code)
         valid = valid & (~other_mod)
         binary = (col == mod_code).astype(np.int8)
@@ -309,7 +356,7 @@ def process_transcript(tx_name, matrix, weights, sites_by_mod,
             odds = _odds_ratio(n11, n10, n01, n00)
             try:
                 _, p_val = fisher_exact([[n11, n10], [n01, n00]])
-            except (ValueError, OverflowError):
+            except ValueError, OverflowError:
                 p_val = 1.0
             mi = _mutual_information(n11, n10, n01, n00)
             w_mi = _mutual_information(w11, w10, w01, w00)
@@ -321,23 +368,29 @@ def process_transcript(tx_name, matrix, weights, sites_by_mod,
                 mod_label = f"{mod_i}:{mod_j}"
 
             pair_p_values.append(p_val)
-            pair_rows.append({
-                "transcript_id": tx_name,
-                "site1": pos_i, "site2": pos_j,
-                "modification_type": mod_label,
-                "n11": n11, "n10": n10, "n01": n01, "n00": n00,
-                "weighted_n11": round(w11, 4),
-                "weighted_n10": round(w10, 4),
-                "weighted_n01": round(w01, 4),
-                "weighted_n00": round(w00, 4),
-                "phi": round(phi, 6),
-                "weighted_phi": round(w_phi, 6),
-                "odds_ratio": round(odds, 6),
-                "p_value": p_val,
-                "q_value": 0.0,
-                "mutual_information": round(mi, 6),
-                "weighted_mutual_information": round(w_mi, 6),
-            })
+            pair_rows.append(
+                {
+                    "transcript_id": tx_name,
+                    "site1": pos_i,
+                    "site2": pos_j,
+                    "modification_type": mod_label,
+                    "n11": n11,
+                    "n10": n10,
+                    "n01": n01,
+                    "n00": n00,
+                    "weighted_n11": round(w11, 4),
+                    "weighted_n10": round(w10, 4),
+                    "weighted_n01": round(w01, 4),
+                    "weighted_n00": round(w00, 4),
+                    "phi": round(phi, 6),
+                    "weighted_phi": round(w_phi, 6),
+                    "odds_ratio": round(odds, 6),
+                    "p_value": p_val,
+                    "q_value": 0.0,
+                    "mutual_information": round(mi, 6),
+                    "weighted_mutual_information": round(w_mi, 6),
+                }
+            )
 
     # BH FDR correction — all pairs within this transcript
     if pair_p_values:
@@ -362,24 +415,35 @@ def _write_tsv(all_rows, path, use_gzip):
 
 def _write_parquet(all_rows, path):
     if not all_rows:
-        schema = pa.schema([
-            ("transcript_id", pa.string()),
-            ("site1", pa.int32()), ("site2", pa.int32()),
-            ("modification_type", pa.string()),
-            ("n11", pa.int32()), ("n10", pa.int32()),
-            ("n01", pa.int32()), ("n00", pa.int32()),
-            ("weighted_n11", pa.float64()), ("weighted_n10", pa.float64()),
-            ("weighted_n01", pa.float64()), ("weighted_n00", pa.float64()),
-            ("phi", pa.float64()), ("weighted_phi", pa.float64()),
-            ("odds_ratio", pa.float64()),
-            ("p_value", pa.float64()), ("q_value", pa.float64()),
-            ("mutual_information", pa.float64()),
-            ("weighted_mutual_information", pa.float64()),
-        ])
+        schema = pa.schema(
+            [
+                ("transcript_id", pa.string()),
+                ("site1", pa.int32()),
+                ("site2", pa.int32()),
+                ("modification_type", pa.string()),
+                ("n11", pa.int32()),
+                ("n10", pa.int32()),
+                ("n01", pa.int32()),
+                ("n00", pa.int32()),
+                ("weighted_n11", pa.float64()),
+                ("weighted_n10", pa.float64()),
+                ("weighted_n01", pa.float64()),
+                ("weighted_n00", pa.float64()),
+                ("phi", pa.float64()),
+                ("weighted_phi", pa.float64()),
+                ("odds_ratio", pa.float64()),
+                ("p_value", pa.float64()),
+                ("q_value", pa.float64()),
+                ("mutual_information", pa.float64()),
+                ("weighted_mutual_information", pa.float64()),
+            ]
+        )
         with pq.ParquetWriter(path, schema) as w:
-            w.write_table(pa.table(
-                {k: pa.array([], type=schema.field(k).type)
-                 for k in schema.names}))
+            w.write_table(
+                pa.table(
+                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
+                )
+            )
         return
     arrays = {}
     for col in _OUTPUT_COLS:
@@ -396,8 +460,9 @@ def _write_parquet(all_rows, path):
 # ---------- visualization ----------
 
 
-def _plot_transcript_heatmap(ax, matrix, positions, mod_types_str,
-                              type_colors, rna_length, title):
+def _plot_transcript_heatmap(
+    ax, matrix, positions, mod_types_str, type_colors, rna_length, title
+):
     """Plot an upward-pointing pyramid heatmap for RNA modification associations.
 
     Follows the visualisation scheme from ``scripts/mod_plot.py``:
@@ -442,17 +507,16 @@ def _plot_transcript_heatmap(ax, matrix, positions, mod_types_str,
             y_c = (j - i) / 2.0 + offset
 
             vertices = [
-                (x_c, y_c + 0.5),       # Top
-                (x_c + 0.5, y_c),       # Right
-                (x_c, y_c - 0.5),       # Bottom
-                (x_c - 0.5, y_c),       # Left
+                (x_c, y_c + 0.5),  # Top
+                (x_c + 0.5, y_c),  # Right
+                (x_c, y_c - 0.5),  # Bottom
+                (x_c - 0.5, y_c),  # Left
             ]
 
-            color_val = (val + 1) / 2.0   # [-1, 1] → [0, 1]
+            color_val = (val + 1) / 2.0  # [-1, 1] → [0, 1]
             color = cmap(color_val)
 
-            poly = Polygon(vertices, facecolor=color,
-                          edgecolor="white", linewidth=1)
+            poly = Polygon(vertices, facecolor=color, edgecolor="white", linewidth=1)
             ax.add_patch(poly)
 
     # ---- RNA transcript axis (matrix-index space) ----
@@ -461,10 +525,8 @@ def _plot_transcript_heatmap(ax, matrix, positions, mod_types_str,
     axis_width = axis_end_x - axis_start_x
 
     ax.plot([axis_start_x, axis_end_x], [0, 0], color="black", lw=3, zorder=3)
-    ax.text(axis_start_x - 0.2, 0, "5'",
-            va="center", ha="right", fontsize=12)
-    ax.text(axis_end_x + 0.2, 0, "3'",
-            va="center", ha="left", fontsize=12)
+    ax.text(axis_start_x - 0.2, 0, "5'", va="center", ha="right", fontsize=12)
+    ax.text(axis_end_x + 0.2, 0, "3'", va="center", ha="left", fontsize=12)
 
     # ---- physical coordinate ticks (downward-pointing) ----
     step = _nice_tick_step(rna_length)
@@ -493,15 +555,22 @@ def _plot_transcript_heatmap(ax, matrix, positions, mod_types_str,
         # Connecting line from physical position to pyramid column base
         x_matrix = i
         y_matrix = offset - 0.5
-        ax.plot([x_axis, x_matrix], [0, y_matrix], color=col,
-                linestyle="-", lw=0.8, zorder=2)
+        ax.plot(
+            [x_axis, x_matrix],
+            [0, y_matrix],
+            color=col,
+            linestyle="-",
+            lw=0.8,
+            zorder=2,
+        )
 
     # ---- colour bar ----
     norm = mcolors.Normalize(vmin=-1, vmax=1)
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    cbar = ax.figure.colorbar(sm, ax=ax, orientation="horizontal",
-                              pad=0.08, shrink=0.4, aspect=20)
+    cbar = ax.figure.colorbar(
+        sm, ax=ax, orientation="horizontal", pad=0.08, shrink=0.4, aspect=20
+    )
     cbar.set_label("Phi coefficient")
 
     # ---- formatting ----
@@ -509,8 +578,13 @@ def _plot_transcript_heatmap(ax, matrix, positions, mod_types_str,
     ax.set_ylim(-1.2, ((N - 1) / 2.0) + offset + 1)
     ax.axis("off")
     ax.set_title(title, fontsize=13, fontweight="bold", pad=20)
-    ax.legend(title="Modification Type", loc="upper left",
-              bbox_to_anchor=(0.85, 0.95), fontsize=8, title_fontsize=9)
+    ax.legend(
+        title="Modification Type",
+        loc="upper left",
+        bbox_to_anchor=(0.85, 0.95),
+        fontsize=8,
+        title_fontsize=9,
+    )
 
 
 def _generate_plots(all_rows, h5_path, out_dir):
@@ -529,14 +603,14 @@ def _generate_plots(all_rows, h5_path, out_dir):
         for part in row["modification_type"].split(":"):
             raw_mod_types.add(_sam_to_human(part))
     # Use predefined colours for known types; grey fallback for unknowns
-    mod_color = {mt: _MOD_COLORS.get(mt, "#999999")
-                 for mt in sorted(raw_mod_types)}
+    mod_color = {mt: _MOD_COLORS.get(mt, "#999999") for mt in sorted(raw_mod_types)}
 
     # ---- group by transcript ----
     tx_groups: dict[str, list] = defaultdict(list)
     for row in all_rows:
         tx_groups[row["transcript_id"]].append(
-            (row["site1"], row["site2"], row["phi"], row["modification_type"]))
+            (row["site1"], row["site2"], row["phi"], row["modification_type"])
+        )
 
     # ---- get transcript lengths from the HDF5 ----
     tx_lengths: dict[str, int] = {}
@@ -562,8 +636,9 @@ def _generate_plots(all_rows, h5_path, out_dir):
             for s1, s2, _, mt in pairs:
                 if s1 == pos or s2 == pos:
                     mods.extend(mt.split(":"))
-            site_mod[pos] = _sam_to_human(
-                max(set(mods), key=mods.count)) if mods else "?"
+            site_mod[pos] = (
+                _sam_to_human(max(set(mods), key=mods.count)) if mods else "?"
+            )
 
         site_to_idx = {s: i for i, s in enumerate(sites)}
         mod_types_str = [site_mod[s] for s in sites]
@@ -581,8 +656,13 @@ def _generate_plots(all_rows, h5_path, out_dir):
         # ---- plot ----
         fig, ax = plt.subplots(figsize=(12, 8))
         _plot_transcript_heatmap(
-            ax, corr, sites, mod_types_str,
-            mod_color, rna_length, tx_name,
+            ax,
+            corr,
+            sites,
+            mod_types_str,
+            mod_color,
+            rna_length,
+            tx_name,
         )
         fig.tight_layout()
         pdf_path = os.path.join(out_dir, f"{tx_name}.pdf")
@@ -602,8 +682,9 @@ def main():
 
     if args.verbose:
         n_tx, n_mod = len(all_sites), sum(len(m) for m in all_sites.values())
-        print(f"[mod_corr] {n_tx} transcripts, {n_mod} mod-type groups",
-              file=sys.stderr)
+        print(
+            f"[mod_corr] {n_tx} transcripts, {n_mod} mod-type groups", file=sys.stderr
+        )
 
     with h5py.File(args.h5, "r") as h5:
         mod_code_map = {}
@@ -615,15 +696,16 @@ def main():
             requested = set(args.transcripts)
             h5_tx &= requested
             if args.verbose:
-                print(f"[mod_corr] Filtered to {len(h5_tx)}/"
-                      f"{len(requested)} requested transcripts in HDF5",
-                      file=sys.stderr)
+                print(
+                    f"[mod_corr] Filtered to {len(h5_tx)}/"
+                    f"{len(requested)} requested transcripts in HDF5",
+                    file=sys.stderr,
+                )
         site_tx = set(all_sites.keys())
         common_tx = sorted(h5_tx & site_tx)
 
         if args.verbose:
-            print(f"[mod_corr] {len(common_tx)} transcripts in common",
-                  file=sys.stderr)
+            print(f"[mod_corr] {len(common_tx)} transcripts in common", file=sys.stderr)
 
         all_rows = []
         processed = 0
@@ -632,14 +714,21 @@ def main():
             matrix = grp["matrix"][:]
             weights = grp["read_weights"][:]
             tx_results = process_transcript(
-                tx_name, matrix, weights,
+                tx_name,
+                matrix,
+                weights,
                 all_sites.get(tx_name, {}),
-                mod_code_map, args.min_support, args.min_asp)
+                mod_code_map,
+                args.min_support,
+                args.min_asp,
+            )
             all_rows.extend(tx_results)
             processed += 1
             if args.verbose and processed % 1000 == 0:
-                print(f"[mod_corr] Processed {processed}/{len(common_tx)} "
-                      f"transcripts...", file=sys.stderr)
+                print(
+                    f"[mod_corr] Processed {processed}/{len(common_tx)} transcripts...",
+                    file=sys.stderr,
+                )
 
     if args.verbose:
         print(f"[mod_corr] Total pairs: {len(all_rows)}", file=sys.stderr)
@@ -651,15 +740,16 @@ def main():
 
     if args.plot:
         if args.verbose:
-            print("[mod_corr] Generating rotated triangular heatmap PDFs...",
-                  file=sys.stderr)
+            print(
+                "[mod_corr] Generating rotated triangular heatmap PDFs...",
+                file=sys.stderr,
+            )
         _generate_plots(all_rows, args.h5, args.plot)
         if args.verbose:
             print(f"[mod_corr] Plots written to {args.plot}/", file=sys.stderr)
 
     if args.verbose:
-        print(f"[mod_corr] Done. Output written to {args.output}",
-              file=sys.stderr)
+        print(f"[mod_corr] Done. Output written to {args.output}", file=sys.stderr)
 
 
 if __name__ == "__main__":

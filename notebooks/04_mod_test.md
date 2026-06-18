@@ -1,19 +1,4 @@
 ## RNA modification analysis
-
-initial isolens test
-``` bash
-# using minimap2 transcriptomic mapping
-minimap2 -x map-ont -d all_isoforms.mmi final_isoforms.fa.gz
-
-# -T and -y keeps poly(A) tail and modification tags from uBAM to final BAM.
-samtools fastq -T MM,ML,pt drs01_r1.bam |  minimap2 --eqx -N 100 -ax map-ont -y -t8 ../data/all_isoforms.mmi - | samtools view -@ 8 -b -o drs01_r1.txmap.bam
-samtools fastq -T MM,ML,pt drs01_r2.bam |  minimap2 --eqx -N 100 -ax map-ont -y -t8 ../data/all_isoforms.mmi - | samtools view -@ 8 -b -o drs01_r2.txmap.bam
-
-../isolens/target/release/isolens -b drs01_r2.txmap.bam -p drs01_r2.prob.lz4 -z -v --out1 drs01_r2.isolens.mod.tsv.gz --out2 drs01_r2.isolens.pa.tsv.gz --out-per-base drs01_r2.isolens.modpb.tsv.gz
-
-python isolens.py -b drs01_r1.txmap.bam -p drs01_r1.prob.lz4 --out1 drs01_r1.isolens.mod.tsv.gz --out2 drs01_r1.isolens.pa.tsv.gz --out-per-base drs01_r1.isolens.modpb.tsv.gz
-```
-
 ## dev with sample
 ```bash
 samtools sort -@8 -o drs01_r2.txmap.sorted.bam drs01_r2.txmap.bam

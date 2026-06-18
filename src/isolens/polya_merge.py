@@ -9,20 +9,21 @@ import sys
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Merge two poly(A) estimation TSV files together "
-                    "and recalculate weighted lengths."
+        "and recalculate weighted lengths."
     )
     parser.add_argument(
-        "-i1", "--input1", required=True,
-        help="First input TSV file (gzipped or raw)")
+        "-i1", "--input1", required=True, help="First input TSV file (gzipped or raw)"
+    )
     parser.add_argument(
-        "-i2", "--input2", required=True,
-        help="Second input TSV file (gzipped or raw)")
+        "-i2", "--input2", required=True, help="Second input TSV file (gzipped or raw)"
+    )
+    parser.add_argument("-o", "--output", required=True, help="Output file path")
     parser.add_argument(
-        "-o", "--output", required=True,
-        help="Output file path")
-    parser.add_argument(
-        "-z", "--gzip", action="store_true",
-        help="Compress the output TSV file using gzip")
+        "-z",
+        "--gzip",
+        action="store_true",
+        help="Compress the output TSV file using gzip",
+    )
     return parser.parse_args()
 
 
@@ -37,17 +38,21 @@ def read_tsv_to_dict(filename):
     print(f"Reading {filename}...", file=sys.stderr)
 
     if filename.endswith(".gz"):
+
         def open_func(f):
             return gzip.open(f, "rt", encoding="utf-8")
     else:
+
         def open_func(f):
             return open(f, encoding="utf-8")
 
     with open_func(filename) as f:
         header = f.readline().strip().split("\t")
         if len(header) < 6 or header[1] != "tx_idx":
-            print(f"Error: {filename} header layout is unexpected or "
-                  "malformed.", file=sys.stderr)
+            print(
+                f"Error: {filename} header layout is unexpected or malformed.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         for line in f:
@@ -77,21 +82,24 @@ def main():
     file2_data = read_tsv_to_dict(args.input2)
 
     all_tx_indices = sorted(set(file1_data.keys()) | set(file2_data.keys()))
-    print(f"Merging information across {len(all_tx_indices)} distinct "
-          "transcripts...", file=sys.stderr)
+    print(
+        f"Merging information across {len(all_tx_indices)} distinct transcripts...",
+        file=sys.stderr,
+    )
 
     output_filename = args.output
     if args.gzip:
         if not output_filename.endswith(".gz"):
             output_filename += ".gz"
+
         def open_output_func(f):
             return gzip.open(f, "wt", encoding="utf-8")
     else:
+
         def open_output_func(f):
             return open(f, "w", encoding="utf-8")
 
-    print(f"Writing re-estimated results to {output_filename}...",
-          file=sys.stderr)
+    print(f"Writing re-estimated results to {output_filename}...", file=sys.stderr)
 
     with open_output_func(output_filename) as out_f:
         out_f.write("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
@@ -116,8 +124,10 @@ def main():
 
             sum_prob = sum(merged_probs)
             if sum_prob > 0:
-                pa_wlen = sum(p * pa_len for p, pa_len in zip(
-                    merged_probs, merged_lens)) / sum_prob
+                pa_wlen = (
+                    sum(p * pa_len for p, pa_len in zip(merged_probs, merged_lens))
+                    / sum_prob
+                )
             else:
                 pa_wlen = 0.0
 
@@ -126,7 +136,8 @@ def main():
 
             out_f.write(
                 f"{tx_name}\t{tx_idx}\t{n_reads}\t{pa_wlen:.2f}\t"
-                f"{probs_str}\t{pa_lens_str}\n")
+                f"{probs_str}\t{pa_lens_str}\n"
+            )
 
     print("Done merging seamlessly!", file=sys.stderr)
 

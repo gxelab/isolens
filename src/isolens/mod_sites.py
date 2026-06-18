@@ -17,9 +17,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 try:
-    from isolens.mod_scan import CODE_CANONICAL, CODE_MISMATCH, CODE_DELETION
+    from isolens.mod_scan import CODE_CANONICAL, CODE_DELETION, CODE_MISMATCH
 except ImportError:
-    from mod_scan import CODE_CANONICAL, CODE_MISMATCH, CODE_DELETION
+    from mod_scan import CODE_CANONICAL, CODE_DELETION, CODE_MISMATCH
 
 
 def parse_args():
@@ -27,47 +27,58 @@ def parse_args():
         description="mod_sites: Per-position modification summaries from HDF5"
     )
     parser.add_argument(
-        "-i", "--h5",
+        "-i",
+        "--h5",
         required=True,
         help="Input HDF5 file from mod_scan",
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         required=True,
         help="Output file path",
     )
     parser.add_argument(
-        "-f", "--format",
+        "-f",
+        "--format",
         choices=["parquet", "tsv"],
         default="parquet",
         help="Output format: parquet (default) or tsv",
     )
     parser.add_argument(
-        "-z", "--gzip",
+        "-z",
+        "--gzip",
         action="store_true",
         help="Gzip-compress TSV output (ignored for parquet)",
     )
     parser.add_argument(
-        "-s", "--sites",
+        "-s",
+        "--sites",
         default=None,
         help="Predefined modification sites TSV (columns: tx_name, posn). "
-             "When provided, only these positions are emitted, for all "
-             "modification types, even if n_modified == 0.",
+        "When provided, only these positions are emitted, for all "
+        "modification types, even if n_modified == 0.",
     )
     parser.add_argument(
-        "-p", "--min-asp", type=float, default=0.0,
+        "-p",
+        "--min-asp",
+        type=float,
+        default=0.0,
         help="Minimum Oarfish assignment probability for a read to be "
-             "included [default: 0.0 (no filter)]")
+        "included [default: 0.0 (no filter)]",
+    )
     parser.add_argument(
-        "-x", "--transcripts",
+        "-x",
+        "--transcripts",
         nargs="+",
         default=None,
         metavar="TX",
         help="Only process the specified transcript ID(s). "
-             "[default: all transcripts in the HDF5]",
+        "[default: all transcripts in the HDF5]",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Print progress to stderr",
     )
@@ -88,15 +99,14 @@ def read_predefined_sites(path):
         1-based positions.
     """
     sites: dict[str, set[int]] = {}
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         header = f.readline().strip().split("\t")
         try:
             tx_col = header.index("tx_name")
             pos_col = header.index("posn")
         except ValueError as exc:
             raise ValueError(
-                f"Sites file must have 'tx_name' and 'posn' columns; "
-                f"found: {header}"
+                f"Sites file must have 'tx_name' and 'posn' columns; found: {header}"
             ) from exc
         for line in f:
             line = line.strip()
@@ -114,8 +124,7 @@ def read_predefined_sites(path):
     return sites
 
 
-def compute_transcript_stats(matrix, weights, mod_codes,
-                             predefined_positions=None):
+def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=None):
     """Compute per-position statistics for a single transcript.
 
     Args:
@@ -140,15 +149,15 @@ def compute_transcript_stats(matrix, weights, mod_codes,
 
     # ---- base stats (same for all modification types at each position) ----
 
-    unmod_mask = (matrix == CODE_CANONICAL)       # bool (n_reads, tx_length)
+    unmod_mask = matrix == CODE_CANONICAL  # bool (n_reads, tx_length)
     n_unmod = unmod_mask.sum(axis=0).astype(np.int32)
     w_unmod = (unmod_mask * weights_2d).sum(axis=0).astype(np.float64)
 
-    mismatch_mask = (matrix == CODE_MISMATCH)
+    mismatch_mask = matrix == CODE_MISMATCH
     n_mismatch = mismatch_mask.sum(axis=0).astype(np.int32)
     w_mismatch = (mismatch_mask * weights_2d).sum(axis=0).astype(np.float64)
 
-    deletion_mask = (matrix == CODE_DELETION)
+    deletion_mask = matrix == CODE_DELETION
     n_del = deletion_mask.sum(axis=0).astype(np.int32)
     w_del = (deletion_mask * weights_2d).sum(axis=0).astype(np.float64)
 
@@ -157,7 +166,7 @@ def compute_transcript_stats(matrix, weights, mod_codes,
     rows = []
 
     for mod_str, code in mod_codes:
-        mod_mask = (matrix == code)               # bool (n_reads, tx_length)
+        mod_mask = matrix == code  # bool (n_reads, tx_length)
         n_mod = mod_mask.sum(axis=0).astype(np.int32)
         w_mod = (mod_mask * weights_2d).sum(axis=0).astype(np.float64)
 
@@ -165,8 +174,7 @@ def compute_transcript_stats(matrix, weights, mod_codes,
         if predefined_positions is not None:
             # Only emit predefined positions (within transcript bounds)
             positions_0b = sorted(
-                p - 1 for p in predefined_positions
-                if 1 <= p <= tx_length
+                p - 1 for p in predefined_positions if 1 <= p <= tx_length
             )
             if not positions_0b:
                 continue
@@ -187,27 +195,37 @@ def compute_transcript_stats(matrix, weights, mod_codes,
         denom = n_mod_pos + n_unmod_pos
         w_denom = w_mod_pos + w_unmod_pos
 
-        ml = np.divide(n_mod_pos, denom, where=denom > 0,
-                       out=np.zeros_like(n_mod_pos, dtype=np.float64))
-        w_ml = np.divide(w_mod_pos, w_denom, where=w_denom > 0,
-                         out=np.zeros_like(w_mod_pos, dtype=np.float64))
+        ml = np.divide(
+            n_mod_pos,
+            denom,
+            where=denom > 0,
+            out=np.zeros_like(n_mod_pos, dtype=np.float64),
+        )
+        w_ml = np.divide(
+            w_mod_pos,
+            w_denom,
+            where=w_denom > 0,
+            out=np.zeros_like(w_mod_pos, dtype=np.float64),
+        )
 
         for i in range(len(positions)):
-            rows.append({
-                "transcript_id": "",         # filled by caller
-                "position": int(positions[i]) + 1,  # 1-based
-                "modification_type": mod_str,
-                "n_modified": int(n_mod_pos[i]),
-                "weighted_modified": float(round(w_mod_pos[i], 4)),
-                "n_unmodified": int(n_unmod_pos[i]),
-                "weighted_unmodified": float(round(w_unmod_pos[i], 4)),
-                "n_mismatch": int(n_mismatch[positions[i]]),
-                "weighted_mismatch": float(round(w_mismatch[positions[i]], 4)),
-                "n_deletion": int(n_del[positions[i]]),
-                "weighted_deletion": float(round(w_del[positions[i]], 4)),
-                "modification_level": float(round(ml[i], 6)),
-                "weighted_modification_level": float(round(w_ml[i], 6)),
-            })
+            rows.append(
+                {
+                    "transcript_id": "",  # filled by caller
+                    "position": int(positions[i]) + 1,  # 1-based
+                    "modification_type": mod_str,
+                    "n_modified": int(n_mod_pos[i]),
+                    "weighted_modified": float(round(w_mod_pos[i], 4)),
+                    "n_unmodified": int(n_unmod_pos[i]),
+                    "weighted_unmodified": float(round(w_unmod_pos[i], 4)),
+                    "n_mismatch": int(n_mismatch[positions[i]]),
+                    "weighted_mismatch": float(round(w_mismatch[positions[i]], 4)),
+                    "n_deletion": int(n_del[positions[i]]),
+                    "weighted_deletion": float(round(w_del[positions[i]], 4)),
+                    "modification_level": float(round(ml[i], 6)),
+                    "weighted_modification_level": float(round(w_ml[i], 6)),
+                }
+            )
 
     return rows
 
@@ -223,8 +241,11 @@ def main():
         if args.verbose:
             n_tx = len(predefined_sites)
             n_pos = sum(len(v) for v in predefined_sites.values())
-            print(f"[mod_sites] Predefined sites: {n_pos} positions across "
-                  f"{n_tx} transcripts", file=sys.stderr)
+            print(
+                f"[mod_sites] Predefined sites: {n_pos} positions across "
+                f"{n_tx} transcripts",
+                file=sys.stderr,
+            )
 
     # ---- 1. Read modification codes from HDF5 ----
 
@@ -240,14 +261,19 @@ def main():
             requested = set(args.transcripts)
             tx_names = sorted(tx for tx in tx_names if tx in requested)
             if args.verbose:
-                print(f"[mod_sites] Filtered to {len(tx_names)}/"
-                      f"{len(requested)} requested transcripts",
-                      file=sys.stderr)
+                print(
+                    f"[mod_sites] Filtered to {len(tx_names)}/"
+                    f"{len(requested)} requested transcripts",
+                    file=sys.stderr,
+                )
         n_transcripts = len(tx_names)
 
         if args.verbose:
-            print(f"[mod_sites] {n_transcripts} transcripts, "
-                  f"{len(mod_codes)} modification types", file=sys.stderr)
+            print(
+                f"[mod_sites] {n_transcripts} transcripts, "
+                f"{len(mod_codes)} modification types",
+                file=sys.stderr,
+            )
 
         # ---- 2. Process each transcript ----
 
@@ -256,8 +282,8 @@ def main():
 
         for tx_name in tx_names:
             grp = h5[f"transcripts/{tx_name}"]
-            matrix = grp["matrix"][:]           # (n_reads, tx_length) uint8
-            weights = grp["read_weights"][:]    # (n_reads,) float32
+            matrix = grp["matrix"][:]  # (n_reads, tx_length) uint8
+            weights = grp["read_weights"][:]  # (n_reads,) float32
 
             if args.min_asp > 0.0:
                 read_mask = weights >= args.min_asp
@@ -268,10 +294,13 @@ def main():
                 weights = weights[read_mask]
 
             tx_rows = compute_transcript_stats(
-                matrix, weights, mod_codes,
+                matrix,
+                weights,
+                mod_codes,
                 predefined_positions=(
                     predefined_sites.get(tx_name)
-                    if predefined_sites is not None else None
+                    if predefined_sites is not None
+                    else None
                 ),
             )
             for row in tx_rows:
@@ -280,8 +309,10 @@ def main():
 
             processed += 1
             if args.verbose and processed % 1000 == 0:
-                print(f"[mod_sites] Processed {processed}/{n_transcripts} "
-                      f"transcripts...", file=sys.stderr)
+                print(
+                    f"[mod_sites] Processed {processed}/{n_transcripts} transcripts...",
+                    file=sys.stderr,
+                )
 
     if args.verbose:
         print(f"[mod_sites] Total rows to write: {len(all_rows)}", file=sys.stderr)
@@ -307,10 +338,19 @@ _TSV_HEADER = (
 )
 
 _TSV_COLS = [
-    "transcript_id", "position", "modification_type",
-    "n_modified", "weighted_modified", "n_unmodified", "weighted_unmodified",
-    "n_mismatch", "weighted_mismatch", "n_deletion", "weighted_deletion",
-    "modification_level", "weighted_modification_level",
+    "transcript_id",
+    "position",
+    "modification_type",
+    "n_modified",
+    "weighted_modified",
+    "n_unmodified",
+    "weighted_unmodified",
+    "n_mismatch",
+    "weighted_mismatch",
+    "n_deletion",
+    "weighted_deletion",
+    "modification_level",
+    "weighted_modification_level",
 ]
 
 
@@ -328,26 +368,33 @@ def _write_tsv(all_rows, path, use_gzip):
 def _write_parquet(all_rows, path):
     """Write rows as a Parquet file via pyarrow."""
     if not all_rows:
-        print("[mod_sites] No modification sites found — writing empty file.",
-              file=sys.stderr)
-        schema = pa.schema([
-            ("transcript_id", pa.string()),
-            ("position", pa.int32()),
-            ("modification_type", pa.string()),
-            ("n_modified", pa.int32()),
-            ("weighted_modified", pa.float64()),
-            ("n_unmodified", pa.int32()),
-            ("weighted_unmodified", pa.float64()),
-            ("n_mismatch", pa.int32()),
-            ("weighted_mismatch", pa.float64()),
-            ("n_deletion", pa.int32()),
-            ("weighted_deletion", pa.float64()),
-            ("modification_level", pa.float64()),
-            ("weighted_modification_level", pa.float64()),
-        ])
+        print(
+            "[mod_sites] No modification sites found — writing empty file.",
+            file=sys.stderr,
+        )
+        schema = pa.schema(
+            [
+                ("transcript_id", pa.string()),
+                ("position", pa.int32()),
+                ("modification_type", pa.string()),
+                ("n_modified", pa.int32()),
+                ("weighted_modified", pa.float64()),
+                ("n_unmodified", pa.int32()),
+                ("weighted_unmodified", pa.float64()),
+                ("n_mismatch", pa.int32()),
+                ("weighted_mismatch", pa.float64()),
+                ("n_deletion", pa.int32()),
+                ("weighted_deletion", pa.float64()),
+                ("modification_level", pa.float64()),
+                ("weighted_modification_level", pa.float64()),
+            ]
+        )
         with pq.ParquetWriter(path, schema) as writer:
-            writer.write_table(pa.table({k: pa.array([], type=schema.field(k).type)
-                                         for k in schema.names}))
+            writer.write_table(
+                pa.table(
+                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
+                )
+            )
         return
 
     columns = {}

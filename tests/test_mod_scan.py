@@ -8,47 +8,44 @@ import h5py
 import numpy as np
 import pytest
 
-
 # ---------- helpers to import mod_scan functions ----------
 
 # We need to add the src directory so we can import isolens
 # (this is already handled by the editable install, but being defensive)
 try:
     from isolens.mod_scan import (
+        _BAM_CDEL,
+        _BAM_CDIFF,
+        _BAM_CEQUAL,
+        _BAM_CINS,
+        _BAM_CMATCH,
+        _BAM_CREF_SKIP,
+        _BAM_CSOFT_CLIP,
+        CODE_CANONICAL,
+        CODE_DELETION,
+        CODE_MISMATCH,
+        CODE_UNCOVERED,
         parse_cigar_for_row,
         parse_modifications,
         write_transcript_group,
-        _BAM_CMATCH,
-        _BAM_CEQUAL,
-        _BAM_CDIFF,
-        _BAM_CDEL,
-        _BAM_CINS,
-        _BAM_CSOFT_CLIP,
-        _BAM_CREF_SKIP,
-        _BAM_CHARD_CLIP,
-        CODE_UNCOVERED,
-        CODE_CANONICAL,
-        CODE_MISMATCH,
-        CODE_DELETION,
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
     from isolens.mod_scan import (
+        _BAM_CDEL,
+        _BAM_CDIFF,
+        _BAM_CEQUAL,
+        _BAM_CINS,
+        _BAM_CMATCH,
+        _BAM_CREF_SKIP,
+        _BAM_CSOFT_CLIP,
+        CODE_CANONICAL,
+        CODE_DELETION,
+        CODE_MISMATCH,
+        CODE_UNCOVERED,
         parse_cigar_for_row,
         parse_modifications,
         write_transcript_group,
-        _BAM_CMATCH,
-        _BAM_CEQUAL,
-        _BAM_CDIFF,
-        _BAM_CDEL,
-        _BAM_CINS,
-        _BAM_CSOFT_CLIP,
-        _BAM_CREF_SKIP,
-        _BAM_CHARD_CLIP,
-        CODE_UNCOVERED,
-        CODE_CANONICAL,
-        CODE_MISMATCH,
-        CODE_DELETION,
     )
 
 
@@ -58,8 +55,16 @@ except ImportError:
 class MockRecord:
     """Minimal mock of ``pysam.AlignedSegment`` for CIGAR / mod parsing tests."""
 
-    def __init__(self, cigartuples, reference_start, query_sequence,
-                 mm_tag=None, ml_bytes=None, has_mm=True, has_ml=True):
+    def __init__(
+        self,
+        cigartuples,
+        reference_start,
+        query_sequence,
+        mm_tag=None,
+        ml_bytes=None,
+        has_mm=True,
+        has_ml=True,
+    ):
         self.cigartuples = cigartuples
         self.reference_start = reference_start
         self.query_alignment_sequence = query_sequence
@@ -165,10 +170,10 @@ class TestParseCigarForRow:
         assert row[5] == CODE_CANONICAL  # position right after first match block
         # read_to_tx_map has None for inserted bases
         assert len(r2t) == 12  # 5 match + 2 insert + 5 match
-        assert r2t[4] == 5      # last match before insertion
-        assert r2t[5] is None   # first inserted base
-        assert r2t[6] is None   # second inserted base
-        assert r2t[7] == 6      # first match after insertion
+        assert r2t[4] == 5  # last match before insertion
+        assert r2t[5] is None  # first inserted base
+        assert r2t[6] is None  # second inserted base
+        assert r2t[7] == 6  # first match after insertion
 
     def test_soft_clip(self):
         """Soft-clipped bases produce None in read_to_tx_map."""
@@ -182,7 +187,7 @@ class TestParseCigarForRow:
         assert len(r2t) == 14  # 4 soft clip + 10 match
         assert r2t[0] is None  # soft-clipped
         assert r2t[3] is None  # soft-clipped
-        assert r2t[4] == 1     # first aligned base
+        assert r2t[4] == 1  # first aligned base
 
     def test_legacy_m_op(self):
         """M operator (no =/X) defaults to CODE_CANONICAL."""
@@ -427,14 +432,17 @@ class TestWriteTranscriptGroup:
 
                 # Verify read IDs (h5py returns bytes for variable-length strings)
                 ids = grp["read_ids"]
-                decoded_ids = [x.decode() if isinstance(x, bytes) else x for x in ids[:]]
+                decoded_ids = [
+                    x.decode() if isinstance(x, bytes) else x for x in ids[:]
+                ]
                 assert decoded_ids == read_ids
 
                 # Verify weights
                 w = grp["read_weights"]
                 assert w.shape == (3,)
                 assert w.dtype == np.float32
-                np.testing.assert_array_almost_equal(w[:], np.array(weights, dtype=np.float32))
+                expected = np.array(weights, dtype=np.float32)
+                np.testing.assert_array_almost_equal(w[:], expected)
         finally:
             os.unlink(tmp_path)
 
@@ -477,9 +485,7 @@ def test_integration_example_data():
     """Run mod_scan on example data and verify HDF5 output."""
     import subprocess
 
-    example_dir = os.path.join(
-        os.path.dirname(__file__), "..", "examples"
-    )
+    example_dir = os.path.join(os.path.dirname(__file__), "..", "examples")
     bam_path = os.path.join(example_dir, "example.txmap.bam")
     lz4_path = os.path.join(example_dir, "example.lz4")
 
@@ -493,11 +499,17 @@ def test_integration_example_data():
         # Run mod_scan as a subprocess
         result = subprocess.run(
             [
-                sys.executable, "-m", "isolens.mod_scan",
-                "-b", bam_path,
-                "-a", lz4_path,
-                "--output", out_path,
-                "--mod-cutoff", "0.95",
+                sys.executable,
+                "-m",
+                "isolens.mod_scan",
+                "-b",
+                bam_path,
+                "-a",
+                lz4_path,
+                "--output",
+                out_path,
+                "--mod-cutoff",
+                "0.95",
             ],
             capture_output=True,
             text=True,

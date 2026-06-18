@@ -18,20 +18,24 @@ except ImportError:
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Estimate transcript isoform-specific poly(A) length "
-                    "using Oarfish assignments and Dorado BAM."
+        "using Oarfish assignments and Dorado BAM."
     )
     parser.add_argument(
-        "-a", "--oarfish", required=True,
-        help="Oarfish read assignment probability file (.lz4)")
+        "-a",
+        "--oarfish",
+        required=True,
+        help="Oarfish read assignment probability file (.lz4)",
+    )
     parser.add_argument(
-        "-b", "--bam", required=True,
-        help="Raw reads BAM file containing pt:i tags")
+        "-b", "--bam", required=True, help="Raw reads BAM file containing pt:i tags"
+    )
+    parser.add_argument("-o", "--output", required=True, help="Output TSV file")
     parser.add_argument(
-        "-o", "--output", required=True,
-        help="Output TSV file")
-    parser.add_argument(
-        "-z", "--gzip", action="store_true",
-        help="Compress the output TSV file using gzip")
+        "-z",
+        "--gzip",
+        action="store_true",
+        help="Compress the output TSV file using gzip",
+    )
     return parser.parse_args()
 
 
@@ -43,12 +47,18 @@ def main():
     tx_idx_to_name = dict(enumerate(tx_names))
 
     n_assignments = len(prob_map)
-    print(f"Loaded {len(tx_names)} transcripts and "
-          f"{n_assignments} reads with assignments.", file=sys.stderr)
+    print(
+        f"Loaded {len(tx_names)} transcripts and "
+        f"{n_assignments} reads with assignments.",
+        file=sys.stderr,
+    )
 
     if not prob_map:
-        print("0 reads with assignments found. Exiting early without "
-              "parsing the BAM file.", file=sys.stderr)
+        print(
+            "0 reads with assignments found. Exiting early without "
+            "parsing the BAM file.",
+            file=sys.stderr,
+        )
         sys.exit(0)
 
     # Initialize a dict to store poly(A) information mapped to transcripts
@@ -64,8 +74,10 @@ def main():
             reads_scanned += 1
 
             if reads_scanned % 200000 == 0:
-                print(f"  ...scanned {reads_scanned} reads from BAM so far...",
-                      file=sys.stderr)
+                print(
+                    f"  ...scanned {reads_scanned} reads from BAM so far...",
+                    file=sys.stderr,
+                )
 
             read_id_int = read_id_to_int(read.query_name)
 
@@ -80,22 +92,27 @@ def main():
                         processed_reads.add(read_id_int)
 
                         for assignment in prob_map[read_id_int]:
-                            tx_data[assignment.tx_id].append(
-                                (assignment.prob, pt_val))
+                            tx_data[assignment.tx_id].append((assignment.prob, pt_val))
 
-    print(f"Finished BAM parsing. Scanned {reads_scanned} total reads.",
-          file=sys.stderr)
-    print(f"Successfully extracted poly(A) lengths for "
-          f"{len(processed_reads)} mapped reads.", file=sys.stderr)
+    print(
+        f"Finished BAM parsing. Scanned {reads_scanned} total reads.", file=sys.stderr
+    )
+    print(
+        f"Successfully extracted poly(A) lengths for "
+        f"{len(processed_reads)} mapped reads.",
+        file=sys.stderr,
+    )
 
     # Compute metrics and generate output TSV
     output_filename = args.output
     if args.gzip:
         if not output_filename.endswith(".gz"):
             output_filename += ".gz"
+
         def open_func(f):
             return gzip.open(f, "wt", encoding="utf-8")
     else:
+
         def open_func(f):
             return open(f, "w", encoding="utf-8")
 
@@ -125,7 +142,8 @@ def main():
 
             out_f.write(
                 f"{tx_name}\t{tx_idx}\t{n_reads}\t{pa_wlen:.3f}\t"
-                f"{probs_str}\t{pa_lens_str}\n")
+                f"{probs_str}\t{pa_lens_str}\n"
+            )
 
     print("Done!", file=sys.stderr)
 
