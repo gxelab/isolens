@@ -67,7 +67,7 @@ class MockRecord:
     ):
         self.cigartuples = cigartuples
         self.reference_start = reference_start
-        self.query_alignment_sequence = query_sequence
+        self.query_sequence = query_sequence
         self._mm_tag = mm_tag
         self._ml_bytes = ml_bytes
         self._has_mm = has_mm

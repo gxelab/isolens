@@ -50,7 +50,7 @@ class _ReadRecord:
     __slots__ = (
         "reference_start",
         "cigartuples",
-        "query_alignment_sequence",
+        "query_sequence",
         "_mm_tag",
         "_ml_bytes",
     )
@@ -60,13 +60,13 @@ class _ReadRecord:
         *,
         reference_start,
         cigartuples,
-        query_alignment_sequence,
+        query_sequence,
         mm_tag=None,
         ml_bytes=None,
     ):
         self.reference_start = reference_start
         self.cigartuples = cigartuples
-        self.query_alignment_sequence = query_alignment_sequence
+        self.query_sequence = query_sequence
         self._mm_tag = mm_tag
         self._ml_bytes = ml_bytes
 
@@ -107,7 +107,7 @@ def _extract_record(record):
     return _ReadRecord(
         reference_start=record.reference_start,
         cigartuples=record.cigartuples,
-        query_alignment_sequence=record.query_alignment_sequence,
+        query_sequence=record.query_sequence,
         mm_tag=mm_tag,
         ml_bytes=ml_bytes,
     )
@@ -131,7 +131,7 @@ def parse_cigar_for_row(record, tx_length):
         - *row* is a ``numpy.ndarray`` of shape ``(tx_length,)``, dtype uint8,
           filled with states (0=uncovered, 1=match, 2=mismatch, 3=deletion).
         - *read_to_tx_map* is a ``list[int | None]`` of the same length as
-          ``record.query_alignment_sequence``.  Each entry is the 1-based
+          ``record.query_sequence``.  Each entry is the 1-based
           transcript position or ``None`` (for insertions / soft-clipped bases).
     """
     row = np.zeros(tx_length, dtype=np.uint8)
@@ -209,7 +209,7 @@ def parse_modifications(
             Modified in-place — positions that pass the probability threshold
             are overwritten with the corresponding modification code (≥4).
         read_to_tx_map: ``list[int | None]`` — 1-based transcript positions
-            indexed by read position (same length as ``query_alignment_sequence``).
+            indexed by read position (same length as ``query_sequence``).
         mod_cutoff_u8: int — raw ML threshold in 0-255 space
             (e.g. ``round(0.95 * 255) = 242``).
         mod_code_map: ``dict[str, int]`` — mutated in-place.
@@ -237,9 +237,9 @@ def parse_modifications(
     elif record.has_tag("ml"):
         ml_bytes = record.get_tag("ml")
 
-    # query_alignment_sequence recovers the sequence block even on
+    # query_sequence recovers the sequence block even on
     # secondary / supplementary entries
-    seq = record.query_alignment_sequence
+    seq = record.query_sequence
     if seq is None:
         return
 
