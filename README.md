@@ -1,6 +1,6 @@
 # isolens
 
-**Long-Read Kit** — a Python toolkit for analyzing long-read RNA sequencing data from Oxford Nanopore Technologies.
+**IsoLens** — a Python toolkit for analyzing long-read RNA sequencing data from Oxford Nanopore Technologies.
 
 [![PyPI - Version](https://img.shields.io/pypi/v/isolens)](https://pypi.org/project/isolens/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/isolens)](https://pypi.org/project/isolens/)
