@@ -30,12 +30,14 @@ from scipy.stats import fisher_exact
 try:
     from isolens.mod_scan import (
         CODE_DELETION,
+        CODE_FAIL,
         CODE_MISMATCH,
         CODE_UNCOVERED,
     )
 except ImportError:
     from mod_scan import (  # type: ignore[no-redef]
         CODE_DELETION,
+        CODE_FAIL,
         CODE_MISMATCH,
         CODE_UNCOVERED,
     )
@@ -190,13 +192,13 @@ def read_site_summary(path):
 
 def _read_sites_parquet(path):
     table = pq.read_table(
-        path, columns=["transcript_id", "position", "modification_type", "n_modified"]
+        path, columns=["transcript_id", "position", "mod_type", "n_modified"]
     )
     sites = {}
     for i in range(len(table)):
         tx = table.column("transcript_id")[i].as_py()
         pos = table.column("position")[i].as_py()
-        mod = table.column("modification_type")[i].as_py()
+        mod = table.column("mod_type")[i].as_py()
         n_mod = table.column("n_modified")[i].as_py()
         sites.setdefault(tx, {}).setdefault(mod, []).append((pos, n_mod))
     return sites
@@ -210,7 +212,7 @@ def _read_sites_tsv(path):
         header = f.readline().strip().split("\t")
         tx_col = header.index("transcript_id")
         pos_col = header.index("position")
-        mod_col = header.index("modification_type")
+        mod_col = header.index("mod_type")
         nmod_col = header.index("n_modified")
         for line in f:
             parts = line.strip().split("\t")
@@ -311,9 +313,12 @@ def process_transcript(
     for pos_1b, mod_str, mod_code in candidates:
         col = matrix[:, pos_1b - 1]
         valid = (
-            (col != CODE_UNCOVERED) & (col != CODE_MISMATCH) & (col != CODE_DELETION)
+            (col != CODE_UNCOVERED)
+            & (col != CODE_MISMATCH)
+            & (col != CODE_DELETION)
+            & (col != CODE_FAIL)
         )
-        other_mod = (col >= 4) & (col != mod_code)
+        other_mod = (col >= 4) & (col != mod_code) & (col != CODE_FAIL)
         valid = valid & (~other_mod)
         binary = (col == mod_code).astype(np.int8)
         pre.append((pos_1b, mod_str, mod_code, valid, binary))

@@ -17,9 +17,19 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 try:
-    from isolens.mod_scan import CODE_CANONICAL, CODE_DELETION, CODE_MISMATCH
+    from isolens.mod_scan import (
+        CODE_CANONICAL,
+        CODE_DELETION,
+        CODE_FAIL,
+        CODE_MISMATCH,
+    )
 except ImportError:
-    from mod_scan import CODE_CANONICAL, CODE_DELETION, CODE_MISMATCH
+    from mod_scan import (
+        CODE_CANONICAL,
+        CODE_DELETION,
+        CODE_FAIL,
+        CODE_MISMATCH,
+    )
 
 
 def parse_args():
@@ -139,27 +149,31 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
 
     Returns:
         ``list[dict]`` — one dict per (position, modification_type) with columns:
-        position (1-based), modification_type, n_modified, weighted_modified,
-        n_unmodified, weighted_unmodified, n_mismatch, weighted_mismatch,
-        n_deletion, weighted_deletion, modification_level,
-        weighted_modification_level.
+        position (1-based), mod_type, n_modified, wt_modified, n_unmodified,
+        wt_unmodified, n_canonical, wt_canonical, n_othermod, wt_othermod,
+        n_mismatch, wt_mismatch, n_deletion, wt_deletion, n_failed, wt_failed,
+        mod_level, wt_mod_level.
     """
     n_reads, tx_length = matrix.shape
     weights_2d = weights[:, np.newaxis].astype(np.float64)  # (n_reads, 1)
 
     # ---- base stats (same for all modification types at each position) ----
 
-    unmod_mask = matrix == CODE_CANONICAL  # bool (n_reads, tx_length)
-    n_unmod = unmod_mask.sum(axis=0).astype(np.int32)
-    w_unmod = (unmod_mask * weights_2d).sum(axis=0).astype(np.float64)
-
-    mismatch_mask = matrix == CODE_MISMATCH
+    mismatch_mask = matrix == CODE_MISMATCH  # bool (n_reads, tx_length)
     n_mismatch = mismatch_mask.sum(axis=0).astype(np.int32)
     w_mismatch = (mismatch_mask * weights_2d).sum(axis=0).astype(np.float64)
 
     deletion_mask = matrix == CODE_DELETION
     n_del = deletion_mask.sum(axis=0).astype(np.int32)
     w_del = (deletion_mask * weights_2d).sum(axis=0).astype(np.float64)
+
+    failed_mask = matrix == CODE_FAIL
+    n_failed = failed_mask.sum(axis=0).astype(np.int32)
+    w_failed = (failed_mask * weights_2d).sum(axis=0).astype(np.float64)
+
+    canonical_mask = matrix == CODE_CANONICAL  # bool (n_reads, tx_length)
+    n_canonical = canonical_mask.sum(axis=0).astype(np.int32)
+    w_canonical = (canonical_mask * weights_2d).sum(axis=0).astype(np.float64)
 
     # ---- per-modification-type stats ----
 
@@ -169,6 +183,16 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
         mod_mask = matrix == code  # bool (n_reads, tx_length)
         n_mod = mod_mask.sum(axis=0).astype(np.int32)
         w_mod = (mod_mask * weights_2d).sum(axis=0).astype(np.float64)
+
+        # Other modifications: any mod code (≥4) that is not the focal
+        # type and not CODE_FAIL
+        othermod_mask = (matrix >= 4) & (matrix != code) & (matrix != CODE_FAIL)
+        n_othermod = othermod_mask.sum(axis=0).astype(np.int32)
+        w_othermod = (othermod_mask * weights_2d).sum(axis=0).astype(np.float64)
+
+        # Unmodified = canonical + othermod
+        n_unmod = n_canonical + n_othermod
+        w_unmod = w_canonical + w_othermod
 
         # Determine which positions to emit
         if predefined_positions is not None:
@@ -181,7 +205,8 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
             positions = np.array(positions_0b, dtype=np.intp)
         else:
             # Emit all positions with at least one modification call
-            positions = np.flatnonzero(n_mod > 0)
+            # (focal or other)
+            positions = np.flatnonzero((n_mod > 0) | (n_othermod > 0))
             if len(positions) == 0:
                 continue
 
@@ -191,7 +216,23 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
         n_unmod_pos = n_unmod[positions]
         w_unmod_pos = w_unmod[positions]
 
+        n_canonical_pos = n_canonical[positions]
+        w_canonical_pos = w_canonical[positions]
+
+        n_othermod_pos = n_othermod[positions]
+        w_othermod_pos = w_othermod[positions]
+
+        n_mismatch_pos = n_mismatch[positions]
+        w_mismatch_pos = w_mismatch[positions]
+
+        n_del_pos = n_del[positions]
+        w_del_pos = w_del[positions]
+
+        n_failed_pos = n_failed[positions]
+        w_failed_pos = w_failed[positions]
+
         # Modification level denominator: modified + unmodified only
+        # (failed, mismatch, deletion are excluded)
         denom = n_mod_pos + n_unmod_pos
         w_denom = w_mod_pos + w_unmod_pos
 
@@ -213,17 +254,23 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
                 {
                     "transcript_id": "",  # filled by caller
                     "position": int(positions[i]) + 1,  # 1-based
-                    "modification_type": mod_str,
+                    "mod_type": mod_str,
                     "n_modified": int(n_mod_pos[i]),
-                    "weighted_modified": float(round(w_mod_pos[i], 4)),
+                    "wt_modified": float(round(w_mod_pos[i], 4)),
                     "n_unmodified": int(n_unmod_pos[i]),
-                    "weighted_unmodified": float(round(w_unmod_pos[i], 4)),
-                    "n_mismatch": int(n_mismatch[positions[i]]),
-                    "weighted_mismatch": float(round(w_mismatch[positions[i]], 4)),
-                    "n_deletion": int(n_del[positions[i]]),
-                    "weighted_deletion": float(round(w_del[positions[i]], 4)),
-                    "modification_level": float(round(ml[i], 6)),
-                    "weighted_modification_level": float(round(w_ml[i], 6)),
+                    "wt_unmodified": float(round(w_unmod_pos[i], 4)),
+                    "n_canonical": int(n_canonical_pos[i]),
+                    "wt_canonical": float(round(w_canonical_pos[i], 4)),
+                    "n_othermod": int(n_othermod_pos[i]),
+                    "wt_othermod": float(round(w_othermod_pos[i], 4)),
+                    "n_mismatch": int(n_mismatch_pos[i]),
+                    "wt_mismatch": float(round(w_mismatch_pos[i], 4)),
+                    "n_deletion": int(n_del_pos[i]),
+                    "wt_deletion": float(round(w_del_pos[i], 4)),
+                    "n_failed": int(n_failed_pos[i]),
+                    "wt_failed": float(round(w_failed_pos[i], 4)),
+                    "mod_level": float(round(ml[i], 6)),
+                    "wt_mod_level": float(round(w_ml[i], 6)),
                 }
             )
 
@@ -331,26 +378,33 @@ def main():
 # ---------- output writers ----------
 
 _TSV_HEADER = (
-    "transcript_id\tposition\tmodification_type\tn_modified\tweighted_modified"
-    "\tn_unmodified\tweighted_unmodified\tn_mismatch\tweighted_mismatch"
-    "\tn_deletion\tweighted_deletion\tmodification_level"
-    "\tweighted_modification_level"
+    "transcript_id\tposition\tmod_type\tn_modified\twt_modified"
+    "\tn_unmodified\twt_unmodified\tn_canonical\twt_canonical"
+    "\tn_othermod\twt_othermod\tn_mismatch\twt_mismatch"
+    "\tn_deletion\twt_deletion\tn_failed\twt_failed"
+    "\tmod_level\twt_mod_level"
 )
 
 _TSV_COLS = [
     "transcript_id",
     "position",
-    "modification_type",
+    "mod_type",
     "n_modified",
-    "weighted_modified",
+    "wt_modified",
     "n_unmodified",
-    "weighted_unmodified",
+    "wt_unmodified",
+    "n_canonical",
+    "wt_canonical",
+    "n_othermod",
+    "wt_othermod",
     "n_mismatch",
-    "weighted_mismatch",
+    "wt_mismatch",
     "n_deletion",
-    "weighted_deletion",
-    "modification_level",
-    "weighted_modification_level",
+    "wt_deletion",
+    "n_failed",
+    "wt_failed",
+    "mod_level",
+    "wt_mod_level",
 ]
 
 
@@ -376,17 +430,23 @@ def _write_parquet(all_rows, path):
             [
                 ("transcript_id", pa.string()),
                 ("position", pa.int32()),
-                ("modification_type", pa.string()),
+                ("mod_type", pa.string()),
                 ("n_modified", pa.int32()),
-                ("weighted_modified", pa.float64()),
+                ("wt_modified", pa.float64()),
                 ("n_unmodified", pa.int32()),
-                ("weighted_unmodified", pa.float64()),
+                ("wt_unmodified", pa.float64()),
+                ("n_canonical", pa.int32()),
+                ("wt_canonical", pa.float64()),
+                ("n_othermod", pa.int32()),
+                ("wt_othermod", pa.float64()),
                 ("n_mismatch", pa.int32()),
-                ("weighted_mismatch", pa.float64()),
+                ("wt_mismatch", pa.float64()),
                 ("n_deletion", pa.int32()),
-                ("weighted_deletion", pa.float64()),
-                ("modification_level", pa.float64()),
-                ("weighted_modification_level", pa.float64()),
+                ("wt_deletion", pa.float64()),
+                ("n_failed", pa.int32()),
+                ("wt_failed", pa.float64()),
+                ("mod_level", pa.float64()),
+                ("wt_mod_level", pa.float64()),
             ]
         )
         with pq.ParquetWriter(path, schema) as writer:
@@ -400,11 +460,11 @@ def _write_parquet(all_rows, path):
     columns = {}
     for col in _TSV_COLS:
         values = [r[col] for r in all_rows]
-        if col == "transcript_id" or col == "modification_type":
+        if col == "transcript_id" or col == "mod_type":
             columns[col] = pa.array(values)
         elif col == "position":
             columns[col] = pa.array(values, type=pa.int32())
-        elif "n_" in col:
+        elif col.startswith("n_"):
             columns[col] = pa.array(values, type=pa.int32())
         else:
             columns[col] = pa.array(values, type=pa.float64())

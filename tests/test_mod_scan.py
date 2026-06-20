@@ -23,6 +23,7 @@ try:
         _BAM_CSOFT_CLIP,
         CODE_CANONICAL,
         CODE_DELETION,
+        CODE_FAIL,
         CODE_MISMATCH,
         CODE_UNCOVERED,
         parse_cigar_for_row,
@@ -41,6 +42,7 @@ except ImportError:
         _BAM_CSOFT_CLIP,
         CODE_CANONICAL,
         CODE_DELETION,
+        CODE_FAIL,
         CODE_MISMATCH,
         CODE_UNCOVERED,
         parse_cigar_for_row,
@@ -295,9 +297,11 @@ class TestParseModifications:
         assert mod_code_map == {"a": 4}
 
     def test_mod_below_threshold(self):
-        """Modification below ML threshold is not applied."""
+        """Modification below ML threshold with canonical also below → CODE_FAIL."""
         mm_tag = "A+a,0"
-        ml_bytes = bytes([100])  # 100/255 ≈ 0.39, below most thresholds
+        # P_mod = 100/255 ≈ 0.39, P_canonical = 1-0.39 ≈ 0.61
+        # threshold = 200/255 ≈ 0.78 → both below → FAIL
+        ml_bytes = bytes([100])
 
         record = MockRecord(
             cigartuples=[(_BAM_CEQUAL, 3)],
@@ -313,8 +317,75 @@ class TestParseModifications:
         # threshold_u8 = 200 → raw >= 200 passes, 100 does not
         parse_modifications(record, row, r2t, 200, mod_code_map, seen)
 
-        assert row[0] == CODE_CANONICAL  # unchanged
+        assert row[0] == CODE_FAIL  # both mod and canonical below threshold
         assert seen == {"a"}
+
+    def test_fail_all_below_strict_threshold(self):
+        """When all probabilities (mod + canonical) are below threshold → CODE_FAIL."""
+        # P_mod = 50/255 ≈ 0.196, P_canonical = 1-0.196 ≈ 0.804
+        # threshold = 220/255 ≈ 0.863 → canonical (0.804) still below → FAIL
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([50])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, r2t = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+
+        parse_modifications(record, row, r2t, 220, mod_code_map, seen)
+
+        assert row[0] == CODE_FAIL
+
+    def test_canonical_pass_mod_fail(self):
+        """When mod prob is below threshold but canonical prob is above → canonical."""
+        # P_mod = 100/255 ≈ 0.39, P_canonical = 1-0.39 ≈ 0.61
+        # threshold = 150/255 ≈ 0.588 → canonical (0.61) passes, mod (0.39) fails
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([100])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, r2t = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+
+        parse_modifications(record, row, r2t, 150, mod_code_map, seen)
+
+        assert row[0] == CODE_CANONICAL  # canonical passes
+        assert seen == {"a"}
+
+    def test_mod_pass_with_low_canonical(self):
+        """When mod prob passes threshold, it is assigned even if canonical is lower."""
+        # P_mod = 200/255 ≈ 0.784, P_canonical = 1-0.784 ≈ 0.216
+        # threshold = 200/255 ≈ 0.784 → mod passes exactly at threshold
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([200])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, r2t = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+
+        parse_modifications(record, row, r2t, 200, mod_code_map, seen)
+
+        assert row[0] == 4  # mod 'a' code
 
     def test_skip_multiple(self):
         """Skip list: modify the 3rd and 5th occurrences, skip others."""

@@ -24,6 +24,7 @@ CODE_UNCOVERED = 0
 CODE_CANONICAL = 1
 CODE_MISMATCH = 2
 CODE_DELETION = 3
+CODE_FAIL = 255
 # modification types start at 4
 
 # ---------- CIGAR operator constants (pysam cigartuples) ----------
@@ -189,6 +190,21 @@ def parse_cigar_for_row(record, tx_length):
 # ---------- modification parsing ----------
 
 
+def _ensure_mod_code(mod_type, mod_code_map, mod_code_map_lock):
+    """Assign a stable integer code for a modification type (thread-safe).
+
+    Returns the integer code for *mod_type* (≥4).
+    """
+    if mod_type not in mod_code_map:
+        if mod_code_map_lock is not None:
+            with mod_code_map_lock:
+                if mod_type not in mod_code_map:
+                    mod_code_map[mod_type] = len(mod_code_map) + 4
+        else:
+            mod_code_map[mod_type] = len(mod_code_map) + 4
+    return mod_code_map[mod_type]
+
+
 def parse_modifications(
     record,
     row,
@@ -200,18 +216,23 @@ def parse_modifications(
 ):
     """Parse MM/ML tags and override *row* in-place with modification codes.
 
-    Optimised: uses ``str.find`` to locate target-base positions in C
-    rather than iterating character-by-character in Python.
+    Uses a two-pass strategy:
+
+    1. Collect every (read_pos, mod_type, raw_ml_prob) across all MM tag
+       groups into a per-position dict.
+    2. For each read position with modification data, compute
+       ``P_canonical = 1 - sum(P_mods)`` and pick the call with the
+       highest probability.  If that max probability is below the
+       threshold, the position is marked ``CODE_FAIL``.
 
     Args:
         record: ``pysam.AlignedSegment`` or ``_ReadRecord``.
         row: ``numpy.ndarray`` of shape ``(tx_length,)``, dtype uint8.
-            Modified in-place — positions that pass the probability threshold
-            are overwritten with the corresponding modification code (≥4).
+            Modified in-place.
         read_to_tx_map: ``list[int | None]`` — 1-based transcript positions
             indexed by read position (same length as ``query_sequence``).
-        mod_cutoff_u8: int — raw ML threshold in 0-255 space
-            (e.g. ``round(0.95 * 255) = 242``).
+        mod_cutoff_u8: float — raw ML threshold in 0-255 space
+            (e.g. ``0.95 * 255 = 242.25``).
         mod_code_map: ``dict[str, int]`` — mutated in-place.
             Maps modification type string → integer code (starting at 4).
         seen_mod_types: ``set[str]`` — mutated in-place.
@@ -243,6 +264,13 @@ def parse_modifications(
     if seq is None:
         return
 
+    threshold = (mod_cutoff_u8 + 0.5) / 256.0
+
+    # ---- Pass 1: collect per-position modification probabilities ----
+    # per_position: read_pos_0 → {mod_type: prob_float (0..1)}
+    # per_position_byte: read_pos_0 → {mod_type: raw_ml_byte (0..255)}
+    per_position: dict[int, dict[str, float]] = {}
+    per_position_byte: dict[int, dict[str, int]] = {}
     total_mod_instance_idx = 0
 
     for mod_group in mm_str.split(";"):
@@ -256,18 +284,8 @@ def parse_modifications(
         if len(meta) < 3:
             continue
         target_base = meta[0]
-        mod_type = meta[2:].rstrip(".")
+        mod_type = meta[2:].split(".")[0]
         seen_mod_types.add(mod_type)
-
-        # Assign a stable integer code for this modification type
-        if mod_type not in mod_code_map:
-            if mod_code_map_lock is not None:
-                with mod_code_map_lock:
-                    # double-check after acquiring lock
-                    if mod_type not in mod_code_map:
-                        mod_code_map[mod_type] = len(mod_code_map) + 4
-            else:
-                mod_code_map[mod_type] = len(mod_code_map) + 4
 
         try:
             skips = [int(s) for s in parts[1:]]
@@ -290,22 +308,55 @@ def parse_modifications(
 
             read_pos_0 = positions[occ_idx]
 
-            # Check ML probability threshold
-            passes_cutoff = True
+            # Read ML probability (0..1) and keep raw byte for mod threshold
+            prob = 0.0
+            raw_byte = 0
             if ml_bytes is not None and total_mod_instance_idx < len(ml_bytes):
-                raw_prob = ml_bytes[total_mod_instance_idx]
-                if raw_prob < mod_cutoff_u8:
-                    passes_cutoff = False
+                raw_byte = ml_bytes[total_mod_instance_idx]
+                prob = (raw_byte + 0.5) / 256.0
 
-            if passes_cutoff and read_pos_0 < len(read_to_tx_map):
-                tx_pos_1 = read_to_tx_map[read_pos_0]
-                if tx_pos_1 is not None:
-                    tx_pos_0 = tx_pos_1 - 1  # convert to 0-based
-                    if 0 <= tx_pos_0 < len(row):
-                        row[tx_pos_0] = mod_code_map[mod_type]
+            per_position.setdefault(read_pos_0, {})[mod_type] = prob
+            per_position_byte.setdefault(read_pos_0, {})[mod_type] = raw_byte
 
             total_mod_instance_idx += 1
             occ_idx += 1  # move past the marked occurrence
+
+    # ---- Pass 2: determine the call per position ----
+    for read_pos_0, mod_probs in per_position.items():
+        # Compute P_canonical = 1 - sum(all mod probs), clamped to ≥0
+        p_canonical = max(0.0, 1.0 - sum(mod_probs.values()))
+
+        # Find max probability and corresponding modification
+        max_prob = p_canonical
+        best_mod = None  # None means canonical wins
+
+        for mod_type, prob in mod_probs.items():
+            if prob > max_prob:
+                max_prob = prob
+                best_mod = mod_type
+
+        # Determine the code to assign (modkit-style threshold checks)
+        if best_mod is None:
+            # Canonical won — compare p_canonical float to p (threshold)
+            if p_canonical < threshold:
+                code = CODE_FAIL
+            else:
+                code = CODE_CANONICAL
+        else:
+            # Modification won — compare raw byte to q (mod_cutoff_u8)
+            best_byte = per_position_byte[read_pos_0][best_mod]
+            if best_byte < mod_cutoff_u8:
+                code = CODE_FAIL
+            else:
+                code = _ensure_mod_code(best_mod, mod_code_map, mod_code_map_lock)
+
+        # Map read position to transcript position and update row
+        if read_pos_0 < len(read_to_tx_map):
+            tx_pos_1 = read_to_tx_map[read_pos_0]
+            if tx_pos_1 is not None:
+                tx_pos_0 = tx_pos_1 - 1  # convert to 0-based
+                if 0 <= tx_pos_0 < len(row):
+                    row[tx_pos_0] = code
 
 
 # ---------- HDF5 output ----------
@@ -397,7 +448,7 @@ def _process_transcript(tx_length, read_records, mod_cutoff_u8, mod_code_map):
         tx_length: int — length of the target transcript in bases.
         read_records: ``list[_ReadRecord]`` — one per read assigned to
             this transcript.
-        mod_cutoff_u8: int — raw ML threshold in 0-255 space.
+        mod_cutoff_u8: float — raw ML threshold in 0-255 space.
         mod_code_map: ``dict[str, int]`` — **read-only** mapping from
             modification-type string to integer code (≥4).  All types
             are pre-filled from the CLI ``--mod-type`` argument.
@@ -867,7 +918,7 @@ def _run_parallel(
 
 def main():
     args = parse_args()
-    mod_cutoff_u8 = round(args.mod_cutoff * 255.0)
+    mod_cutoff_u8 = 256.0 * args.mod_cutoff - 0.5
 
     # ---- 1. Load Oarfish assignments ----
 
