@@ -144,8 +144,8 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
         predefined_positions: Optional ``set[int]`` of 1-based positions to
             restrict output to.  When provided, only these positions are
             emitted for every modification type, even if ``n_modified == 0``.
-            When ``None`` (the default), all positions with at least one
-            modification call are emitted.
+            When ``None`` (the default), positions with ``n_modified > 0``
+            for the focal modification type are emitted.
 
     Returns:
         ``list[dict]`` — one dict per (position, modification_type) with columns:
@@ -204,9 +204,8 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
                 continue
             positions = np.array(positions_0b, dtype=np.intp)
         else:
-            # Emit all positions with at least one modification call
-            # (focal or other)
-            positions = np.flatnonzero((n_mod > 0) | (n_othermod > 0))
+            # Emit all positions with at least one focal modification call
+            positions = np.flatnonzero(n_mod > 0)
             if len(positions) == 0:
                 continue
 
