@@ -323,8 +323,17 @@ def parse_modifications(
 
     # ---- Pass 2: determine the call per position ----
     for read_pos_0, mod_probs in per_position.items():
-        # Compute P_canonical = 1 - sum(all mod probs), clamped to ≥0
-        p_canonical = max(0.0, 1.0 - sum(mod_probs.values()))
+        # Compute P_canonical from raw bytes, matching modkit's byte-space
+        # arithmetic.  Using 1 - sum(probs) is subtly wrong when multiple
+        # modifications are present at the same position: each prob
+        # contributes a 0.5/256 offset that shifts the canonical
+        # probability downwards, making the filter spuriously more
+        # aggressive (byte thresholds differ: modkit >12.3 vs old isolens
+        # >12.8−n·0.5).
+        byte_dict = per_position_byte[read_pos_0]
+        total_mod_qual = sum(byte_dict.values())
+        canonical_qual = max(0, 255 - total_mod_qual)  # saturating sub
+        p_canonical = (canonical_qual + 0.5) / 256.0
 
         # Find max probability and corresponding modification
         max_prob = p_canonical
