@@ -1,20 +1,84 @@
-# isolens
+<p align="center">
+  <img src="logo.png" alt="IsoLens logo" width="320">
+</p>
 
-**IsoLens** — a Python toolkit for analyzing long-read RNA sequencing data from Oxford Nanopore Technologies.
+<p align="center">
+  <strong>Isoform-aware RNA modification and poly(A) tail analysis for Oxford Nanopore direct RNA sequencing.</strong>
+</p>
+
+# IsoLens
 
 [![PyPI - Version](https://img.shields.io/pypi/v/isolens)](https://pypi.org/project/isolens/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/isolens)](https://pypi.org/project/isolens/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/gxelab/isolens/actions/workflows/ci.yml/badge.svg)](https://github.com/gxelab/isolens/actions/workflows/ci.yml)
 
-`isolens` integrates two key data sources — BAM with modification and poly(A) tags (**Dorado** basecalling output or minimap2 mapping result) and **Oarfish** transcript-level read assignment probabilities — to provide:
-
-- **Transcript-specific base modification profiling** — read × position matrices (HDF5), per-position modification summaries (Parquet/TSV), and pairwise modification site correlation analysis (with optional PDF heatmaps).
-- **Poly(A) tail length profiling** — transcript-level weighted poly(A) length estimation, replicate merging, gene-level aggregation, and differential comparison between conditions via a weighted two-sample KS test.
+**IsoLens** is a Python toolkit for isoform-aware analysis of RNA modifications and poly(A) tail lengths from Oxford Nanopore direct RNA sequencing data, explicitly accounting for transcript assignment uncertainty to enable accurate transcript-level profiling.
 
 ---
 
-## Pipeline overview
+## Why IsoLens?
+
+Most long-read RNA analysis tools either:
+
+- analyze RNA modifications or poly(A) tails without isoform uncertainty
+- assign reads to transcripts using hard labels
+
+IsoLens propagates transcript assignment probabilities from [Oarfish](https://github.com/COMBINE-lab/oarfish) throughout both modification and poly(A) analyses, enabling more accurate transcript-level estimates for genes with complex isoform structure.
+
+Key capabilities:
+
+- Isoform-aware RNA modification profiling at single-nucleotide resolution
+- Transcript-level poly(A) tail length estimation with uncertainty propagation
+- Modification site co-occurrence and correlation analysis
+- Differential poly(A) testing between conditions
+- Efficient HDF5 and Parquet outputs for large-scale studies
+- Direct integration with Dorado BAM tags and Oarfish assignments
+
+---
+
+## Quick Start
+
+Install:
+
+```bash
+pip install isolens
+```
+
+Build transcript-level modification matrices:
+
+```bash
+python -m isolens.mod_scan -b alignments.bam -a oarfish.lz4 -o mod_scan.h5
+```
+
+Summarize modification sites:
+
+```bash
+python -m isolens.mod_sites -i mod_scan.h5 -o sites.parquet
+```
+
+Estimate transcript-level poly(A) lengths:
+
+```bash
+python -m isolens.polya_calc -a oarfish.lz4 -b reads.bam -o polya.tsv.gz -z
+```
+
+---
+
+## Contents
+
+- [Pipeline Overview](#pipeline-overview)
+- [Installation](#installation)
+- [Modules](#modules)
+- [Python API](#python-api)
+- [Input Data Requirements](#input-data-requirements)
+- [Development](#development)
+- [Example Data](#example-data)
+- [License](#license)
+
+---
+
+## Pipeline Overview
 
 ```
 Oarfish (.lz4) ─────┐
@@ -29,6 +93,18 @@ Minimap2 BAM ───────┘                               │
                                                     ├── polya_diff ──► diff TSV
                                                     └── polya_t2g ───► gene-level TSV
 ```
+
+### Outputs
+
+| Command | Output |
+|----------|----------|
+| `mod_scan` | HDF5 read × position modification matrices |
+| `mod_sites` | Per-site modification summaries |
+| `mod_corr` | Pairwise modification site correlations |
+| `polya_calc` | Transcript-level poly(A) estimates |
+| `polya_merge` | Merged replicate poly(A) estimates |
+| `polya_diff` | Differential poly(A) comparison |
+| `polya_t2g` | Gene-level poly(A) summaries |
 
 ---
 
@@ -75,7 +151,7 @@ Key options:
 
 ### `mod_sites` — Per-position modification summaries
 
-Reads the HDF5 from `mod_scan` and produces a Parquet or TSV file with one row per (transcript, position, modification type). Computes modification levels (fraction of reads modified) and tracks mismatches and deletions separately.
+Reads the HDF5 from `mod_scan` and produces a Parquet or TSV file with one row per `(transcript, position, modification type)`. Computes modification levels and tracks mismatches and deletions separately.
 
 ```bash
 python -m isolens.mod_sites \
@@ -165,7 +241,7 @@ python -m isolens.polya_merge \
 
 ### `polya_diff` — Differential poly(A) comparison
 
-Compares poly(A) length distributions between two conditions using a weighted two-sample Kolmogorov-Smirnov test (with Kish's effective sample size correction).
+Compares poly(A) length distributions between two conditions using a weighted two-sample Kolmogorov-Smirnov test with Kish's effective sample size correction.
 
 ```bash
 python -m isolens.polya_diff \
@@ -198,27 +274,30 @@ The core data structures and parsing functions are available for programmatic us
 ```python
 from isolens._parsing import parse_oarfish
 
-# Parse Oarfish LZ4 assignment file
 tx_names, prob_map, name_to_id = parse_oarfish("assignments.lz4")
-# tx_names: list[str] — transcript names
-# prob_map: dict[int, list[TargetAssignment]] — read UUID (as int) → assignments
-# name_to_id: dict[str, int] — transcript name → index
+
+# tx_names: list[str]
+# prob_map: dict[int, list[TargetAssignment]]
+# name_to_id: dict[str, int]
 ```
 
 ---
 
-## Input data requirements
+## Input Data Requirements
 
 | File | Source | Required tags / format |
-|------|--------|----------------------|
+|--------|--------|----------------------|
 | Transcriptome BAM | minimap2 + Dorado | `MM`/`ML` (base modifications), `pt:i` (poly(A) tail length) |
-| Oarfish assignments | [Oarfish](https://github.com/COMBINE-lab/oarfish) | LZ4-compressed read-to-transcript probability map |
+| Oarfish assignments | Oarfish | LZ4-compressed read-to-transcript probability map |
 
-The BAM should be coordinate-sorted and aligned to a transcriptome reference. Typical preprocessing:
+The BAM should be coordinate-sorted and aligned to a transcriptome reference.
+
+Typical preprocessing:
 
 ```bash
 minimap2 --eqx -N 100 -ax map-ont -y transcriptome.fa reads.fastq \
   | samtools sort -o alignments.bam
+
 samtools index alignments.bam
 ```
 
@@ -232,10 +311,13 @@ cd isolens
 pip install -e ".[dev]"
 ```
 
-Run without installing (using `uv`):
+Run without installing:
 
 ```bash
-uv run python -m isolens.mod_scan -b ... -a ... -o ...
+uv run python -m isolens.mod_scan \
+  -b ... \
+  -a ... \
+  -o ...
 ```
 
 Run tests:
@@ -253,9 +335,9 @@ ruff format src tests
 
 ---
 
-## Example data
+## Example Data
 
-The `examples/` directory contains a small test dataset (subset of two _Drosophila_ transcripts) suitable for verifying changes:
+The `examples/` directory contains a small test dataset (subset of two *Drosophila* transcripts) suitable for verifying changes.
 
 ```bash
 python -m isolens.mod_scan \
