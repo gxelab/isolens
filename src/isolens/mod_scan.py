@@ -190,18 +190,13 @@ def parse_cigar_for_row(record, tx_length):
 # ---------- modification parsing ----------
 
 
-def _ensure_mod_code(mod_type, mod_code_map, mod_code_map_lock):
-    """Assign a stable integer code for a modification type (thread-safe).
+def _ensure_mod_code(mod_type, mod_code_map):
+    """Assign a stable integer code for a modification type.
 
     Returns the integer code for *mod_type* (≥4).
     """
     if mod_type not in mod_code_map:
-        if mod_code_map_lock is not None:
-            with mod_code_map_lock:
-                if mod_type not in mod_code_map:
-                    mod_code_map[mod_type] = len(mod_code_map) + 4
-        else:
-            mod_code_map[mod_type] = len(mod_code_map) + 4
+        mod_code_map[mod_type] = len(mod_code_map) + 4
     return mod_code_map[mod_type]
 
 
@@ -212,7 +207,6 @@ def parse_modifications(
     mod_cutoff_u8,
     mod_code_map,
     seen_mod_types,
-    mod_code_map_lock=None,
 ):
     """Parse MM/ML tags and override *row* in-place with modification codes.
 
@@ -237,9 +231,6 @@ def parse_modifications(
             Maps modification type string → integer code (starting at 4).
         seen_mod_types: ``set[str]`` — mutated in-place.
             Set of all modification type strings encountered.
-        mod_code_map_lock: ``threading.Lock`` or ``None``.
-            When not ``None``, used to serialise inserts into
-            *mod_code_map* across threads (double-checked locking).
     """
     # Read MM tag (prefer uppercase, fall back to lowercase)
     mm_str = None
@@ -267,11 +258,11 @@ def parse_modifications(
     threshold = (mod_cutoff_u8 + 0.5) / 256.0
 
     # ---- Pass 1: collect per-position modification probabilities ----
-    # per_position: read_pos_0 → {mod_type: prob_float (0..1)}
-    # per_position_byte: read_pos_0 → {mod_type: raw_ml_byte (0..255)}
-    per_position: dict[int, dict[str, float]] = {}
-    per_position_byte: dict[int, dict[str, int]] = {}
+    # per_position: read_pos_0 → {mod_type: (prob_float, raw_ml_byte)}
+    per_position: dict[int, dict[str, tuple[float, int]]] = {}
     total_mod_instance_idx = 0
+
+    base_positions_cache: dict[str, list[int]] = {}
 
     for mod_group in mm_str.split(";"):
         if not mod_group:
@@ -293,11 +284,16 @@ def parse_modifications(
             continue
 
         # ---- Pre-compute target-base positions via C-level str.find ----
-        positions = []
-        pos = seq.find(target_base)
-        while pos != -1:
-            positions.append(pos)
-            pos = seq.find(target_base, pos + 1)
+        # Cache per base character — multiple MM groups may target the
+        # same base (e.g. A+a and A+17596 both target 'A').
+        if target_base not in base_positions_cache:
+            positions = []
+            pos = seq.find(target_base)
+            while pos != -1:
+                positions.append(pos)
+                pos = seq.find(target_base, pos + 1)
+            base_positions_cache[target_base] = positions
+        positions = base_positions_cache[target_base]
 
         # ---- Apply skip pattern over target-base positions ----
         occ_idx = 0  # index into *positions*
@@ -315,31 +311,27 @@ def parse_modifications(
                 raw_byte = ml_bytes[total_mod_instance_idx]
                 prob = (raw_byte + 0.5) / 256.0
 
-            per_position.setdefault(read_pos_0, {})[mod_type] = prob
-            per_position_byte.setdefault(read_pos_0, {})[mod_type] = raw_byte
+            per_position.setdefault(read_pos_0, {})[mod_type] = (prob, raw_byte)
 
             total_mod_instance_idx += 1
             occ_idx += 1  # move past the marked occurrence
 
     # ---- Pass 2: determine the call per position ----
-    for read_pos_0, mod_probs in per_position.items():
-        # Compute P_canonical from raw bytes, matching modkit's byte-space
-        # arithmetic.  Using 1 - sum(probs) is subtly wrong when multiple
-        # modifications are present at the same position: each prob
-        # contributes a 0.5/256 offset that shifts the canonical
-        # probability downwards, making the filter spuriously more
-        # aggressive (byte thresholds differ: modkit >12.3 vs old isolens
-        # >12.8−n·0.5).
-        byte_dict = per_position_byte[read_pos_0]
-        total_mod_qual = sum(byte_dict.values())
-        canonical_qual = max(0, 255 - total_mod_qual)  # saturating sub
-        p_canonical = (canonical_qual + 0.5) / 256.0
+    for read_pos_0, mod_data in per_position.items():
+        # Compute P_canonical exactly as modkit does:
+        # canonical_prob() = 1f32 - probs.values().sum::<f32>()
+        # Each mod prob already includes its 0.5/256 offset from the
+        # ML byte-to-prob conversion (byte+0.5)/256, so the subtraction
+        # correctly accounts for all N mods present at the position.
+        p_canonical = 1.0 - sum(p for p, _ in mod_data.values())
+        if p_canonical < 0.0:
+            p_canonical = 0.0
 
         # Find max probability and corresponding modification
         max_prob = p_canonical
         best_mod = None  # None means canonical wins
 
-        for mod_type, prob in mod_probs.items():
+        for mod_type, (prob, _raw_byte) in mod_data.items():
             if prob > max_prob:
                 max_prob = prob
                 best_mod = mod_type
@@ -353,11 +345,11 @@ def parse_modifications(
                 code = CODE_CANONICAL
         else:
             # Modification won — compare raw byte to q (mod_cutoff_u8)
-            best_byte = per_position_byte[read_pos_0][best_mod]
+            best_byte = mod_data[best_mod][1]
             if best_byte < mod_cutoff_u8:
                 code = CODE_FAIL
             else:
-                code = _ensure_mod_code(best_mod, mod_code_map, mod_code_map_lock)
+                code = _ensure_mod_code(best_mod, mod_code_map)
 
         # Map read position to transcript position and update row
         if read_pos_0 < len(read_to_tx_map):
@@ -389,17 +381,10 @@ def write_transcript_group(h5, tx_name, rows, read_ids, weights):
     n_reads = len(rows)
     tx_length = rows[0].shape[0]
 
-    # Verify all rows have the same length
-    for r in rows:
-        if r.shape[0] != tx_length:
-            raise ValueError(
-                f"Row length mismatch for transcript '{tx_name}': "
-                f"expected {tx_length}, got {r.shape[0]}"
-            )
-
     grp = h5.create_group(f"transcripts/{tx_name}")
 
     # Stack rows into a contiguous 2D matrix
+    # (np.stack raises ValueError if row shapes mismatch)
     matrix = np.stack(rows, axis=0)  # shape (n_reads, tx_length), dtype uint8
 
     # Chunk rows based on transcript length
@@ -694,9 +679,9 @@ def _run_sequential(
                 current_reads = []
             current_tx_id = tx_id
 
-        # Find the exact assignment for this transcript (dict for O(1) lookup)
-        assign_dict = {a.tx_id: a for a in assignments}
-        assignment = assign_dict.get(tx_id)
+        # Find the exact assignment for this transcript
+        # (linear scan — assignment lists are small, 1–10 elements)
+        assignment = next((a for a in assignments if a.tx_id == tx_id), None)
         if not assignment:
             continue
 
@@ -857,9 +842,9 @@ def _run_parallel(
                 current_tx_id = tx_id
                 current_tx_length = tx_lengths.get(tx_id, bam.lengths[tx_index])
 
-            # Find the exact assignment for this transcript (dict for O(1) lookup)
-            assign_dict = {a.tx_id: a for a in assignments}
-            assignment = assign_dict.get(tx_id)
+            # Find the exact assignment for this transcript
+            # (linear scan — assignment lists are small, 1–10 elements)
+            assignment = next((a for a in assignments if a.tx_id == tx_id), None)
             if not assignment:
                 continue
 

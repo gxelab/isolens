@@ -543,7 +543,10 @@ class TestWriteTranscriptGroup:
 
         try:
             with h5py.File(tmp_path, "w") as h5:
-                with pytest.raises(ValueError, match="Row length mismatch"):
+                with pytest.raises(
+                    ValueError,
+                    match="all input arrays must have the same shape",
+                ):
                     write_transcript_group(h5, "BAD_TX", rows, ["a", "b"], [0.5, 0.5])
         finally:
             os.unlink(tmp_path)

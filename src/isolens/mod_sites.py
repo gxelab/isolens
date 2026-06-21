@@ -155,25 +155,25 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
         mod_level, wt_mod_level.
     """
     n_reads, tx_length = matrix.shape
-    weights_2d = weights[:, np.newaxis].astype(np.float64)  # (n_reads, 1)
+    w64 = weights.astype(np.float64)  # (n_reads,) float64
 
     # ---- base stats (same for all modification types at each position) ----
 
     mismatch_mask = matrix == CODE_MISMATCH  # bool (n_reads, tx_length)
-    n_mismatch = mismatch_mask.sum(axis=0).astype(np.int32)
-    w_mismatch = (mismatch_mask * weights_2d).sum(axis=0).astype(np.float64)
+    n_mismatch = np.sum(mismatch_mask, axis=0, dtype=np.int32)
+    w_mismatch = w64 @ mismatch_mask  # (tx_length,) float64
 
     deletion_mask = matrix == CODE_DELETION
-    n_del = deletion_mask.sum(axis=0).astype(np.int32)
-    w_del = (deletion_mask * weights_2d).sum(axis=0).astype(np.float64)
+    n_del = np.sum(deletion_mask, axis=0, dtype=np.int32)
+    w_del = w64 @ deletion_mask
 
     failed_mask = matrix == CODE_FAIL
-    n_failed = failed_mask.sum(axis=0).astype(np.int32)
-    w_failed = (failed_mask * weights_2d).sum(axis=0).astype(np.float64)
+    n_failed = np.sum(failed_mask, axis=0, dtype=np.int32)
+    w_failed = w64 @ failed_mask
 
     canonical_mask = matrix == CODE_CANONICAL  # bool (n_reads, tx_length)
-    n_canonical = canonical_mask.sum(axis=0).astype(np.int32)
-    w_canonical = (canonical_mask * weights_2d).sum(axis=0).astype(np.float64)
+    n_canonical = np.sum(canonical_mask, axis=0, dtype=np.int32)
+    w_canonical = w64 @ canonical_mask
 
     # ---- per-modification-type stats ----
 
@@ -181,14 +181,14 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
 
     for mod_str, code in mod_codes:
         mod_mask = matrix == code  # bool (n_reads, tx_length)
-        n_mod = mod_mask.sum(axis=0).astype(np.int32)
-        w_mod = (mod_mask * weights_2d).sum(axis=0).astype(np.float64)
+        n_mod = np.sum(mod_mask, axis=0, dtype=np.int32)
+        w_mod = w64 @ mod_mask
 
         # Other modifications: any mod code (≥4) that is not the focal
         # type and not CODE_FAIL
         othermod_mask = (matrix >= 4) & (matrix != code) & (matrix != CODE_FAIL)
-        n_othermod = othermod_mask.sum(axis=0).astype(np.int32)
-        w_othermod = (othermod_mask * weights_2d).sum(axis=0).astype(np.float64)
+        n_othermod = np.sum(othermod_mask, axis=0, dtype=np.int32)
+        w_othermod = w64 @ othermod_mask
 
         # Unmodified = canonical + othermod
         n_unmod = n_canonical + n_othermod
