@@ -4,14 +4,20 @@ conditions using a weighted two-sample Kolmogorov-Smirnov test.
 """
 
 import argparse
-import gzip
 import sys
+from typing import Any
 
 import numpy as np
 from scipy.stats import kstwobign
 
+try:
+    from isolens._parsing import open_by_suffix
+except ImportError:
+    from _parsing import open_by_suffix  # type: ignore[no-redef]
 
-def parse_args():
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for polya_diff."""
     parser = argparse.ArgumentParser(
         description="Genome-wide statistical comparison of poly(A) length "
         "distributions using a weighted KS test."
@@ -32,19 +38,24 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_open_func(filename):
-    if filename.endswith(".gz"):
-        return lambda f: gzip.open(f, "rt", encoding="utf-8")
-    return lambda f: open(f, encoding="utf-8")
+def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Parse a poly(A) TSV file and return ``(id_column_name, data_dict)``.
 
+    Handles both transcript-level (``tx_name`` column) and gene-level
+    (``gene_id`` column) input formats.  Auto-detects gzip by ``.gz``
+    suffix.
 
-def parse_polyA_file(filename):
-    """Parse a poly(A) TSV file and return (id_column_name, data_dict)."""
+    Args:
+        filename: Path to the input TSV or TSV.GZ file.
+
+    Returns:
+        ``(id_col_name, data_dict)`` where *data_dict* maps feature IDs
+        to dicts with keys ``n_reads``, ``pa_wlen``, ``probs``, ``pa_lens``.
+    """
     print(f"Loading data from {filename}...", file=sys.stderr)
-    data_dict = {}
-    open_func = get_open_func(filename)
+    data_dict: dict[str, dict[str, Any]] = {}
 
-    with open_func(filename) as f:
+    with open_by_suffix(filename, "rt" if filename.endswith(".gz") else "r") as f:
         header = f.readline().strip().split("\t")
 
         # Detect whether transcript-level or gene-level output
@@ -76,8 +87,18 @@ def parse_polyA_file(filename):
     return id_col_name, data_dict
 
 
-def weighted_ecdf(values, weights):
-    """Compute the weighted Empirical Cumulative Distribution Function."""
+def weighted_ecdf(
+    values: np.ndarray, weights: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute the weighted Empirical Cumulative Distribution Function.
+
+    Args:
+        values: 1-D array of observed values.
+        weights: 1-D array of weights (same length as *values*).
+
+    Returns:
+        ``(sorted_values, cdf)`` where *cdf* runs from 0 to 1.
+    """
     sorter = np.argsort(values)
     values = values[sorter]
     weights = weights[sorter]
@@ -87,8 +108,23 @@ def weighted_ecdf(values, weights):
     return values, cdf
 
 
-def weighted_ks_test(v1, w1, v2, w2):
-    """Two-sample weighted KS test using Kish's effective sample sizes."""
+def weighted_ks_test(
+    v1: np.ndarray,
+    w1: np.ndarray,
+    v2: np.ndarray,
+    w2: np.ndarray,
+) -> tuple[float, float]:
+    """Two-sample weighted KS test using Kish's effective sample sizes.
+
+    Args:
+        v1, v2: Observed values for samples 1 and 2.
+        w1, w2: Weights for samples 1 and 2 (same lengths as *v1*, *v2*).
+
+    Returns:
+        ``(ks_statistic, p_value)`` where *ks_statistic* is the maximum
+        absolute difference between the weighted ECDFs and *p_value* is
+        computed via the Kolmogorov distribution with effective sample sizes.
+    """
     all_vals = np.unique(np.concatenate([v1, v2]))
 
     _, cdf1 = weighted_ecdf(v1, w1)
@@ -108,7 +144,13 @@ def weighted_ks_test(v1, w1, v2, w2):
     return ks_stat, min(1.0, max(0.0, p_val))
 
 
-def main():
+def main() -> None:
+    """Compare poly(A) length distributions between two conditions.
+
+    Reads two poly(A) TSV files (from ``polya_calc`` or ``polya_t2g``),
+    performs a weighted two-sample KS test on each shared feature, and
+    writes a comparison table.
+    """
     args = parse_args()
 
     id_name_1, cond1_data = parse_polyA_file(args.condition1)
@@ -126,16 +168,10 @@ def main():
         if not output_filename.endswith(".gz"):
             output_filename += ".gz"
 
-        def open_output(f):
-            return gzip.open(f, "wt", encoding="utf-8")
-    else:
-
-        def open_output(f):
-            return open(f, "w", encoding="utf-8")
-
     print(f"Writing statistical test matrix to {output_filename}...", file=sys.stderr)
 
-    with open_output(output_filename) as out_f:
+    write_mode = "wt" if output_filename.endswith(".gz") else "w"
+    with open_by_suffix(output_filename, write_mode) as out_f:
         out_f.write(
             f"{id_col_header}\tn_reads_1\tpa_wlen_1\tn_reads_2\t"
             f"pa_wlen_2\tstat\tp_value\n"

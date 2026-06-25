@@ -9,6 +9,7 @@ import concurrent.futures
 import functools
 import sys
 import uuid
+from typing import Any
 
 import h5py
 import numpy as np
@@ -20,6 +21,15 @@ except ImportError:
     from _parsing import parse_oarfish  # running as standalone script
 
 # ---------- matrix encoding constants ----------
+# Each position in the read × transcript matrix is encoded as a uint8:
+#
+#   CODE_UNCOVERED  = 0   no read coverage at this position
+#   CODE_CANONICAL  = 1   canonical (unmodified) base, high confidence
+#   CODE_MISMATCH   = 2   reference mismatch (CIGAR X operator)
+#   CODE_DELETION   = 3   deletion relative to reference (CIGAR D)
+#   4, 5, 6, ...          tracked modification types (assigned at runtime)
+#   CODE_OTHERMOD   = 254 untracked modification won above threshold
+#   CODE_FAIL       = 255 all states below probability threshold
 
 CODE_UNCOVERED = 0
 CODE_CANONICAL = 1
@@ -73,11 +83,11 @@ class _ReadRecord:
     def __init__(
         self,
         *,
-        reference_start,
-        cigartuples,
-        query_sequence,
-        mm_tag=None,
-        ml_bytes=None,
+        reference_start: int | None = None,
+        cigartuples: list[tuple[int, int]] | None = None,
+        query_sequence: str | None = None,
+        mm_tag: str | None = None,
+        ml_bytes: bytes | None = None,
     ):
         self.reference_start = reference_start
         self.cigartuples = cigartuples
@@ -85,14 +95,14 @@ class _ReadRecord:
         self._mm_tag = mm_tag
         self._ml_bytes = ml_bytes
 
-    def has_tag(self, tag):
+    def has_tag(self, tag: str) -> bool:
         if tag in ("MM", "mm"):
             return self._mm_tag is not None
         if tag in ("ML", "ml"):
             return self._ml_bytes is not None
         return False
 
-    def get_tag(self, tag):
+    def get_tag(self, tag: str) -> str | bytes:
         if tag in ("MM", "mm"):
             return self._mm_tag
         if tag in ("ML", "ml"):
@@ -100,7 +110,7 @@ class _ReadRecord:
         raise KeyError(tag)
 
 
-def _extract_record(record):
+def _extract_record(record: pysam.AlignedSegment) -> _ReadRecord:
     """Extract fields from a live pysam record into a ``_ReadRecord``.
 
     Must be called from the main thread (or any thread that owns the
@@ -131,7 +141,10 @@ def _extract_record(record):
 # ---------- CIGAR parsing ----------
 
 
-def parse_cigar_for_row(record, tx_length):
+def parse_cigar_for_row(
+    record: pysam.AlignedSegment | _ReadRecord,
+    tx_length: int,
+) -> tuple[np.ndarray, np.ndarray]:
     """Build a uint8 matrix row and read-to-transcript position map from CIGAR.
 
     Uses NumPy slice assignments instead of per-position Python loops,
@@ -142,12 +155,15 @@ def parse_cigar_for_row(record, tx_length):
         tx_length: int — length of the target transcript in bases.
 
     Returns:
-        (row, read_to_tx_map) where:
-        - *row* is a ``numpy.ndarray`` of shape ``(tx_length,)``, dtype uint8,
-          filled with states (0=uncovered, 1=match, 2=mismatch, 3=deletion).
+        ``(row, read_to_tx_map)`` where:
+
+        - *row* is a ``numpy.ndarray`` of shape ``(tx_length,)``, dtype
+          uint8, filled with states (0=uncovered, 1=match, 2=mismatch,
+          3=deletion).
         - *read_to_tx_map* is a ``numpy.ndarray`` of shape
-          ``(len(query_sequence),)``, dtype int32.  Each entry is the 1-based
-          transcript position or -1 (sentinel for insertions / soft-clipped bases).
+          ``(len(query_sequence),)``, dtype int32.  Each entry is the
+          1-based transcript position or -1 (sentinel for insertions /
+          soft-clipped bases).
     """
     row = np.zeros(tx_length, dtype=np.uint8)
 
@@ -232,7 +248,7 @@ def parse_cigar_for_row(record, tx_length):
 # ---------- modification parsing ----------
 
 
-def _ensure_mod_code(mod_type, mod_code_map):
+def _ensure_mod_code(mod_type: str, mod_code_map: dict[str, int]) -> int:
     """Assign a stable integer code for a modification type.
 
     Returns the integer code for *mod_type* (≥4).
@@ -243,14 +259,14 @@ def _ensure_mod_code(mod_type, mod_code_map):
 
 
 def parse_modifications(
-    record,
-    row,
-    read_to_tx_map,
-    filter_threshold,
-    tracked_mod_types,
-    mod_code_map,
-    seen_mod_types,
-):
+    record: pysam.AlignedSegment | _ReadRecord,
+    row: np.ndarray,
+    read_to_tx_map: np.ndarray,
+    filter_threshold: float,
+    tracked_mod_types: frozenset,
+    mod_code_map: dict[str, int],
+    seen_mod_types: set,
+) -> None:
     """Parse MM/ML tags and override *row* in-place with modification codes.
 
     Follows the modkit state classification pipeline:
@@ -395,19 +411,19 @@ def parse_modifications(
     # before comparing against the filter threshold.
     threshold_raw = int(filter_threshold * 256)
 
-    nrow = len(row)
-    nrtm = len(read_to_tx_map)
+    row_len = len(row)
+    tx_map_len = len(read_to_tx_map)
 
     for read_pos_0, instances in per_position.items():
         # Map read position to transcript position.
-        if read_pos_0 >= nrtm:
+        if read_pos_0 >= tx_map_len:
             continue
         tx_pos_1 = read_to_tx_map[read_pos_0]
         if tx_pos_1 == -1:
             # -1 is the sentinel for insertions / soft-clipped bases
             continue
         tx_pos_0 = int(tx_pos_1) - 1  # convert to 0-based int
-        if not (0 <= tx_pos_0 < nrow):
+        if not (0 <= tx_pos_0 < row_len):
             continue
 
         # Preserve CIGAR reference mismatches (modkit's 'diff').
@@ -456,13 +472,20 @@ def parse_modifications(
 # ---------- HDF5 output ----------
 
 
-def write_transcript_group(h5, tx_name, rows, read_ids, weights):
+def write_transcript_group(
+    h5: h5py.File,
+    tx_name: str,
+    rows: list[np.ndarray],
+    read_ids: list[str],
+    weights: list[float],
+) -> None:
     """Write one transcript's matrix and metadata into an open HDF5 file.
 
     Args:
         h5: ``h5py.File`` open for writing.
         tx_name: str — transcript name (used as group name).
-        rows: ``list[numpy.ndarray]`` — each of shape ``(tx_length,)``, dtype uint8.
+        rows: ``list[numpy.ndarray]`` — each of shape ``(tx_length,)``,
+            dtype uint8.
         read_ids: ``list[str]`` — original read UUID strings.
         weights: ``list[float]`` — assignment probabilities.
 
@@ -514,8 +537,12 @@ def write_transcript_group(h5, tx_name, rows, read_ids, weights):
 
 
 def _process_transcript(
-    tx_length, read_records, filter_threshold, tracked_mod_types, mod_code_map
-):
+    tx_length: int,
+    read_records: list[_ReadRecord],
+    filter_threshold: float,
+    tracked_mod_types: frozenset,
+    mod_code_map: dict[str, int],
+) -> tuple[list[np.ndarray], set]:
     """Process all reads for one transcript (worker-process entry point).
 
     Args:
@@ -535,7 +562,7 @@ def _process_transcript(
         modification types observed by this worker.
     """
     rows = []
-    local_seen = set()
+    local_seen: set[str] = set()
     for record in read_records:
         row, read_to_tx_map = parse_cigar_for_row(record, tx_length)
         parse_modifications(
@@ -552,17 +579,17 @@ def _process_transcript(
 
 
 def _submit_batch(
-    executor,
-    pending,
-    records,
-    read_ids,
-    weights,
-    tx_length,
-    tx_name,
-    filter_threshold,
-    tracked_mod_types,
-    mod_code_map,
-):
+    executor: concurrent.futures.ProcessPoolExecutor,
+    pending: dict,
+    records: list[_ReadRecord],
+    read_ids: list[str],
+    weights: list[float],
+    tx_length: int,
+    tx_name: str,
+    filter_threshold: float,
+    tracked_mod_types: frozenset,
+    mod_code_map: dict[str, int],
+) -> None:
     """Submit one transcript batch to the process pool.
 
     Stores the resulting ``Future`` in *pending* keyed to
@@ -592,7 +619,12 @@ def _submit_batch(
     pending[future] = (tx_name, read_ids, weights)
 
 
-def _drain_one(pending, h5, global_seen, verbose):
+def _drain_one(
+    pending: dict,
+    h5: h5py.File,
+    global_seen: set,
+    verbose: bool,
+) -> tuple[int, int]:
     """Wait for at least one pending future and write its result to HDF5.
 
     Returns ``(n_tx_flushed, n_assign_flushed)``.
@@ -614,7 +646,12 @@ def _drain_one(pending, h5, global_seen, verbose):
     return n_tx, n_assign
 
 
-def _drain_all(pending, h5, global_seen, verbose):
+def _drain_all(
+    pending: dict,
+    h5: h5py.File,
+    global_seen: set,
+    verbose: bool,
+) -> tuple[int, int]:
     """Wait for all pending futures and write their results to HDF5.
 
     Returns ``(n_tx_flushed, n_assign_flushed)``.
@@ -631,8 +668,8 @@ def _drain_all(pending, h5, global_seen, verbose):
 # ---------- CLI ----------
 
 
-def parse_args():
-    """Parse command-line arguments."""
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for mod_scan."""
     parser = argparse.ArgumentParser(
         description="mod_scan: Generate HDF5 read x position modification matrices"
     )
@@ -706,6 +743,92 @@ def parse_args():
     return parser.parse_args()
 
 
+# ---------- shared helpers ----------
+
+
+def _write_global_metadata(
+    h5: h5py.File,
+    mod_cutoff: float,
+    min_asp: float,
+    mod_code_map: dict[str, int],
+    n_transcripts: int,
+    n_assignments: int,
+) -> None:
+    """Write the ``/modification_codes`` and ``/metadata`` groups to HDF5.
+
+    Args:
+        h5: ``h5py.File`` open for writing.
+        mod_cutoff: float — modification probability cutoff.
+        min_asp: float — minimum assignment probability filter.
+        mod_code_map: ``dict[str, int]`` — modification type → code.
+        n_transcripts: int — number of transcripts written.
+        n_assignments: int — number of read assignments written.
+    """
+    # Global /modification_codes
+    codes_grp = h5.create_group("modification_codes")
+    for mod_type, code in sorted(mod_code_map.items(), key=lambda x: x[1]):
+        codes_grp.attrs[mod_type] = code
+
+    # Global /metadata
+    meta = h5.create_group("metadata")
+    meta.attrs["mod_cutoff"] = mod_cutoff
+    meta.attrs["min_asp"] = min_asp
+    meta.attrs["pipeline_version"] = "0.1.0"
+    meta.attrs["n_transcripts"] = n_transcripts
+    meta.attrs["n_assignments"] = n_assignments
+    meta.attrs["modification_codes"] = str(
+        dict(sorted(mod_code_map.items(), key=lambda x: x[1]))
+    )
+
+
+def _resolve_read_assignment(
+    record: pysam.AlignedSegment,
+    prob_map: dict[int, list],
+    bam_ref_to_tx_id: list[int | None],
+) -> tuple[int, Any] | None:
+    """Resolve a BAM record to its Oarfish transcript assignment.
+
+    Looks up the read by UUID in the Oarfish probability map, then
+    matches the BAM reference index to a transcript ID and finds the
+    exact assignment for that transcript.
+
+    Args:
+        record: ``pysam.AlignedSegment`` from the BAM iterator.
+        prob_map: Oarfish ``read_id_int → list[TargetAssignment]`` map.
+        bam_ref_to_tx_id: ``list[int|None]`` — BAM reference index →
+            Oarfish transcript ID.
+
+    Returns:
+        ``(tx_id, assignment)`` if a matching assignment is found, or
+        ``None`` if any lookup fails.
+    """
+    # Look up read in Oarfish by UUID
+    try:
+        read_id_int = _uuid_to_int(record.query_name)
+    except ValueError:
+        return None
+
+    assignments = prob_map.get(read_id_int)
+    if not assignments:
+        return None
+
+    tx_index = record.reference_id
+    if tx_index is None or tx_index < 0:
+        return None
+
+    tx_id = bam_ref_to_tx_id[tx_index]
+    if tx_id is None:
+        return None
+
+    # Find the exact assignment for this transcript
+    # (linear scan — assignment lists are small, 1–10 elements)
+    assignment = next((a for a in assignments if a.tx_id == tx_id), None)
+    if not assignment:
+        return None
+
+    return tx_id, assignment
+
+
 # ---------- main pipeline ----------
 
 
@@ -713,8 +836,15 @@ def parse_args():
 
 
 def _run_sequential(
-    bam, args, h5, tx_names, prob_map, bam_ref_to_tx_id, filter_threshold, mod_code_map
-):
+    bam: pysam.AlignmentFile,
+    args: argparse.Namespace,
+    h5: h5py.File,
+    tx_names: list[str],
+    prob_map: dict[int, list],
+    bam_ref_to_tx_id: list[int | None],
+    filter_threshold: float,
+    mod_code_map: dict[str, int],
+) -> tuple[int, int, int, int, dict[str, int], set]:
     """Stream through the BAM transcript-by-transcript (single-threaded).
 
     *mod_code_map* is pre-filled with user-requested modification types
@@ -723,15 +853,15 @@ def _run_sequential(
     Returns ``(n_tx, n_assign, total_records, matched_reads,
     mod_code_map, seen_mod_types)``.
     """
-    seen_mod_types = set()
+    seen_mod_types: set[str] = set()
     # Snapshot tracked modification types before any runtime mutations.
     # Only these types participate in winner selection (modkit Step 4).
     tracked_mod_types = frozenset(mod_code_map.keys())
 
-    current_tx_id = None
-    current_read_ids = []   # list[str]
-    current_rows = []       # list[numpy.ndarray]
-    current_weights = []    # list[float]
+    current_tx_id: int | None = None
+    current_read_ids: list[str] = []
+    current_rows: list[np.ndarray] = []
+    current_weights: list[float] = []
     n_transcripts_written = 0
     n_assignments_written = 0
 
@@ -749,23 +879,10 @@ def _run_sequential(
         if record.is_unmapped:
             continue
 
-        # Look up read in Oarfish by UUID
-        try:
-            read_id_int = _uuid_to_int(record.query_name)
-        except ValueError:
+        resolved = _resolve_read_assignment(record, prob_map, bam_ref_to_tx_id)
+        if resolved is None:
             continue
-
-        assignments = prob_map.get(read_id_int)
-        if not assignments:
-            continue
-
-        tx_index = record.reference_id
-        if tx_index is None or tx_index < 0:
-            continue
-
-        tx_id = bam_ref_to_tx_id[tx_index]
-        if tx_id is None:
-            continue
+        tx_id, assignment = resolved
 
         # ---- Transcript change: flush previous transcript ----
         if tx_id != current_tx_id:
@@ -790,12 +907,6 @@ def _run_sequential(
                 current_weights = []
             current_tx_id = tx_id
 
-        # Find the exact assignment for this transcript
-        # (linear scan — assignment lists are small, 1–10 elements)
-        assignment = next((a for a in assignments if a.tx_id == tx_id), None)
-        if not assignment:
-            continue
-
         # Depth limit: skip if this transcript already has enough reads
         if args.max_depth is not None and len(current_rows) >= args.max_depth:
             continue
@@ -807,7 +918,7 @@ def _run_sequential(
         matched_reads += 1
 
         # ---- Build matrix row ----
-        tx_length = bam.lengths[tx_index]
+        tx_length = bam.lengths[record.reference_id]
         # Extract to _ReadRecord to avoid redundant pysam C calls in
         # parse_modifications (which otherwise re-extracts MM/ML tags).
         extracted = _extract_record(record)
@@ -831,26 +942,23 @@ def _run_sequential(
     # ---- Flush the last transcript ----
     if current_tx_id is not None and current_rows:
         write_transcript_group(
-            h5, tx_names[current_tx_id], current_rows,
-            current_read_ids, current_weights,
+            h5,
+            tx_names[current_tx_id],
+            current_rows,
+            current_read_ids,
+            current_weights,
         )
         n_transcripts_written += 1
         n_assignments_written += len(current_rows)
 
-    # ---- Global /modification_codes ----
-    codes_grp = h5.create_group("modification_codes")
-    for mod_type, code in sorted(mod_code_map.items(), key=lambda x: x[1]):
-        codes_grp.attrs[mod_type] = code
-
-    # ---- Global /metadata ----
-    meta = h5.create_group("metadata")
-    meta.attrs["mod_cutoff"] = args.mod_cutoff
-    meta.attrs["min_asp"] = args.min_asp
-    meta.attrs["pipeline_version"] = "0.1.0"
-    meta.attrs["n_transcripts"] = n_transcripts_written
-    meta.attrs["n_assignments"] = n_assignments_written
-    meta.attrs["modification_codes"] = str(
-        dict(sorted(mod_code_map.items(), key=lambda x: x[1]))
+    # ---- Global metadata ----
+    _write_global_metadata(
+        h5,
+        args.mod_cutoff,
+        args.min_asp,
+        mod_code_map,
+        n_transcripts_written,
+        n_assignments_written,
     )
 
     return (
@@ -867,16 +975,16 @@ def _run_sequential(
 
 
 def _run_parallel(
-    bam,
-    args,
-    h5,
-    tx_names,
-    prob_map,
-    bam_ref_to_tx_id,
-    tx_lengths,
-    filter_threshold,
-    mod_code_map,
-):
+    bam: pysam.AlignmentFile,
+    args: argparse.Namespace,
+    h5: h5py.File,
+    tx_names: list[str],
+    prob_map: dict[int, list],
+    bam_ref_to_tx_id: list[int | None],
+    tx_lengths: dict[int, int],
+    filter_threshold: float,
+    mod_code_map: dict[str, int],
+) -> tuple[int, int, int, int, dict[str, int], set]:
     """Stream through the BAM and process transcripts in parallel.
 
     The main thread scans the BAM and submits transcript batches to a
@@ -888,18 +996,18 @@ def _run_parallel(
     Returns ``(n_tx, n_assign, total_records, matched_reads,
     mod_code_map, seen_mod_types)``.
     """
-    seen_mod_types = set()
+    seen_mod_types: set[str] = set()
     # Snapshot tracked modification types before any runtime mutations.
     # Only these types participate in winner selection (modkit Step 4).
     tracked_mod_types = frozenset(mod_code_map.keys())
 
     max_pending = max(2, args.threads * 2)
 
-    current_tx_id = None
+    current_tx_id: int | None = None
     current_tx_length = 0
-    current_records = []   # list[_ReadRecord]
-    current_read_ids = []  # list[str]
-    current_weights = []   # list[float]
+    current_records: list[_ReadRecord] = []
+    current_read_ids: list[str] = []
+    current_weights: list[float] = []
 
     n_transcripts_written = 0
     n_assignments_written = 0
@@ -907,7 +1015,7 @@ def _run_parallel(
     matched_reads = 0
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.threads) as executor:
-        pending = {}  # Future → (tx_name, read_ids, weights)
+        pending: dict[concurrent.futures.Future, tuple] = {}
 
         for record in bam:
             total_records += 1
@@ -920,23 +1028,10 @@ def _run_parallel(
             if record.is_unmapped:
                 continue
 
-            # Look up read in Oarfish by UUID
-            try:
-                read_id_int = _uuid_to_int(record.query_name)
-            except ValueError:
+            resolved = _resolve_read_assignment(record, prob_map, bam_ref_to_tx_id)
+            if resolved is None:
                 continue
-
-            assignments = prob_map.get(read_id_int)
-            if not assignments:
-                continue
-
-            tx_index = record.reference_id
-            if tx_index is None or tx_index < 0:
-                continue
-
-            tx_id = bam_ref_to_tx_id[tx_index]
-            if tx_id is None:
-                continue
+            tx_id, assignment = resolved
 
             # ---- Transcript change ----
             if tx_id != current_tx_id:
@@ -967,13 +1062,9 @@ def _run_parallel(
                     current_read_ids = []
                     current_weights = []
                 current_tx_id = tx_id
-                current_tx_length = tx_lengths.get(tx_id, bam.lengths[tx_index])
-
-            # Find the exact assignment for this transcript
-            # (linear scan — assignment lists are small, 1–10 elements)
-            assignment = next((a for a in assignments if a.tx_id == tx_id), None)
-            if not assignment:
-                continue
+                current_tx_length = tx_lengths.get(
+                    tx_id, bam.lengths[record.reference_id]
+                )
 
             # Depth limit
             if args.max_depth is not None and len(current_records) >= args.max_depth:
@@ -1013,20 +1104,14 @@ def _run_parallel(
         n_transcripts_written += dt
         n_assignments_written += da
 
-    # ---- Global /modification_codes ----
-    codes_grp = h5.create_group("modification_codes")
-    for mod_type, code in sorted(mod_code_map.items(), key=lambda x: x[1]):
-        codes_grp.attrs[mod_type] = code
-
-    # ---- Global /metadata ----
-    meta = h5.create_group("metadata")
-    meta.attrs["mod_cutoff"] = args.mod_cutoff
-    meta.attrs["min_asp"] = args.min_asp
-    meta.attrs["pipeline_version"] = "0.1.0"
-    meta.attrs["n_transcripts"] = n_transcripts_written
-    meta.attrs["n_assignments"] = n_assignments_written
-    meta.attrs["modification_codes"] = str(
-        dict(sorted(mod_code_map.items(), key=lambda x: x[1]))
+    # ---- Global metadata ----
+    _write_global_metadata(
+        h5,
+        args.mod_cutoff,
+        args.min_asp,
+        mod_code_map,
+        n_transcripts_written,
+        n_assignments_written,
     )
 
     return (
@@ -1042,7 +1127,17 @@ def _run_parallel(
 # ---------- main dispatcher ----------
 
 
-def main():
+def main() -> None:
+    """Scan a transcriptome BAM for base modifications and write HDF5 output.
+
+    Steps:
+    1. Load Oarfish read-to-transcript assignment probabilities.
+    2. Open the coordinate-sorted BAM and map reference indices.
+    3. Build the modification code map from ``--mod-type`` arguments.
+    4. Stream through the BAM (sequential or parallel), building per-
+       transcript read × position matrices.
+    5. Write global metadata (modification codes, pipeline version, counts).
+    """
     args = parse_args()
     filter_threshold = args.mod_cutoff
 
@@ -1074,9 +1169,9 @@ def main():
         )
 
     # Build lookups from BAM reference index to Oarfish transcript ID
-    bam_ref_to_tx_id = [name_to_id.get(ref, None) for ref in bam.references]
+    bam_ref_to_tx_id: list[int | None] = [name_to_id.get(ref) for ref in bam.references]
     # Also build a tx_id → length lookup for the parallel path
-    tx_lengths = {}
+    tx_lengths: dict[int, int] = {}
     for i, ref in enumerate(bam.references):
         tx_id = name_to_id.get(ref)
         if tx_id is not None:
@@ -1087,7 +1182,7 @@ def main():
     # Pre-fill from user-provided (or default) modification types so that
     # codes are deterministic.  ``parse_modifications`` will add any
     # additional types it encounters at runtime.
-    mod_code_map = {}
+    mod_code_map: dict[str, int] = {}
     for i, mod_type in enumerate(sorted(args.mod_type)):
         mod_code_map[mod_type] = i + 4  # 4, 5, 6, ...
 

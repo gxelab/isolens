@@ -2,11 +2,20 @@
 """Merge two poly(A) estimation TSV files and recalculate weighted lengths."""
 
 import argparse
-import gzip
 import sys
+from typing import Any
+
+try:
+    from isolens._parsing import calc_weighted_pa_len, open_by_suffix
+except ImportError:
+    from _parsing import (  # type: ignore[no-redef]
+        calc_weighted_pa_len,
+        open_by_suffix,
+    )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for polya_merge."""
     parser = argparse.ArgumentParser(
         description="Merge two poly(A) estimation TSV files together "
         "and recalculate weighted lengths."
@@ -27,26 +36,22 @@ def parse_args():
     return parser.parse_args()
 
 
-def read_tsv_to_dict(filename):
-    """Read a TSV file, auto-detecting gzip by suffix.
+def read_tsv_to_dict(filename: str) -> dict[int, dict[str, Any]]:
+    """Read a poly(A) TSV file, auto-detecting gzip by suffix.
+
+    Args:
+        filename: Path to a TSV (or TSV.GZ) file with columns
+            ``tx_name, tx_idx, n_reads, pa_wlen, probs, pa_lens``.
 
     Returns:
-        dict: ``tx_idx -> {'tx_name': name, 'probs': [float, ...],
-        'pa_lens': [int, ...]}``
+        ``dict[int, dict]`` mapping ``tx_idx`` to
+        ``{'tx_name': str, 'probs': list[float], 'pa_lens': list[int]}``.
     """
-    data_dict = {}
+    data_dict: dict[int, dict[str, Any]] = {}
     print(f"Reading {filename}...", file=sys.stderr)
 
-    if filename.endswith(".gz"):
-
-        def open_func(f):
-            return gzip.open(f, "rt", encoding="utf-8")
-    else:
-
-        def open_func(f):
-            return open(f, encoding="utf-8")
-
-    with open_func(filename) as f:
+    read_mode = "rt" if filename.endswith(".gz") else "r"
+    with open_by_suffix(filename, read_mode) as f:
         header = f.readline().strip().split("\t")
         if len(header) < 6 or header[1] != "tx_idx":
             print(
@@ -74,7 +79,13 @@ def read_tsv_to_dict(filename):
     return data_dict
 
 
-def main():
+def main() -> None:
+    """Merge two poly(A) TSV files and recompute weighted averages.
+
+    Reads two poly(A) output files (from ``polya_calc``), pools reads
+    per transcript across both files, and writes a merged TSV with
+    recalculated per-transcript weighted average poly(A) lengths.
+    """
     args = parse_args()
 
     # Load data from both files (auto-detecting gzip)
@@ -92,22 +103,16 @@ def main():
         if not output_filename.endswith(".gz"):
             output_filename += ".gz"
 
-        def open_output_func(f):
-            return gzip.open(f, "wt", encoding="utf-8")
-    else:
-
-        def open_output_func(f):
-            return open(f, "w", encoding="utf-8")
-
     print(f"Writing re-estimated results to {output_filename}...", file=sys.stderr)
 
-    with open_output_func(output_filename) as out_f:
+    write_mode = "wt" if output_filename.endswith(".gz") else "w"
+    with open_by_suffix(output_filename, write_mode) as out_f:
         out_f.write("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
 
         for tx_idx in all_tx_indices:
             tx_name = None
-            merged_probs = []
-            merged_lens = []
+            merged_probs: list[float] = []
+            merged_lens: list[int] = []
 
             if tx_idx in file1_data:
                 tx_name = file1_data[tx_idx]["tx_name"]
@@ -121,15 +126,7 @@ def main():
                 merged_lens.extend(file2_data[tx_idx]["pa_lens"])
 
             n_reads = len(merged_probs)
-
-            sum_prob = sum(merged_probs)
-            if sum_prob > 0:
-                pa_wlen = (
-                    sum(p * pa_len for p, pa_len in zip(merged_probs, merged_lens))
-                    / sum_prob
-                )
-            else:
-                pa_wlen = 0.0
+            pa_wlen = calc_weighted_pa_len(merged_probs, merged_lens)
 
             probs_str = ",".join(f"{p:.5g}" for p in merged_probs)
             pa_lens_str = ",".join(str(pa_len) for pa_len in merged_lens)

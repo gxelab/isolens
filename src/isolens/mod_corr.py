@@ -6,14 +6,31 @@ sites within the same transcript — both within a single modification type
 and across different modification types.  Reads the HDF5 from ``mod_scan.py``
 and the site summary from ``mod_sites.py``.
 
+Each pair of sites is summarised with a 2×2 contingency table counting
+reads where each site is modified (1) or not (0):
+
+    ===== ==== ====
+    Count site1 site2
+    ===== ==== ====
+    n11   1     1
+    n10   1     0
+    n01   0     1
+    n00   0     0
+    ===== ==== ====
+
+Both unweighted (raw counts) and weighted (sum of assignment probabilities)
+variants are computed.  Association metrics include the Phi coefficient,
+odds ratio (with Haldane-Anscombe correction for zero cells), p-value
+(Fisher's exact test), BH FDR q-value, and mutual information.
+
 See notebooks/01_mod.md for the full specification.
 """
 
 import argparse
-import gzip
 import os
 import sys
 from collections import defaultdict
+from typing import Any
 
 import h5py
 import matplotlib
@@ -44,7 +61,7 @@ except ImportError:
 
 # ---------- constants ----------
 
-_HAC = 0.5  # Haldane-Anscombe correction for odds ratio zeros
+_HALDANE_ANSCOMBE = 0.5  # Haldane-Anscombe correction for odds ratio zeros
 
 _OUTPUT_COLS = [
     "transcript_id",
@@ -96,12 +113,12 @@ _MOD_COLORS = {
 # ---------- helpers ----------
 
 
-def _sam_to_human(sam_code):
+def _sam_to_human(sam_code: str) -> str:
     """Convert a SAM modification code to a human-readable name."""
     return _SAM_TO_HUMAN.get(sam_code, sam_code)
 
 
-def _nice_tick_step(rna_length):
+def _nice_tick_step(rna_length: int) -> int:
     """Choose a regular tick interval for the transcript axis.
 
     Returns a step size that yields ~3-7 ticks across the transcript.
@@ -115,7 +132,8 @@ def _nice_tick_step(rna_length):
 # ---------- CLI ----------
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for mod_corr."""
     parser = argparse.ArgumentParser(
         description="mod_corr: Pairwise modification site correlation analysis"
     )
@@ -183,18 +201,26 @@ def parse_args():
 # ---------- site-summary reader ----------
 
 
-def read_site_summary(path):
+def read_site_summary(path: str) -> dict[str, dict[str, list[tuple[int, int]]]]:
+    """Read a modification site summary file (Parquet or TSV).
+
+    Args:
+        path: Path to a Parquet or TSV/TSV.GZ file from ``mod_sites``.
+
+    Returns:
+        Nested dict ``{tx_name: {mod_type: [(pos_1based, n_modified), ...]}}``.
+    """
     if path.endswith(".parquet"):
         return _read_sites_parquet(path)
     else:
         return _read_sites_tsv(path)
 
 
-def _read_sites_parquet(path):
+def _read_sites_parquet(path: str) -> dict[str, dict[str, list[tuple[int, int]]]]:
     table = pq.read_table(
         path, columns=["transcript_id", "position", "mod_type", "n_modified"]
     )
-    sites = {}
+    sites: dict[str, dict[str, list[tuple[int, int]]]] = {}
     for i in range(len(table)):
         tx = table.column("transcript_id")[i].as_py()
         pos = table.column("position")[i].as_py()
@@ -204,10 +230,12 @@ def _read_sites_parquet(path):
     return sites
 
 
-def _read_sites_tsv(path):
+def _read_sites_tsv(path: str) -> dict[str, dict[str, list[tuple[int, int]]]]:
+    import gzip
+
     open_func = gzip.open if path.endswith(".gz") else open
     mode = "rt" if path.endswith(".gz") else "r"
-    sites = {}
+    sites: dict[str, dict[str, list[tuple[int, int]]]] = {}
     with open_func(path, mode, encoding="utf-8") as f:
         header = f.readline().strip().split("\t")
         tx_col = header.index("transcript_id")
@@ -228,7 +256,13 @@ def _read_sites_tsv(path):
 # ---------- statistics ----------
 
 
-def _phi_coefficient(n11, n10, n01, n00):
+def _phi_coefficient(n11: float, n10: float, n01: float, n00: float) -> float:
+    """Compute the Phi coefficient from a 2×2 contingency table.
+
+    Phi = (n11*n00 - n10*n01) / sqrt(n1• * n0• * n•1 * n•0)
+
+    Returns 0.0 if any marginal total is zero.
+    """
     n1x, n0x = n11 + n10, n01 + n00
     nx1, nx0 = n11 + n01, n10 + n00
     denom = n1x * n0x * nx1 * nx0
@@ -237,13 +271,23 @@ def _phi_coefficient(n11, n10, n01, n00):
     return (n11 * n00 - n10 * n01) / np.sqrt(denom)
 
 
-def _odds_ratio(n11, n10, n01, n00):
-    a, b = n11 + _HAC, n10 + _HAC
-    c, d = n01 + _HAC, n00 + _HAC
+def _odds_ratio(n11: float, n10: float, n01: float, n00: float) -> float:
+    """Compute the odds ratio with Haldane-Anscombe correction.
+
+    OR = ((n11 + 0.5)*(n00 + 0.5)) / ((n10 + 0.5)*(n01 + 0.5))
+
+    The correction prevents division by zero and infinite estimates.
+    """
+    a, b = n11 + _HALDANE_ANSCOMBE, n10 + _HALDANE_ANSCOMBE
+    c, d = n01 + _HALDANE_ANSCOMBE, n00 + _HALDANE_ANSCOMBE
     return (a * d) / (b * c)
 
 
-def _mutual_information(n11, n10, n01, n00):
+def _mutual_information(n11: float, n10: float, n01: float, n00: float) -> float:
+    """Compute mutual information from a 2×2 contingency table.
+
+    MI = Σ p_ij * log2(p_ij / (p_i• * p_•j))
+    """
     total = n11 + n10 + n01 + n00
     if total <= 0:
         return 0.0
@@ -262,7 +306,15 @@ def _mutual_information(n11, n10, n01, n00):
     return mi
 
 
-def _bh_fdr(p_values):
+def _bh_fdr(p_values: list[float]) -> list[float]:
+    """Apply Benjamini-Hochberg FDR correction to a list of p-values.
+
+    Args:
+        p_values: List of raw p-values.
+
+    Returns:
+        List of q-values (FDR-adjusted) in the same order as *p_values*.
+    """
     n = len(p_values)
     if n == 0:
         return []
@@ -279,11 +331,31 @@ def _bh_fdr(p_values):
 
 
 def process_transcript(
-    tx_name, matrix, weights, sites_by_mod, mod_code_map, min_support, min_asp=0.0
-):
+    tx_name: str,
+    matrix: np.ndarray,
+    weights: np.ndarray,
+    sites_by_mod: dict[str, list[tuple[int, int]]],
+    mod_code_map: dict[str, int],
+    min_support: int,
+    min_asp: float = 0.0,
+) -> list[dict[str, Any]]:
     """Compute pairwise correlation statistics for one transcript.
 
     Computes both same-type and cross-type pairs.
+
+    Args:
+        tx_name: Transcript name (used as output label).
+        matrix: ``(n_reads, tx_length)`` uint8 array from HDF5.
+        weights: ``(n_reads,)`` float32 Oarfish assignment probabilities.
+        sites_by_mod: ``{mod_type: [(pos_1based, n_modified), ...]}`` from
+            the site summary file.
+        mod_code_map: ``{mod_type_string: integer_code}`` from the HDF5
+            ``/modification_codes`` group.
+        min_support: Minimum ``n_modified`` for a site to be included.
+        min_asp: Minimum assignment probability for a read to be included.
+
+    Returns:
+        List of dicts, one per site pair, with columns from ``_OUTPUT_COLS``.
     """
     # ---- filter reads by minimum assignment probability ----
     if min_asp > 0.0:
@@ -294,7 +366,7 @@ def process_transcript(
         weights = weights[read_mask]
 
     # ---- flatten all candidates across modification types ----
-    candidates = []  # (pos_1based, mod_str, mod_code)
+    candidates: list[tuple[int, str, int]] = []
     for mod_str, site_list in sites_by_mod.items():
         mod_code = mod_code_map.get(mod_str)
         if mod_code is None:
@@ -309,7 +381,7 @@ def process_transcript(
     candidates.sort(key=lambda x: x[0])
 
     # ---- pre-compute per-candidate masks and binary arrays ----
-    pre = []  # (pos, mod_str, mod_code, valid_mask, binary_int8)
+    pre: list[tuple[int, str, int, np.ndarray, np.ndarray]] = []
     for pos_1b, mod_str, mod_code in candidates:
         col = matrix[:, pos_1b - 1]
         valid = (
@@ -326,8 +398,8 @@ def process_transcript(
     w = weights.astype(np.float64)
     k = len(candidates)
 
-    pair_p_values = []
-    pair_rows = []
+    pair_p_values: list[float] = []
+    pair_rows: list[dict[str, Any]] = []
 
     for i in range(k):
         pos_i, mod_i, code_i, vi, bi = pre[i]
@@ -409,7 +481,10 @@ def process_transcript(
 # ---------- output writers ----------
 
 
-def _write_tsv(all_rows, path, use_gzip):
+def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
+    """Write correlation rows as tab-separated values."""
+    import gzip
+
     open_func = gzip.open if use_gzip else open
     mode = "wt" if use_gzip else "w"
     with open_func(path, mode, encoding="utf-8") as f:
@@ -418,7 +493,11 @@ def _write_tsv(all_rows, path, use_gzip):
             f.write("\t".join(str(row[c]) for c in _OUTPUT_COLS) + "\n")
 
 
-def _write_parquet(all_rows, path):
+def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
+    """Write correlation rows as a Parquet file via pyarrow.
+
+    When *all_rows* is empty, writes a schema-only file.
+    """
     if not all_rows:
         schema = pa.schema(
             [
@@ -466,8 +545,14 @@ def _write_parquet(all_rows, path):
 
 
 def _plot_transcript_heatmap(
-    ax, matrix, positions, mod_types_str, type_colors, rna_length, title
-):
+    ax: plt.Axes,
+    matrix: np.ndarray,
+    positions: np.ndarray,
+    mod_types_str: list[str],
+    type_colors: dict[str, str],
+    rna_length: int,
+    title: str,
+) -> None:
     """Plot an upward-pointing pyramid heatmap for RNA modification associations.
 
     Follows the visualisation scheme from ``scripts/mod_plot.py``:
@@ -592,7 +677,7 @@ def _plot_transcript_heatmap(
     )
 
 
-def _generate_plots(all_rows, h5_path, out_dir):
+def _generate_plots(all_rows: list[dict[str, Any]], h5_path: str, out_dir: str) -> None:
     """Generate pyramid heatmap PDFs per transcript.
 
     Prepares per-transcript data (dense correlation matrix, site positions,
@@ -678,7 +763,14 @@ def _generate_plots(all_rows, h5_path, out_dir):
 # ---------- main ----------
 
 
-def main():
+def main() -> None:
+    """Compute pairwise modification site correlations.
+
+    Reads the HDF5 matrix from ``mod_scan`` and the site summary from
+    ``mod_sites``, then computes pairwise association statistics (Phi,
+    odds ratio, Fisher's exact test, mutual information) for each
+    transcript.  Results are written as Parquet or TSV.
+    """
     args = parse_args()
 
     if args.verbose:
@@ -692,7 +784,7 @@ def main():
         )
 
     with h5py.File(args.h5, "r") as h5:
-        mod_code_map = {}
+        mod_code_map: dict[str, int] = {}
         for mod_str, code in h5["modification_codes"].attrs.items():
             mod_code_map[mod_str] = int(code)
 
@@ -710,9 +802,12 @@ def main():
         common_tx = sorted(h5_tx & site_tx)
 
         if args.verbose:
-            print(f"[mod_corr] {len(common_tx)} transcripts in common", file=sys.stderr)
+            print(
+                f"[mod_corr] {len(common_tx)} transcripts in common",
+                file=sys.stderr,
+            )
 
-        all_rows = []
+        all_rows: list[dict[str, Any]] = []
         processed = 0
         for tx_name in common_tx:
             grp = h5[f"transcripts/{tx_name}"]

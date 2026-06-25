@@ -25,6 +25,7 @@ try:
         CODE_DELETION,
         CODE_FAIL,
         CODE_MISMATCH,
+        CODE_OTHERMOD,
         CODE_UNCOVERED,
         parse_cigar_for_row,
         parse_modifications,
@@ -44,6 +45,7 @@ except ImportError:
         CODE_DELETION,
         CODE_FAIL,
         CODE_MISMATCH,
+        CODE_OTHERMOD,
         CODE_UNCOVERED,
         parse_cigar_for_row,
         parse_modifications,
@@ -103,14 +105,14 @@ class TestParseCigarForRow:
             reference_start=0,
             query_sequence="A" * 100,
         )
-        row, r2t = parse_cigar_for_row(record, 100)
+        row, read_to_tx = parse_cigar_for_row(record, 100)
 
         assert row.shape == (100,)
         assert row.dtype == np.uint8
         assert np.all(row == CODE_CANONICAL)
-        assert len(r2t) == 100
-        assert r2t[0] == 1
-        assert r2t[99] == 100
+        assert len(read_to_tx) == 100
+        assert read_to_tx[0] == 1
+        assert read_to_tx[99] == 100
 
     def test_offset_start(self):
         """Alignment starts at reference position 50."""
@@ -119,13 +121,13 @@ class TestParseCigarForRow:
             reference_start=50,
             query_sequence="A" * 10,
         )
-        row, r2t = parse_cigar_for_row(record, 100)
+        row, read_to_tx = parse_cigar_for_row(record, 100)
 
         assert row.shape == (100,)
         assert np.all(row[:50] == CODE_UNCOVERED)
         assert np.all(row[50:60] == CODE_CANONICAL)
         assert np.all(row[60:] == CODE_UNCOVERED)
-        assert r2t.tolist() == [51, 52, 53, 54, 55, 56, 57, 58, 59, 60]
+        assert read_to_tx.tolist() == [51, 52, 53, 54, 55, 56, 57, 58, 59, 60]
 
     def test_mismatch(self):
         """X operator produces CODE_MISMATCH."""
@@ -134,7 +136,7 @@ class TestParseCigarForRow:
             reference_start=0,
             query_sequence="A" * 13,
         )
-        row, r2t = parse_cigar_for_row(record, 20)
+        row, read_to_tx = parse_cigar_for_row(record, 20)
 
         assert row[0] == CODE_CANONICAL
         assert row[4] == CODE_CANONICAL
@@ -149,7 +151,7 @@ class TestParseCigarForRow:
             reference_start=0,
             query_sequence="A" * 6,
         )
-        row, r2t = parse_cigar_for_row(record, 10)
+        row, read_to_tx = parse_cigar_for_row(record, 10)
 
         assert row[0] == CODE_CANONICAL
         assert row[2] == CODE_CANONICAL
@@ -157,7 +159,7 @@ class TestParseCigarForRow:
         assert row[4] == CODE_DELETION
         assert row[5] == CODE_CANONICAL
         # Deletion positions consume no read bases
-        assert len(r2t) == 6  # 3 before + 3 after deletion
+        assert len(read_to_tx) == 6  # 3 before + 3 after deletion
 
     def test_insertion(self):
         """I operator produces None entries in read_to_tx_map."""
@@ -166,16 +168,16 @@ class TestParseCigarForRow:
             reference_start=0,
             query_sequence="A" * 12,
         )
-        row, r2t = parse_cigar_for_row(record, 20)
+        row, read_to_tx = parse_cigar_for_row(record, 20)
 
         # Insertion does not consume reference positions
         assert row[5] == CODE_CANONICAL  # position right after first match block
         # read_to_tx_map has None for inserted bases
-        assert len(r2t) == 12  # 5 match + 2 insert + 5 match
-        assert r2t[4] == 5  # last match before insertion
-        assert r2t[5] == -1  # first inserted base
-        assert r2t[6] == -1  # second inserted base
-        assert r2t[7] == 6  # first match after insertion
+        assert len(read_to_tx) == 12  # 5 match + 2 insert + 5 match
+        assert read_to_tx[4] == 5  # last match before insertion
+        assert read_to_tx[5] == -1  # first inserted base
+        assert read_to_tx[6] == -1  # second inserted base
+        assert read_to_tx[7] == 6  # first match after insertion
 
     def test_soft_clip(self):
         """Soft-clipped bases produce None in read_to_tx_map."""
@@ -184,12 +186,12 @@ class TestParseCigarForRow:
             reference_start=0,
             query_sequence="A" * 14,
         )
-        row, r2t = parse_cigar_for_row(record, 20)
+        row, read_to_tx = parse_cigar_for_row(record, 20)
 
-        assert len(r2t) == 14  # 4 soft clip + 10 match
-        assert r2t[0] == -1  # soft-clipped
-        assert r2t[3] == -1  # soft-clipped
-        assert r2t[4] == 1  # first aligned base
+        assert len(read_to_tx) == 14  # 4 soft clip + 10 match
+        assert read_to_tx[0] == -1  # soft-clipped
+        assert read_to_tx[3] == -1  # soft-clipped
+        assert read_to_tx[4] == 1  # first aligned base
 
     def test_legacy_m_op(self):
         """M operator (no =/X) defaults to CODE_CANONICAL."""
@@ -198,7 +200,7 @@ class TestParseCigarForRow:
             reference_start=0,
             query_sequence="A" * 10,
         )
-        row, r2t = parse_cigar_for_row(record, 10)
+        row, read_to_tx = parse_cigar_for_row(record, 10)
         assert np.all(row == CODE_CANONICAL)
 
     def test_ref_skip(self):
@@ -208,12 +210,12 @@ class TestParseCigarForRow:
             reference_start=0,
             query_sequence="A" * 10,
         )
-        row, r2t = parse_cigar_for_row(record, 200)
+        row, read_to_tx = parse_cigar_for_row(record, 200)
 
         assert np.all(row[:5] == CODE_CANONICAL)
         assert np.all(row[5:105] == CODE_UNCOVERED)
         assert np.all(row[105:110] == CODE_CANONICAL)
-        assert len(r2t) == 10
+        assert len(read_to_tx) == 10
 
     def test_out_of_bounds(self):
         """Positions beyond tx_length are silently ignored."""
@@ -222,13 +224,13 @@ class TestParseCigarForRow:
             reference_start=95,
             query_sequence="A" * 10,
         )
-        row, r2t = parse_cigar_for_row(record, 100)
+        row, read_to_tx = parse_cigar_for_row(record, 100)
 
         assert np.all(row[:95] == CODE_UNCOVERED)
         assert np.all(row[95:100] == CODE_CANONICAL)
         # Only 5 positions within bounds
-        assert r2t[:5].tolist() == [96, 97, 98, 99, 100]
-        assert (r2t[5:] == -1).all()
+        assert read_to_tx[:5].tolist() == [96, 97, 98, 99, 100]
+        assert (read_to_tx[5:] == -1).all()
 
     def test_none_reference_start(self):
         """Record with None reference_start returns empty."""
@@ -237,17 +239,15 @@ class TestParseCigarForRow:
             reference_start=None,
             query_sequence="A" * 10,
         )
-        row, r2t = parse_cigar_for_row(record, 100)
+        row, read_to_tx = parse_cigar_for_row(record, 100)
         assert np.all(row == CODE_UNCOVERED)
-        assert r2t.size == 0
+        assert read_to_tx.size == 0
 
 
 # ---------- modification parsing tests ----------
 
 
-_TRACKED = frozenset(
-    {"a", "m", "17596", "17802", "19227", "19228", "19229", "69426"}
-)
+_TRACKED = frozenset({"a", "m", "17596", "17802", "19227", "19228", "19229", "69426"})
 
 
 class TestParseModifications:
@@ -262,13 +262,21 @@ class TestParseModifications:
             has_mm=False,
             has_ml=False,
         )
-        row, r2t = parse_cigar_for_row(record, 10)
+        row, read_to_tx = parse_cigar_for_row(record, 10)
         original = row.copy()
 
         mod_code_map = {}
         seen = set()
         tracked = _TRACKED
-        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            200 / 256,
+            tracked,
+            mod_code_map,
+            seen,
+        )
 
         np.testing.assert_array_equal(row, original)
         assert mod_code_map == {}
@@ -288,12 +296,20 @@ class TestParseModifications:
             mm_tag=mm_tag,
             ml_bytes=ml_bytes,
         )
-        row, r2t = parse_cigar_for_row(record, 3)
+        row, read_to_tx = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
         tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            200 / 256,
+            tracked,
+            mod_code_map,
+            seen,
+        )
 
         # First position should be overridden with mod code 4
         assert row[0] == 4
@@ -317,13 +333,21 @@ class TestParseModifications:
             mm_tag=mm_tag,
             ml_bytes=ml_bytes,
         )
-        row, r2t = parse_cigar_for_row(record, 3)
+        row, read_to_tx = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
         tracked = _TRACKED
 
         # threshold_u8 = 200 → raw >= 200 passes, 100 does not
-        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            200 / 256,
+            tracked,
+            mod_code_map,
+            seen,
+        )
 
         assert row[0] == CODE_FAIL  # both mod and canonical below threshold
         assert seen == {"a"}
@@ -342,12 +366,20 @@ class TestParseModifications:
             mm_tag=mm_tag,
             ml_bytes=ml_bytes,
         )
-        row, r2t = parse_cigar_for_row(record, 3)
+        row, read_to_tx = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
         tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 220/256, tracked, mod_code_map, seen)
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            220 / 256,
+            tracked,
+            mod_code_map,
+            seen,
+        )
 
         assert row[0] == CODE_FAIL
 
@@ -365,12 +397,20 @@ class TestParseModifications:
             mm_tag=mm_tag,
             ml_bytes=ml_bytes,
         )
-        row, r2t = parse_cigar_for_row(record, 3)
+        row, read_to_tx = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
         tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 150/256, tracked, mod_code_map, seen)
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            150 / 256,
+            tracked,
+            mod_code_map,
+            seen,
+        )
 
         assert row[0] == CODE_CANONICAL  # canonical passes
         assert seen == {"a"}
@@ -389,12 +429,20 @@ class TestParseModifications:
             mm_tag=mm_tag,
             ml_bytes=ml_bytes,
         )
-        row, r2t = parse_cigar_for_row(record, 3)
+        row, read_to_tx = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
         tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            200 / 256,
+            tracked,
+            mod_code_map,
+            seen,
+        )
 
         assert row[0] == 4  # mod 'a' code
 
@@ -411,12 +459,20 @@ class TestParseModifications:
             mm_tag=mm_tag,
             ml_bytes=ml_bytes,
         )
-        row, r2t = parse_cigar_for_row(record, 10)
+        row, read_to_tx = parse_cigar_for_row(record, 10)
         mod_code_map = {}
         seen = set()
         tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 100/256, tracked, mod_code_map, seen)
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            100 / 256,
+            tracked,
+            mod_code_map,
+            seen,
+        )
 
         # 3rd A (index 2, 0-based) should be modified
         assert row[2] == 4
@@ -439,12 +495,20 @@ class TestParseModifications:
             mm_tag=mm_tag,
             ml_bytes=ml_bytes,
         )
-        row, r2t = parse_cigar_for_row(record, 6)
+        row, read_to_tx = parse_cigar_for_row(record, 6)
         mod_code_map = {}
         seen = set()
         tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            200 / 256,
+            tracked,
+            mod_code_map,
+            seen,
+        )
 
         assert row[0] == 4  # 'a' mod on A
         assert row[3] == 5  # 'm' mod on C
@@ -464,18 +528,330 @@ class TestParseModifications:
             mm_tag=mm_tag,
             ml_bytes=ml_bytes,
         )
-        row, r2t = parse_cigar_for_row(record, 10)
+        row, read_to_tx = parse_cigar_for_row(record, 10)
         mod_code_map = {}
 
         # seq has no 'A', so the mod skip "0" won't find the target base
         # This tests that read_to_tx_map length == len(query_sequence)
-        assert len(r2t) == 6  # 3 match + 2 insert + 1 match
+        assert len(read_to_tx) == 6  # 3 match + 2 insert + 1 match
 
         tracked = _TRACKED
-        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, set())
+        parse_modifications(
+            record,
+            row,
+            read_to_tx,
+            200 / 256,
+            tracked,
+            mod_code_map,
+            set(),
+        )
 
         # No A in sequence → no modifications applied
         assert np.all(row[:4] == CODE_CANONICAL)
+
+    # ---- classification state tests ----
+
+    def test_modified_tracked_wins(self):
+        """Tracked mod wins above threshold → assigned code (≥4)."""
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([250])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        parse_modifications(
+            record, row, read_to_tx, 200 / 256, tracked, mod_code_map, seen
+        )
+
+        assert row[0] == 4  # tracked 'a' → code 4
+        assert "a" in mod_code_map
+
+    def test_canonical_wins(self):
+        """Canonical remainder beats all mods and passes threshold → CODE_CANONICAL."""
+        # Mod prob very low → canonical dominates, threshold low enough to pass
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([10])  # very low prob
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        # threshold 0.4 → canonical passes easily
+        parse_modifications(
+            record, row, read_to_tx, 100 / 256, tracked, mod_code_map, seen
+        )
+
+        assert row[0] == CODE_CANONICAL
+
+    def test_othermod_untracked_wins(self):
+        """Untracked mod wins above threshold → CODE_OTHERMOD (254)."""
+        # Use mod type 'Z' which is NOT in _TRACKED
+        mm_tag = "A+Z,0"
+        ml_bytes = bytes([250])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        parse_modifications(
+            record, row, read_to_tx, 200 / 256, tracked, mod_code_map, seen
+        )
+
+        assert row[0] == CODE_OTHERMOD
+        assert "Z" in seen
+
+    def test_diff_preserved(self):
+        """CIGAR mismatch (X) is never overwritten by modification parsing."""
+        # Position 5 is a CIGAR mismatch (X)
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([250])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 5), (_BAM_CDIFF, 3), (_BAM_CEQUAL, 5)],
+            reference_start=0,
+            query_sequence="A" * 13,
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 20)
+        mod_code_map = {}
+        seen = set()
+
+        assert row[5] == CODE_MISMATCH  # CIGAR set this to mismatch
+
+        tracked = _TRACKED
+        # Modification targets position 0 (first A), not position 5
+        parse_modifications(
+            record, row, read_to_tx, 200 / 256, tracked, mod_code_map, seen
+        )
+
+        # Position 0 gets modified, position 5 stays as mismatch
+        assert row[0] == 4  # modified
+        assert row[5] == CODE_MISMATCH  # preserved
+
+    def test_fail_all_below(self):
+        """All probabilities below strict threshold → CODE_FAIL (255)."""
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([50])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        # threshold 0.95 = ~242 raw → mod (~0.20) and canonical (~0.80) both below
+        parse_modifications(
+            record, row, read_to_tx, 242 / 256, tracked, mod_code_map, seen
+        )
+
+        assert row[0] == CODE_FAIL
+
+    def test_multi_mod_same_pos(self):
+        """Two mods at same position — highest probability wins."""
+        # A+a at pos 0 with prob 200, A+m at pos 0 with prob 100
+        mm_tag = "A+a,0;A+m,0"
+        ml_bytes = bytes([200, 100])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        parse_modifications(
+            record, row, read_to_tx, 150 / 256, tracked, mod_code_map, seen
+        )
+
+        # 'a' with prob 200/256 wins over 'm' with prob 100/256
+        assert row[0] == mod_code_map["a"]
+
+    def test_boundary_ml_zero(self):
+        """ML byte 0 → prob ≈ 0.002 → below any reasonable threshold → FAIL."""
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([0])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        # threshold 0.95 → mod prob 0.002 far below
+        parse_modifications(
+            record, row, read_to_tx, 242 / 256, tracked, mod_code_map, seen
+        )
+
+        # Canonical ≈ 0.998, but against 0.95 threshold using raw-byte comparison
+        # canonical_qual = 255 - 0 = 255, p_canonical = (255+0.5)/256 ≈ 0.998
+        # max_prob = max(0.002, 0.998) = 0.998, int(0.998*256)=255 >= 242 threshold
+        # So canonical passes → CODE_CANONICAL
+        assert row[0] == CODE_CANONICAL
+
+    def test_boundary_ml_max(self):
+        """ML byte 255 → prob ≈ 0.998 → passes any reasonable threshold → modified."""
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([255])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        parse_modifications(
+            record, row, read_to_tx, 242 / 256, tracked, mod_code_map, seen
+        )
+
+        assert row[0] == 4  # mod wins
+
+    def test_threshold_exact_boundary(self):
+        """ML byte at exact threshold boundary passes (modkit floor comparison)."""
+        # threshold_raw = int(0.8 * 256) = 204
+        # raw_byte = 204 → prob = (204+0.5)/256 ≈ 0.7988
+        # int(0.7988 * 256) = 204 >= 204 → passes
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([204])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 3)],
+            reference_start=0,
+            query_sequence="AAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 3)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        parse_modifications(
+            record, row, read_to_tx, 204 / 256, tracked, mod_code_map, seen
+        )
+
+        # max_prob = max((204+0.5)/256, (51+0.5)/256) = 204.5/256
+        # int(204.5) = 204 >= 204 threshold → passes as modified
+        assert row[0] == 4
+
+    def test_deletion_not_overwritten(self):
+        """CIGAR deletion (D) is preserved when MM targets the same pos."""
+        mm_tag = "A+a,0"
+        ml_bytes = bytes([250])
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CDEL, 5), (_BAM_CEQUAL, 5)],
+            reference_start=0,
+            query_sequence="A" * 5 + "A" * 5,
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 10)
+
+        assert row[0] == CODE_DELETION
+        assert row[1] == CODE_DELETION
+
+        tracked = _TRACKED
+        seen = set()
+        parse_modifications(record, row, read_to_tx, 200 / 256, tracked, {}, seen)
+
+        # Deletions preserved (mod parsing doesn't overwrite them)
+        assert row[0] == CODE_DELETION
+        assert row[1] == CODE_DELETION
+
+    def test_ml_shorter_than_expected(self):
+        """ML bytes fewer than mod instances → remaining get prob=0, no crash."""
+        # Two mod instances but only one ML byte
+        mm_tag = "A+a,0,0"
+        ml_bytes = bytes([250])  # only 1 byte, but 2 mod instances
+
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 5)],
+            reference_start=0,
+            query_sequence="AAAAA",
+            mm_tag=mm_tag,
+            ml_bytes=ml_bytes,
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 5)
+        mod_code_map = {}
+        seen = set()
+        tracked = _TRACKED
+
+        parse_modifications(
+            record, row, read_to_tx, 200 / 256, tracked, mod_code_map, seen
+        )
+
+        # First mod (prob≈0.98) passes threshold → modified
+        assert row[0] == 4
+        # Second mod (prob=0, canonical=1) → canonical passes threshold
+        assert row[1] == CODE_CANONICAL
+
+    def test_no_query_sequence(self):
+        """Record with seq=None returns early, leaving row unchanged."""
+        record = MockRecord(
+            cigartuples=[(_BAM_CEQUAL, 10)],
+            reference_start=0,
+            query_sequence=None,
+            mm_tag="A+a,0",
+            ml_bytes=bytes([250]),
+        )
+        row, read_to_tx = parse_cigar_for_row(record, 10)
+        original = row.copy()
+
+        tracked = _TRACKED
+        seen = set()
+        parse_modifications(record, row, read_to_tx, 200 / 256, tracked, {}, seen)
+
+        np.testing.assert_array_equal(row, original)
+        assert seen == set()
 
 
 # ---------- HDF5 writing tests ----------

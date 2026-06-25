@@ -2,12 +2,20 @@
 """Aggregate transcript-level poly(A) length estimates to the gene level."""
 
 import argparse
-import gzip
 import sys
 from collections import defaultdict
 
+try:
+    from isolens._parsing import calc_weighted_pa_len, open_by_suffix
+except ImportError:
+    from _parsing import (  # type: ignore[no-redef]
+        calc_weighted_pa_len,
+        open_by_suffix,
+    )
 
-def parse_args():
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for polya_t2g."""
     parser = argparse.ArgumentParser(
         description="Aggregate transcript-level poly(A) length estimates "
         "to the gene level."
@@ -37,20 +45,21 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_open_func(filename):
-    """Return the correct open function based on the file extension."""
-    if filename.endswith(".gz"):
-        return lambda f: gzip.open(f, "rt", encoding="utf-8")
-    return lambda f: open(f, encoding="utf-8")
+def load_gene_mapping(map_file: str) -> dict[str, str]:
+    """Parse a TSV mapping file and return ``{tx_name: gene_id}``.
 
+    Args:
+        map_file: Path to a TSV or TSV.GZ file with ``tx_name`` and
+            ``gene_id`` columns.
 
-def load_gene_mapping(map_file):
-    """Parse a mapping file and return ``{tx_name: gene_id}``."""
+    Returns:
+        ``dict[str, str]`` mapping each transcript name to its gene ID.
+    """
     print(f"Reading mapping file from {map_file}...", file=sys.stderr)
-    tx_to_gene = {}
+    tx_to_gene: dict[str, str] = {}
 
-    open_func = get_open_func(map_file)
-    with open_func(map_file) as f:
+    read_mode = "rt" if map_file.endswith(".gz") else "r"
+    with open_by_suffix(map_file, read_mode) as f:
         header = f.readline().strip().split("\t")
 
         if "tx_name" not in header or "gene_id" not in header:
@@ -75,22 +84,29 @@ def load_gene_mapping(map_file):
     return tx_to_gene
 
 
-def main():
+def main() -> None:
+    """Aggregate per-transcript poly(A) data to gene level.
+
+    Reads a transcript-level poly(A) TSV (from ``polya_calc``) and a
+    ``tx_name → gene_id`` mapping file, pools reads by gene, and writes
+    a gene-level poly(A) TSV with recalculated weighted average lengths.
+    """
     args = parse_args()
 
     # Load transcript-to-gene relationships
     tx_to_gene = load_gene_mapping(args.map)
 
     # Read transcript data and pool by gene
-    gene_pools = defaultdict(lambda: {"probs": [], "pa_lens": []})
-    unmapped_transcripts = set()
+    gene_pools: dict[str, dict[str, list]] = defaultdict(
+        lambda: {"probs": [], "pa_lens": []}
+    )
+    unmapped_transcripts: set[str] = set()
 
     print(
         f"Processing transcript poly(A) lengths from {args.input}...", file=sys.stderr
     )
-    open_input = get_open_func(args.input)
-
-    with open_input(args.input) as f:
+    read_mode = "rt" if args.input.endswith(".gz") else "r"
+    with open_by_suffix(args.input, read_mode) as f:
         header = f.readline().strip().split("\t")
         if "tx_name" not in header or "probs" not in header or "pa_lens" not in header:
             print(
@@ -135,16 +151,10 @@ def main():
         if not output_filename.endswith(".gz"):
             output_filename += ".gz"
 
-        def open_output(f):
-            return gzip.open(f, "wt", encoding="utf-8")
-    else:
-
-        def open_output(f):
-            return open(f, "w", encoding="utf-8")
-
     print(f"Writing gene-level metrics to {output_filename}...", file=sys.stderr)
 
-    with open_output(output_filename) as out_f:
+    write_mode = "wt" if output_filename.endswith(".gz") else "w"
+    with open_by_suffix(output_filename, write_mode) as out_f:
         out_f.write("gene_id\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
 
         for gene_id in sorted(gene_pools.keys()):
@@ -152,14 +162,7 @@ def main():
             pa_lens = gene_pools[gene_id]["pa_lens"]
 
             n_reads = len(probs)
-
-            sum_prob = sum(probs)
-            if sum_prob > 0:
-                pa_wlen = (
-                    sum(p * pa_len for p, pa_len in zip(probs, pa_lens)) / sum_prob
-                )
-            else:
-                pa_wlen = 0.0
+            pa_wlen = calc_weighted_pa_len(probs, pa_lens)
 
             probs_str = ",".join(f"{p:.5g}" for p in probs)
             pa_lens_str = ",".join(str(pa_len) for pa_len in pa_lens)

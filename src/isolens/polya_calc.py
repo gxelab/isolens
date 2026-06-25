@@ -4,18 +4,28 @@ assignments and a Dorado BAM file with ``pt:i`` tags.
 """
 
 import argparse
-import gzip
 import sys
 
 import pysam
 
 try:
-    from isolens._parsing import parse_oarfish, read_id_to_int
+    from isolens._parsing import (
+        calc_weighted_pa_len,
+        open_by_suffix,
+        parse_oarfish,
+        read_id_to_int,
+    )
 except ImportError:
-    from _parsing import parse_oarfish, read_id_to_int
+    from _parsing import (  # type: ignore[no-redef]
+        calc_weighted_pa_len,
+        open_by_suffix,
+        parse_oarfish,
+        read_id_to_int,
+    )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for polya_calc."""
     parser = argparse.ArgumentParser(
         description="Estimate transcript isoform-specific poly(A) length "
         "using Oarfish assignments and Dorado BAM."
@@ -39,7 +49,14 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
+    """Extract per-transcript poly(A) lengths from Dorado BAM + Oarfish.
+
+    Reads the Oarfish assignment probability file to map reads to
+    transcripts, then scans the BAM for ``pt:i`` tags (poly(A) tail
+    length estimates emitted by Dorado).  Writes a TSV with per-transcript
+    weighted-average poly(A) lengths.
+    """
     args = parse_args()
 
     print(f"Parsing Oarfish assignments from {args.oarfish}...", file=sys.stderr)
@@ -62,10 +79,12 @@ def main():
         sys.exit(0)
 
     # Initialize a dict to store poly(A) information mapped to transcripts
-    tx_data = {tx_idx: [] for tx_idx in tx_idx_to_name}
+    tx_data: dict[int, list[tuple[float, int]]] = {
+        tx_idx: [] for tx_idx in tx_idx_to_name
+    }
 
     print(f"Processing BAM file {args.bam}...", file=sys.stderr)
-    processed_reads = set()
+    processed_reads: set[int] = set()
     reads_scanned = 0
 
     # Read BAM file and extract pt:i tags
@@ -109,15 +128,9 @@ def main():
         if not output_filename.endswith(".gz"):
             output_filename += ".gz"
 
-        def open_func(f):
-            return gzip.open(f, "wt", encoding="utf-8")
-    else:
-
-        def open_func(f):
-            return open(f, "w", encoding="utf-8")
-
     print(f"Writing results to {output_filename}...", file=sys.stderr)
-    with open_func(output_filename) as out_f:
+    write_mode = "wt" if output_filename.endswith(".gz") else "w"
+    with open_by_suffix(output_filename, write_mode) as out_f:
         out_f.write("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
 
         for tx_idx, tx_name in tx_idx_to_name.items():
@@ -130,12 +143,7 @@ def main():
             pa_lens = [item[1] for item in data]
 
             n_reads = len(data)
-
-            sum_prob = sum(probs)
-            if sum_prob > 0:
-                pa_wlen = sum(p * pa_len for p, pa_len in data) / sum_prob
-            else:
-                pa_wlen = 0.0
+            pa_wlen = calc_weighted_pa_len(probs, pa_lens)
 
             probs_str = ",".join(f"{p:.5g}" for p in probs)
             pa_lens_str = ",".join(str(pa_len) for pa_len in pa_lens)

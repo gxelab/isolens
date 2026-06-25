@@ -4,11 +4,20 @@
 Part of the isolens toolkit.  Reads the HDF5 produced by ``mod_scan.py`` and
 writes a Parquet file with one row per (transcript, position, modification_type).
 
+For each position the output includes the following read-count categories
+(see the :func:`compute_transcript_stats` docstring for definitions):
+
+* **modified** — this modification type won and passed the threshold.
+* **canonical** — the unmodified base won (all mod probs below canonical).
+* **othermod** — another modification type won above threshold.
+* **mismatch** — reference mismatch (CIGAR ``X``), preserved from CIGAR.
+* **deletion** — deletion (CIGAR ``D``), preserved from CIGAR.
+* **failed** — all states below the probability threshold.
+
 See notebooks/01_mod.md for the full specification.
 """
 
 import argparse
-import gzip
 import sys
 
 import h5py
@@ -24,7 +33,7 @@ try:
         CODE_MISMATCH,
     )
 except ImportError:
-    from mod_scan import (
+    from mod_scan import (  # type: ignore[no-redef]
         CODE_CANONICAL,
         CODE_DELETION,
         CODE_FAIL,
@@ -32,7 +41,8 @@ except ImportError:
     )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for mod_sites."""
     parser = argparse.ArgumentParser(
         description="mod_sites: Per-position modification summaries from HDF5"
     )
@@ -95,7 +105,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def read_predefined_sites(path):
+def read_predefined_sites(path: str) -> dict[str, set[int]]:
     """Read a predefined modification sites TSV file.
 
     The file must have a header row with columns ``tx_name`` (transcript
@@ -134,13 +144,40 @@ def read_predefined_sites(path):
     return sites
 
 
-def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=None):
+def compute_transcript_stats(
+    matrix: np.ndarray,
+    weights: np.ndarray,
+    mod_codes: list[tuple[str, int]],
+    predefined_positions: set[int] | None = None,
+) -> list[dict]:
     """Compute per-position statistics for a single transcript.
 
+    For each (position, modification_type) pair the following columns
+    are computed:
+
+    * **n_modified** — number of reads where this mod type won (including
+      weighted variant ``wt_modified``).
+    * **n_canonical** — number of reads where the canonical (unmodified)
+      base won (including ``wt_canonical``).
+    * **n_othermod** — number of reads where a different, non-focal
+      modification type won (including ``wt_othermod``).
+    * **n_unmodified** = n_canonical + n_othermod (and ``wt_unmodified``).
+    * **n_mismatch** — number of reads with a CIGAR reference mismatch
+      at this position (and ``wt_mismatch``).
+    * **n_deletion** — number of reads with a CIGAR deletion at this
+      position (and ``wt_deletion``).
+    * **n_failed** — number of reads where no state exceeded the
+      probability threshold (and ``wt_failed``).
+    * **mod_level** = n_modified / (n_modified + n_unmodified).
+    * **wt_mod_level** — weighted variant using assignment probabilities.
+
     Args:
-        matrix: ``numpy.ndarray`` of shape ``(n_reads, tx_length)``, dtype uint8.
+        matrix: ``numpy.ndarray`` of shape ``(n_reads, tx_length)``,
+            dtype uint8.  Encoded per ``mod_scan.CODE_*`` constants.
         weights: ``numpy.ndarray`` of shape ``(n_reads,)``, dtype float32.
-        mod_codes: ``list[(mod_type_str, code)]`` — modification codes (code ≥ 4).
+            Oarfish assignment probabilities for each read.
+        mod_codes: ``list[(mod_type_str, code)]`` — modification codes
+            (code ≥ 4) read from the HDF5 ``/modification_codes`` group.
         predefined_positions: Optional ``set[int]`` of 1-based positions to
             restrict output to.  When provided, only these positions are
             emitted for every modification type, even if ``n_modified == 0``.
@@ -148,11 +185,8 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
             for the focal modification type are emitted.
 
     Returns:
-        ``list[dict]`` — one dict per (position, modification_type) with columns:
-        position (1-based), mod_type, n_modified, wt_modified, n_unmodified,
-        wt_unmodified, n_canonical, wt_canonical, n_othermod, wt_othermod,
-        n_mismatch, wt_mismatch, n_deletion, wt_deletion, n_failed, wt_failed,
-        mod_level, wt_mod_level.
+        ``list[dict]`` — one dict per (position, modification_type) with
+        all columns listed above.
     """
     n_reads, tx_length = matrix.shape
     w64 = weights.astype(np.float64)  # (n_reads,) float64
@@ -177,7 +211,7 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
 
     # ---- per-modification-type stats ----
 
-    rows = []
+    rows: list[dict] = []
 
     for mod_str, code in mod_codes:
         mod_mask = matrix == code  # bool (n_reads, tx_length)
@@ -276,12 +310,18 @@ def compute_transcript_stats(matrix, weights, mod_codes, predefined_positions=No
     return rows
 
 
-def main():
+def main() -> None:
+    """Compute per-position modification summaries from a mod_scan HDF5.
+
+    Reads the HDF5 file produced by ``mod_scan`` and writes a Parquet
+    (or TSV) file with one row per (transcript, position, modification_type)
+    containing read counts and weighted modification levels.
+    """
     args = parse_args()
 
     # ---- 0. Read predefined sites (optional) ----
 
-    predefined_sites = None
+    predefined_sites: dict[str, set[int]] | None = None
     if args.sites is not None:
         predefined_sites = read_predefined_sites(args.sites)
         if args.verbose:
@@ -297,7 +337,7 @@ def main():
 
     with h5py.File(args.h5, "r") as h5:
         # Parse modification codes
-        mod_codes = []
+        mod_codes: list[tuple[str, int]] = []
         codes_grp = h5["modification_codes"]
         for mod_str, code in sorted(codes_grp.attrs.items(), key=lambda x: x[1]):
             mod_codes.append((mod_str, int(code)))
@@ -323,7 +363,7 @@ def main():
 
         # ---- 2. Process each transcript ----
 
-        all_rows = []
+        all_rows: list[dict] = []
         processed = 0
 
         for tx_name in tx_names:
@@ -407,8 +447,10 @@ _TSV_COLS = [
 ]
 
 
-def _write_tsv(all_rows, path, use_gzip):
+def _write_tsv(all_rows: list[dict], path: str, use_gzip: bool) -> None:
     """Write rows as tab-separated values, optionally gzip-compressed."""
+    import gzip
+
     open_func = gzip.open if use_gzip else open
     mode = "wt" if use_gzip else "w"
 
@@ -418,8 +460,12 @@ def _write_tsv(all_rows, path, use_gzip):
             f.write("\t".join(str(row[c]) for c in _TSV_COLS) + "\n")
 
 
-def _write_parquet(all_rows, path):
-    """Write rows as a Parquet file via pyarrow."""
+def _write_parquet(all_rows: list[dict], path: str) -> None:
+    """Write rows as a Parquet file via pyarrow.
+
+    When *all_rows* is empty, writes a schema-only file so downstream
+    tools can still open it without errors.
+    """
     if not all_rows:
         print(
             "[mod_sites] No modification sites found — writing empty file.",
