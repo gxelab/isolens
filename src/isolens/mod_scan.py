@@ -6,6 +6,7 @@ Part of the isolens toolkit. See notebooks/01_mod.md for the full specification.
 
 import argparse
 import concurrent.futures
+import functools
 import sys
 import uuid
 
@@ -29,6 +30,18 @@ CODE_FAIL = 255
 # tracked modification types start at 4
 
 # ---------- CIGAR operator constants (pysam cigartuples) ----------
+
+
+@functools.cache
+def _uuid_to_int(name: str) -> int:
+    """Convert a read name to a 128-bit integer with LRU caching.
+
+    Cached wrapper around ``uuid.UUID(name).int`` to avoid redundant
+    parsing when the same read name appears multiple times in the BAM
+    (e.g. primary + supplementary alignments).
+    """
+    return uuid.UUID(name).int
+
 
 _BAM_CMATCH = 0  # M
 _BAM_CINS = 1  # I
@@ -121,8 +134,8 @@ def _extract_record(record):
 def parse_cigar_for_row(record, tx_length):
     """Build a uint8 matrix row and read-to-transcript position map from CIGAR.
 
-    Uses NumPy slice assignments and ``list.extend`` instead of per-position
-    Python loops, giving ~10-50× speedup on long alignments.
+    Uses NumPy slice assignments instead of per-position Python loops,
+    giving ~10-50× speedup on long alignments.
 
     Args:
         record: ``pysam.AlignedSegment`` or ``_ReadRecord``.
@@ -132,18 +145,41 @@ def parse_cigar_for_row(record, tx_length):
         (row, read_to_tx_map) where:
         - *row* is a ``numpy.ndarray`` of shape ``(tx_length,)``, dtype uint8,
           filled with states (0=uncovered, 1=match, 2=mismatch, 3=deletion).
-        - *read_to_tx_map* is a ``list[int | None]`` of the same length as
-          ``record.query_sequence``.  Each entry is the 1-based
-          transcript position or ``None`` (for insertions / soft-clipped bases).
+        - *read_to_tx_map* is a ``numpy.ndarray`` of shape
+          ``(len(query_sequence),)``, dtype int32.  Each entry is the 1-based
+          transcript position or -1 (sentinel for insertions / soft-clipped bases).
     """
     row = np.zeros(tx_length, dtype=np.uint8)
-    read_to_tx_map = []
 
+    seq = record.query_sequence
     ref_pos = record.reference_start  # 0-based
 
-    # Validate reference_start
-    if ref_pos is None:
-        return row, read_to_tx_map
+    # If we can't build a read-to-transcript map, just build the row from
+    # CIGAR (if possible) and return an empty map.  Some reads have
+    # query_sequence = None but still have valid CIGAR data.
+    if seq is None or ref_pos is None:
+        if ref_pos is not None:
+            for op, length in record.cigartuples or []:
+                if op in (_BAM_CEQUAL, _BAM_CDIFF, _BAM_CMATCH):
+                    code = CODE_CANONICAL if op != _BAM_CDIFF else CODE_MISMATCH
+                    valid_start = max(ref_pos, 0)
+                    valid_end = min(ref_pos + length, tx_length)
+                    if valid_start < valid_end:
+                        row[valid_start:valid_end] = code
+                    ref_pos += length
+                elif op == _BAM_CDEL:
+                    valid_start = max(ref_pos, 0)
+                    valid_end = min(ref_pos + length, tx_length)
+                    if valid_start < valid_end:
+                        row[valid_start:valid_end] = CODE_DELETION
+                    ref_pos += length
+                elif op == _BAM_CREF_SKIP:
+                    ref_pos += length
+        return row, np.empty(0, dtype=np.int32)
+
+    read_to_tx_map = np.full(len(seq), -1, dtype=np.int32)
+
+    read_idx = 0  # current position in the read (0-based)
 
     for op, length in record.cigartuples or []:
         if op in (_BAM_CEQUAL, _BAM_CDIFF, _BAM_CMATCH):  # =, X, M
@@ -157,11 +193,16 @@ def parse_cigar_for_row(record, tx_length):
             n_valid = max(0, valid_end - valid_start)
             n_after = length - n_before - n_valid
 
-            read_to_tx_map.extend([None] * n_before)
+            # n_before: positions already initialized to -1
+            read_idx += n_before
             if n_valid > 0:
                 row[valid_start:valid_end] = code
-                read_to_tx_map.extend(range(valid_start + 1, valid_end + 1))
-            read_to_tx_map.extend([None] * n_after)
+                read_to_tx_map[read_idx : read_idx + n_valid] = np.arange(
+                    valid_start + 1, valid_end + 1, dtype=np.int32
+                )
+                read_idx += n_valid
+            # n_after: positions already initialized to -1
+            read_idx += n_after
 
             ref_pos += length
 
@@ -174,10 +215,10 @@ def parse_cigar_for_row(record, tx_length):
             # No entries in read_to_tx_map — deletions have no read base
 
         elif op == _BAM_CINS:  # I
-            read_to_tx_map.extend([None] * length)
+            read_idx += length  # positions already -1
 
         elif op == _BAM_CSOFT_CLIP:  # S
-            read_to_tx_map.extend([None] * length)
+            read_idx += length  # positions already -1
 
         elif op == _BAM_CREF_SKIP:  # N (intron / splice junction)
             ref_pos += length
@@ -228,15 +269,16 @@ def parse_modifications(
     6. **Categorize** — canonical → ``CODE_CANONICAL``; tracked mod →
        its assigned integer code (≥4); untracked mod → ``CODE_OTHERMOD``.
 
-    Uses a two-pass implementation: Pass 1 collects per-position data from
-    the MM/ML tags (Step 2), Pass 2 applies Steps 3–6.
+    Uses flat parallel lists instead of per-position dicts to eliminate
+    Python object allocation overhead in the hot path.
 
     Args:
         record: ``pysam.AlignedSegment`` or ``_ReadRecord``.
         row: ``numpy.ndarray`` of shape ``(tx_length,)``, dtype uint8.
             Modified in-place.
-        read_to_tx_map: ``list[int | None]`` — 1-based transcript positions
-            indexed by read position (same length as ``query_sequence``).
+        read_to_tx_map: ``numpy.ndarray`` of shape ``(len(query_sequence),)``,
+            dtype int32.  1-based transcript positions indexed by read
+            position, with -1 sentinel for insertions / soft-clipped bases.
         filter_threshold: float — probability cutoff (e.g. ``0.95``).
         tracked_mod_types: ``frozenset[str]`` — modification types that
             participate in winner selection (from ``--mod-type``).
@@ -268,9 +310,14 @@ def parse_modifications(
     if seq is None:
         return
 
-    # ---- Pass 1: collect per-position modification probabilities ----
-    # per_position: read_pos_0 → {mod_type: (prob_float, raw_ml_byte)}
-    per_position: dict[int, dict[str, tuple[float, int]]] = {}
+    # ---- Pass 1: collect modification instances, grouped by read position ----
+    # Uses an outer dict for natural O(1) position grouping (no sort needed)
+    # and inner lists of pre-computed integer tuples instead of inner dicts
+    # with string keys.  This eliminates all inner-dict hashing overhead while
+    # preserving the natural position grouping that the flat-list+sorted
+    # approach loses.
+
+    per_position: dict[int, list[tuple[int, float, int, bool]]] = {}
     total_mod_instance_idx = 0
 
     base_positions_cache: dict[str, list[int]] = {}
@@ -323,73 +370,83 @@ def parse_modifications(
                 raw_byte = ml_bytes[total_mod_instance_idx]
                 prob = (raw_byte + 0.5) / 256.0
 
-            per_position.setdefault(read_pos_0, {})[mod_type] = (
-                prob,
-                raw_byte,
+            # Assign integer code and record whether this type is tracked.
+            # Pre-computing is_tracked avoids the ``mod_type in tracked_mod_types``
+            # lookup in Pass 2.
+            mod_type_code = _ensure_mod_code(mod_type, mod_code_map)
+            is_tracked = mod_type in tracked_mod_types
+
+            # Append to position-grouped list.  ``setdefault`` creates a new
+            # empty list for first occurrence at each position; subsequent
+            # modifications at the same position append to the existing list.
+            per_position.setdefault(read_pos_0, []).append(
+                (mod_type_code, prob, raw_byte, is_tracked)
             )
 
             total_mod_instance_idx += 1
             occ_idx += 1  # move past the marked occurrence
 
+    if not per_position:
+        return
+
+    # ---- Pass 2: iterate position groups (no sort needed) ----
     # Pre-compute integer threshold for modkit-compatible comparison.
     # modkit converts probabilities to raw-byte space (floor(P * 256))
-    # before comparing against the filter threshold.  This is equivalent
-    # to a float comparison for individual modifications (due to the
-    # +0.5 alignment) but is slightly less strict for P_canonical at
-    # multi-mod positions, matching modkit's behaviour exactly.
+    # before comparing against the filter threshold.
     threshold_raw = int(filter_threshold * 256)
 
-    # ---- Pass 2: 6-step modkit classification pipeline ----
-    for read_pos_0, mod_data in per_position.items():
-        # Map read position to transcript position (used by every step
-        # that assigns a code).  Skip positions that don't map.
-        if read_pos_0 >= len(read_to_tx_map):
+    nrow = len(row)
+    nrtm = len(read_to_tx_map)
+
+    for read_pos_0, instances in per_position.items():
+        # Map read position to transcript position.
+        if read_pos_0 >= nrtm:
             continue
         tx_pos_1 = read_to_tx_map[read_pos_0]
-        if tx_pos_1 is None:
+        if tx_pos_1 == -1:
+            # -1 is the sentinel for insertions / soft-clipped bases
             continue
-        tx_pos_0 = tx_pos_1 - 1  # convert to 0-based
-        if not (0 <= tx_pos_0 < len(row)):
+        tx_pos_0 = int(tx_pos_1) - 1  # convert to 0-based int
+        if not (0 <= tx_pos_0 < nrow):
             continue
 
         # Preserve CIGAR reference mismatches (modkit's 'diff').
-        # If the read base differs from the reference at this position,
-        # ``parse_cigar_for_row`` already flagged it as CODE_MISMATCH.
-        # modkit locks these positions and refuses to tabulate them as
-        # valid canonical, failed, or modified — do not overwrite.
         if row[tx_pos_0] == CODE_MISMATCH:
             continue
 
+        # ---- Aggregate all modifications at this position ----
+        sum_raw = 0
+        max_prob = 0.0
+        winning_code = -1  # -1 sentinel for "canonical"
+        winning_tracked = False
+
+        for mod_code, prob, raw_byte, is_tracked in instances:
+            sum_raw += raw_byte
+            if prob > max_prob:
+                max_prob = prob
+                winning_code = mod_code
+                winning_tracked = is_tracked
+
         # Step 3: Calculate canonical remainder (raw-byte space,
         #         matching modkit's canonical_qual = 255 - Σq_i).
-        #         canonical_qual = max(0, 255 - sum of all raw ML bytes)
-        #         P_canonical = (canonical_qual + 0.5) / 256.0
-        sum_raw = sum(raw_byte for _, raw_byte in mod_data.values())
         canonical_qual = max(0, 255 - sum_raw)
         p_canonical = (canonical_qual + 0.5) / 256.0
 
-        # Step 4: Find the highest-confidence state among ALL
-        #         modifications at this position + canonical.
-        #         (modkit considers every mod in the MM tag,
-        #         regardless of --mod-type.)
-        max_prob = p_canonical
-        winning_state = "canonical"
-        for mod_type, (prob, _raw_byte) in mod_data.items():
-            if prob > max_prob:
-                max_prob = prob
-                winning_state = mod_type
+        # Step 4: canonical vs best mod
+        if p_canonical > max_prob:
+            max_prob = p_canonical
+            winning_code = -1  # canonical
+            winning_tracked = False
 
         # Step 5: Apply filter threshold (integer comparison matching modkit).
-        #         Convert max_prob to raw-byte space: floor(P * 256).
-        #         If max_prob_raw < threshold_raw → FAIL.
         if int(max_prob * 256) < threshold_raw:
             row[tx_pos_0] = CODE_FAIL
-        elif winning_state == "canonical":
+        elif winning_code == -1:
             # Step 6: Categorize — canonical.
             row[tx_pos_0] = CODE_CANONICAL
-        elif winning_state in tracked_mod_types:
+        elif winning_tracked:
             # Step 6: Categorize — modified (tracked mod won).
-            row[tx_pos_0] = _ensure_mod_code(winning_state, mod_code_map)
+            row[tx_pos_0] = winning_code
         else:
             # Step 6: Categorize — othermod (untracked mod won
             #         above threshold, but isn't one we're tabulating).
@@ -453,21 +510,6 @@ def write_transcript_group(h5, tx_name, rows, read_ids, weights):
     )
 
 
-def flush_transcript(h5, tx_name, read_data):
-    """Unpack accumulated read data and write one transcript group to HDF5.
-
-    Args:
-        h5: ``h5py.File`` open for writing.
-        tx_name: str — transcript name (used as group name).
-        read_data: ``list[tuple[str, numpy.ndarray, float]]`` —
-            each tuple is ``(read_id_str, row_uint8, weight_float)``.
-    """
-    read_id_strs = [d[0] for d in read_data]
-    rows = [d[1] for d in read_data]
-    weights = [d[2] for d in read_data]
-    write_transcript_group(h5, tx_name, rows, read_id_strs, weights)
-
-
 # ---------- parallel processing helpers ----------
 
 
@@ -512,7 +554,9 @@ def _process_transcript(
 def _submit_batch(
     executor,
     pending,
-    batch,
+    records,
+    read_ids,
+    weights,
     tx_length,
     tx_name,
     filter_threshold,
@@ -524,10 +568,19 @@ def _submit_batch(
     Stores the resulting ``Future`` in *pending* keyed to
     ``(tx_name, read_ids, weights)`` so the drain helpers can write
     the HDF5 group once processing completes.
+
+    Args:
+        executor: ``ProcessPoolExecutor``.
+        pending: ``dict[Future, tuple]`` — mutated in-place.
+        records: ``list[_ReadRecord]`` — read records for this batch.
+        read_ids: ``list[str]`` — read UUID strings.
+        weights: ``list[float]`` — assignment probabilities.
+        tx_length: int — transcript length.
+        tx_name: str — transcript name.
+        filter_threshold: float — probability cutoff.
+        tracked_mod_types: ``frozenset[str]`` — mod types to track.
+        mod_code_map: ``dict[str, int]`` — mod type → code mapping.
     """
-    records = [item[0] for item in batch]
-    read_ids = [item[1] for item in batch]
-    weights = [item[2] for item in batch]
     future = executor.submit(
         _process_transcript,
         tx_length,
@@ -676,7 +729,9 @@ def _run_sequential(
     tracked_mod_types = frozenset(mod_code_map.keys())
 
     current_tx_id = None
-    current_reads = []  # [(read_id_str, row_uint8, weight_float), ...]
+    current_read_ids = []   # list[str]
+    current_rows = []       # list[numpy.ndarray]
+    current_weights = []    # list[float]
     n_transcripts_written = 0
     n_assignments_written = 0
 
@@ -696,7 +751,7 @@ def _run_sequential(
 
         # Look up read in Oarfish by UUID
         try:
-            read_id_int = uuid.UUID(record.query_name).int
+            read_id_int = _uuid_to_int(record.query_name)
         except ValueError:
             continue
 
@@ -714,21 +769,25 @@ def _run_sequential(
 
         # ---- Transcript change: flush previous transcript ----
         if tx_id != current_tx_id:
-            if current_tx_id is not None and current_reads:
-                flush_transcript(
+            if current_tx_id is not None and current_rows:
+                write_transcript_group(
                     h5,
                     tx_names[current_tx_id],
-                    current_reads,
+                    current_rows,
+                    current_read_ids,
+                    current_weights,
                 )
                 n_transcripts_written += 1
-                n_assignments_written += len(current_reads)
+                n_assignments_written += len(current_rows)
                 if args.verbose and n_transcripts_written % 1000 == 0:
                     print(
                         f"[mod_scan] Wrote {n_transcripts_written} "
                         "transcript groups...",
                         file=sys.stderr,
                     )
-                current_reads = []
+                current_read_ids = []
+                current_rows = []
+                current_weights = []
             current_tx_id = tx_id
 
         # Find the exact assignment for this transcript
@@ -738,7 +797,7 @@ def _run_sequential(
             continue
 
         # Depth limit: skip if this transcript already has enough reads
-        if args.max_depth is not None and len(current_reads) >= args.max_depth:
+        if args.max_depth is not None and len(current_rows) >= args.max_depth:
             continue
 
         # Assignment probability filter
@@ -763,15 +822,20 @@ def _run_sequential(
             seen_mod_types,
         )
 
-        current_reads.append((record.query_name, row, assignment.prob))
+        current_read_ids.append(record.query_name)
+        current_rows.append(row)
+        current_weights.append(assignment.prob)
 
     bam.close()
 
     # ---- Flush the last transcript ----
-    if current_tx_id is not None and current_reads:
-        flush_transcript(h5, tx_names[current_tx_id], current_reads)
+    if current_tx_id is not None and current_rows:
+        write_transcript_group(
+            h5, tx_names[current_tx_id], current_rows,
+            current_read_ids, current_weights,
+        )
         n_transcripts_written += 1
-        n_assignments_written += len(current_reads)
+        n_assignments_written += len(current_rows)
 
     # ---- Global /modification_codes ----
     codes_grp = h5.create_group("modification_codes")
@@ -833,7 +897,9 @@ def _run_parallel(
 
     current_tx_id = None
     current_tx_length = 0
-    current_batch = []  # [(_ReadRecord, read_name_str, prob_float), ...]
+    current_records = []   # list[_ReadRecord]
+    current_read_ids = []  # list[str]
+    current_weights = []   # list[float]
 
     n_transcripts_written = 0
     n_assignments_written = 0
@@ -856,7 +922,7 @@ def _run_parallel(
 
             # Look up read in Oarfish by UUID
             try:
-                read_id_int = uuid.UUID(record.query_name).int
+                read_id_int = _uuid_to_int(record.query_name)
             except ValueError:
                 continue
 
@@ -874,11 +940,13 @@ def _run_parallel(
 
             # ---- Transcript change ----
             if tx_id != current_tx_id:
-                if current_tx_id is not None and current_batch:
+                if current_tx_id is not None and current_records:
                     _submit_batch(
                         executor,
                         pending,
-                        current_batch,
+                        current_records,
+                        current_read_ids,
+                        current_weights,
                         current_tx_length,
                         tx_names[current_tx_id],
                         filter_threshold,
@@ -895,7 +963,9 @@ def _run_parallel(
                         )
                         n_transcripts_written += dt
                         n_assignments_written += da
-                    current_batch = []
+                    current_records = []
+                    current_read_ids = []
+                    current_weights = []
                 current_tx_id = tx_id
                 current_tx_length = tx_lengths.get(tx_id, bam.lengths[tx_index])
 
@@ -906,7 +976,7 @@ def _run_parallel(
                 continue
 
             # Depth limit
-            if args.max_depth is not None and len(current_batch) >= args.max_depth:
+            if args.max_depth is not None and len(current_records) >= args.max_depth:
                 continue
 
             # Assignment probability filter
@@ -917,19 +987,24 @@ def _run_parallel(
 
             # Extract read data for worker process
             read_record = _extract_record(record)
-            current_batch.append((read_record, record.query_name, assignment.prob))
+            current_records.append(read_record)
+            current_read_ids.append(record.query_name)
+            current_weights.append(assignment.prob)
 
         bam.close()
 
         # ---- Submit last transcript ----
-        if current_tx_id is not None and current_batch:
+        if current_tx_id is not None and current_records:
             _submit_batch(
                 executor,
                 pending,
-                current_batch,
+                current_records,
+                current_read_ids,
+                current_weights,
                 current_tx_length,
                 tx_names[current_tx_id],
-                mod_cutoff_u8,
+                filter_threshold,
+                tracked_mod_types,
                 mod_code_map,
             )
 

@@ -125,7 +125,7 @@ class TestParseCigarForRow:
         assert np.all(row[:50] == CODE_UNCOVERED)
         assert np.all(row[50:60] == CODE_CANONICAL)
         assert np.all(row[60:] == CODE_UNCOVERED)
-        assert r2t == [51, 52, 53, 54, 55, 56, 57, 58, 59, 60]
+        assert r2t.tolist() == [51, 52, 53, 54, 55, 56, 57, 58, 59, 60]
 
     def test_mismatch(self):
         """X operator produces CODE_MISMATCH."""
@@ -173,8 +173,8 @@ class TestParseCigarForRow:
         # read_to_tx_map has None for inserted bases
         assert len(r2t) == 12  # 5 match + 2 insert + 5 match
         assert r2t[4] == 5  # last match before insertion
-        assert r2t[5] is None  # first inserted base
-        assert r2t[6] is None  # second inserted base
+        assert r2t[5] == -1  # first inserted base
+        assert r2t[6] == -1  # second inserted base
         assert r2t[7] == 6  # first match after insertion
 
     def test_soft_clip(self):
@@ -187,8 +187,8 @@ class TestParseCigarForRow:
         row, r2t = parse_cigar_for_row(record, 20)
 
         assert len(r2t) == 14  # 4 soft clip + 10 match
-        assert r2t[0] is None  # soft-clipped
-        assert r2t[3] is None  # soft-clipped
+        assert r2t[0] == -1  # soft-clipped
+        assert r2t[3] == -1  # soft-clipped
         assert r2t[4] == 1  # first aligned base
 
     def test_legacy_m_op(self):
@@ -227,8 +227,8 @@ class TestParseCigarForRow:
         assert np.all(row[:95] == CODE_UNCOVERED)
         assert np.all(row[95:100] == CODE_CANONICAL)
         # Only 5 positions within bounds
-        assert r2t[:5] == [96, 97, 98, 99, 100]
-        assert r2t[5:] == [None, None, None, None, None]
+        assert r2t[:5].tolist() == [96, 97, 98, 99, 100]
+        assert (r2t[5:] == -1).all()
 
     def test_none_reference_start(self):
         """Record with None reference_start returns empty."""
@@ -239,10 +239,15 @@ class TestParseCigarForRow:
         )
         row, r2t = parse_cigar_for_row(record, 100)
         assert np.all(row == CODE_UNCOVERED)
-        assert r2t == []
+        assert r2t.size == 0
 
 
 # ---------- modification parsing tests ----------
+
+
+_TRACKED = frozenset(
+    {"a", "m", "17596", "17802", "19227", "19228", "19229", "69426"}
+)
 
 
 class TestParseModifications:
@@ -262,7 +267,8 @@ class TestParseModifications:
 
         mod_code_map = {}
         seen = set()
-        parse_modifications(record, row, r2t, 200, mod_code_map, seen)
+        tracked = _TRACKED
+        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
 
         np.testing.assert_array_equal(row, original)
         assert mod_code_map == {}
@@ -285,8 +291,9 @@ class TestParseModifications:
         row, r2t = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
+        tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 200, mod_code_map, seen)
+        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
 
         # First position should be overridden with mod code 4
         assert row[0] == 4
@@ -313,9 +320,10 @@ class TestParseModifications:
         row, r2t = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
+        tracked = _TRACKED
 
         # threshold_u8 = 200 → raw >= 200 passes, 100 does not
-        parse_modifications(record, row, r2t, 200, mod_code_map, seen)
+        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
 
         assert row[0] == CODE_FAIL  # both mod and canonical below threshold
         assert seen == {"a"}
@@ -337,8 +345,9 @@ class TestParseModifications:
         row, r2t = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
+        tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 220, mod_code_map, seen)
+        parse_modifications(record, row, r2t, 220/256, tracked, mod_code_map, seen)
 
         assert row[0] == CODE_FAIL
 
@@ -359,8 +368,9 @@ class TestParseModifications:
         row, r2t = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
+        tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 150, mod_code_map, seen)
+        parse_modifications(record, row, r2t, 150/256, tracked, mod_code_map, seen)
 
         assert row[0] == CODE_CANONICAL  # canonical passes
         assert seen == {"a"}
@@ -382,8 +392,9 @@ class TestParseModifications:
         row, r2t = parse_cigar_for_row(record, 3)
         mod_code_map = {}
         seen = set()
+        tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 200, mod_code_map, seen)
+        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
 
         assert row[0] == 4  # mod 'a' code
 
@@ -403,8 +414,9 @@ class TestParseModifications:
         row, r2t = parse_cigar_for_row(record, 10)
         mod_code_map = {}
         seen = set()
+        tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 100, mod_code_map, seen)
+        parse_modifications(record, row, r2t, 100/256, tracked, mod_code_map, seen)
 
         # 3rd A (index 2, 0-based) should be modified
         assert row[2] == 4
@@ -430,8 +442,9 @@ class TestParseModifications:
         row, r2t = parse_cigar_for_row(record, 6)
         mod_code_map = {}
         seen = set()
+        tracked = _TRACKED
 
-        parse_modifications(record, row, r2t, 200, mod_code_map, seen)
+        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, seen)
 
         assert row[0] == 4  # 'a' mod on A
         assert row[3] == 5  # 'm' mod on C
@@ -458,7 +471,8 @@ class TestParseModifications:
         # This tests that read_to_tx_map length == len(query_sequence)
         assert len(r2t) == 6  # 3 match + 2 insert + 1 match
 
-        parse_modifications(record, row, r2t, 200, mod_code_map, set())
+        tracked = _TRACKED
+        parse_modifications(record, row, r2t, 200/256, tracked, mod_code_map, set())
 
         # No A in sequence → no modifications applied
         assert np.all(row[:4] == CODE_CANONICAL)
