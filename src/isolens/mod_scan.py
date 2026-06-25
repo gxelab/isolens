@@ -24,8 +24,9 @@ CODE_UNCOVERED = 0
 CODE_CANONICAL = 1
 CODE_MISMATCH = 2
 CODE_DELETION = 3
+CODE_OTHERMOD = 254  # untracked modification won above threshold
 CODE_FAIL = 255
-# modification types start at 4
+# tracked modification types start at 4
 
 # ---------- CIGAR operator constants (pysam cigartuples) ----------
 
@@ -204,20 +205,31 @@ def parse_modifications(
     record,
     row,
     read_to_tx_map,
-    mod_cutoff_u8,
+    filter_threshold,
+    tracked_mod_types,
     mod_code_map,
     seen_mod_types,
 ):
     """Parse MM/ML tags and override *row* in-place with modification codes.
 
-    Uses a two-pass strategy:
+    Follows the modkit state classification pipeline:
 
-    1. Collect every (read_pos, mod_type, raw_ml_prob) across all MM tag
-       groups into a per-position dict.
-    2. For each read position with modification data, compute
-       ``P_canonical = 1 - sum(P_mods)`` and pick the call with the
-       highest probability.  If that max probability is below the
-       threshold, the position is marked ``CODE_FAIL``.
+    1. **CIGAR diff** — ``parse_cigar_for_row`` sets ``CODE_MISMATCH`` for
+       reference mismatches (``X``) and ``CODE_DELETION`` for deletions
+       (``D``).  These are preserved — ``parse_modifications`` never
+       overwrites them.
+    2. **Decode ML** — convert 8-bit integers to probabilities via
+       ``P = (q + 0.5) / 256.0``.
+    3. **Canonical remainder** — ``P_canonical = max(0, 1 - sum(P_mods))``.
+    4. **Winning state** — pick the state (ALL modifications present at
+       this position + canonical) with the highest probability.
+    5. **Filter threshold** — if ``max_prob < filter_threshold``, mark as
+       ``CODE_FAIL``.
+    6. **Categorize** — canonical → ``CODE_CANONICAL``; tracked mod →
+       its assigned integer code (≥4); untracked mod → ``CODE_OTHERMOD``.
+
+    Uses a two-pass implementation: Pass 1 collects per-position data from
+    the MM/ML tags (Step 2), Pass 2 applies Steps 3–6.
 
     Args:
         record: ``pysam.AlignedSegment`` or ``_ReadRecord``.
@@ -225,8 +237,9 @@ def parse_modifications(
             Modified in-place.
         read_to_tx_map: ``list[int | None]`` — 1-based transcript positions
             indexed by read position (same length as ``query_sequence``).
-        mod_cutoff_u8: float — raw ML threshold in 0-255 space
-            (e.g. ``0.95 * 255 = 242.25``).
+        filter_threshold: float — probability cutoff (e.g. ``0.95``).
+        tracked_mod_types: ``frozenset[str]`` — modification types that
+            participate in winner selection (from ``--mod-type``).
         mod_code_map: ``dict[str, int]`` — mutated in-place.
             Maps modification type string → integer code (starting at 4).
         seen_mod_types: ``set[str]`` — mutated in-place.
@@ -255,8 +268,6 @@ def parse_modifications(
     if seq is None:
         return
 
-    threshold = (mod_cutoff_u8 + 0.5) / 256.0
-
     # ---- Pass 1: collect per-position modification probabilities ----
     # per_position: read_pos_0 → {mod_type: (prob_float, raw_ml_byte)}
     per_position: dict[int, dict[str, tuple[float, int]]] = {}
@@ -264,7 +275,7 @@ def parse_modifications(
 
     base_positions_cache: dict[str, list[int]] = {}
 
-    for mod_group in mm_str.split(";"):
+    for group_idx, mod_group in enumerate(mm_str.split(";")):
         if not mod_group:
             continue
         parts = mod_group.split(",")
@@ -304,60 +315,85 @@ def parse_modifications(
 
             read_pos_0 = positions[occ_idx]
 
-            # Read ML probability (0..1) and keep raw byte for mod threshold
+            # Step 2: Decode ML tag — convert 8-bit integer to probability
+            #         P = (q + 0.5) / 256.0
             prob = 0.0
             raw_byte = 0
             if ml_bytes is not None and total_mod_instance_idx < len(ml_bytes):
                 raw_byte = ml_bytes[total_mod_instance_idx]
                 prob = (raw_byte + 0.5) / 256.0
 
-            per_position.setdefault(read_pos_0, {})[mod_type] = (prob, raw_byte)
+            per_position.setdefault(read_pos_0, {})[mod_type] = (
+                prob,
+                raw_byte,
+            )
 
             total_mod_instance_idx += 1
             occ_idx += 1  # move past the marked occurrence
 
-    # ---- Pass 2: determine the call per position ----
+    # Pre-compute integer threshold for modkit-compatible comparison.
+    # modkit converts probabilities to raw-byte space (floor(P * 256))
+    # before comparing against the filter threshold.  This is equivalent
+    # to a float comparison for individual modifications (due to the
+    # +0.5 alignment) but is slightly less strict for P_canonical at
+    # multi-mod positions, matching modkit's behaviour exactly.
+    threshold_raw = int(filter_threshold * 256)
+
+    # ---- Pass 2: 6-step modkit classification pipeline ----
     for read_pos_0, mod_data in per_position.items():
-        # Compute P_canonical exactly as modkit does:
-        # canonical_prob() = 1f32 - probs.values().sum::<f32>()
-        # Each mod prob already includes its 0.5/256 offset from the
-        # ML byte-to-prob conversion (byte+0.5)/256, so the subtraction
-        # correctly accounts for all N mods present at the position.
-        p_canonical = 1.0 - sum(p for p, _ in mod_data.values())
-        if p_canonical < 0.0:
-            p_canonical = 0.0
+        # Map read position to transcript position (used by every step
+        # that assigns a code).  Skip positions that don't map.
+        if read_pos_0 >= len(read_to_tx_map):
+            continue
+        tx_pos_1 = read_to_tx_map[read_pos_0]
+        if tx_pos_1 is None:
+            continue
+        tx_pos_0 = tx_pos_1 - 1  # convert to 0-based
+        if not (0 <= tx_pos_0 < len(row)):
+            continue
 
-        # Find max probability and corresponding modification
+        # Preserve CIGAR reference mismatches (modkit's 'diff').
+        # If the read base differs from the reference at this position,
+        # ``parse_cigar_for_row`` already flagged it as CODE_MISMATCH.
+        # modkit locks these positions and refuses to tabulate them as
+        # valid canonical, failed, or modified — do not overwrite.
+        if row[tx_pos_0] == CODE_MISMATCH:
+            continue
+
+        # Step 3: Calculate canonical remainder (raw-byte space,
+        #         matching modkit's canonical_qual = 255 - Σq_i).
+        #         canonical_qual = max(0, 255 - sum of all raw ML bytes)
+        #         P_canonical = (canonical_qual + 0.5) / 256.0
+        sum_raw = sum(raw_byte for _, raw_byte in mod_data.values())
+        canonical_qual = max(0, 255 - sum_raw)
+        p_canonical = (canonical_qual + 0.5) / 256.0
+
+        # Step 4: Find the highest-confidence state among ALL
+        #         modifications at this position + canonical.
+        #         (modkit considers every mod in the MM tag,
+        #         regardless of --mod-type.)
         max_prob = p_canonical
-        best_mod = None  # None means canonical wins
-
+        winning_state = "canonical"
         for mod_type, (prob, _raw_byte) in mod_data.items():
             if prob > max_prob:
                 max_prob = prob
-                best_mod = mod_type
+                winning_state = mod_type
 
-        # Determine the code to assign (modkit-style threshold checks)
-        if best_mod is None:
-            # Canonical won — compare p_canonical float to p (threshold)
-            if p_canonical < threshold:
-                code = CODE_FAIL
-            else:
-                code = CODE_CANONICAL
+        # Step 5: Apply filter threshold (integer comparison matching modkit).
+        #         Convert max_prob to raw-byte space: floor(P * 256).
+        #         If max_prob_raw < threshold_raw → FAIL.
+        if int(max_prob * 256) < threshold_raw:
+            row[tx_pos_0] = CODE_FAIL
+        elif winning_state == "canonical":
+            # Step 6: Categorize — canonical.
+            row[tx_pos_0] = CODE_CANONICAL
+        elif winning_state in tracked_mod_types:
+            # Step 6: Categorize — modified (tracked mod won).
+            row[tx_pos_0] = _ensure_mod_code(winning_state, mod_code_map)
         else:
-            # Modification won — compare raw byte to q (mod_cutoff_u8)
-            best_byte = mod_data[best_mod][1]
-            if best_byte < mod_cutoff_u8:
-                code = CODE_FAIL
-            else:
-                code = _ensure_mod_code(best_mod, mod_code_map)
-
-        # Map read position to transcript position and update row
-        if read_pos_0 < len(read_to_tx_map):
-            tx_pos_1 = read_to_tx_map[read_pos_0]
-            if tx_pos_1 is not None:
-                tx_pos_0 = tx_pos_1 - 1  # convert to 0-based
-                if 0 <= tx_pos_0 < len(row):
-                    row[tx_pos_0] = code
+            # Step 6: Categorize — othermod (untracked mod won
+            #         above threshold, but isn't one we're tabulating).
+            row[tx_pos_0] = CODE_OTHERMOD
 
 
 # ---------- HDF5 output ----------
@@ -435,17 +471,21 @@ def flush_transcript(h5, tx_name, read_data):
 # ---------- parallel processing helpers ----------
 
 
-def _process_transcript(tx_length, read_records, mod_cutoff_u8, mod_code_map):
+def _process_transcript(
+    tx_length, read_records, filter_threshold, tracked_mod_types, mod_code_map
+):
     """Process all reads for one transcript (worker-process entry point).
 
     Args:
         tx_length: int — length of the target transcript in bases.
         read_records: ``list[_ReadRecord]`` — one per read assigned to
             this transcript.
-        mod_cutoff_u8: float — raw ML threshold in 0-255 space.
-        mod_code_map: ``dict[str, int]`` — **read-only** mapping from
-            modification-type string to integer code (≥4).  All types
-            are pre-filled from the CLI ``--mod-type`` argument.
+        filter_threshold: float — probability cutoff (e.g. ``0.95``).
+        tracked_mod_types: ``frozenset[str]`` — modification types that
+            participate in winner selection (from ``--mod-type``).
+        mod_code_map: ``dict[str, int]`` — mapping from modification-type
+            string to integer code (≥4).  All tracked types are pre-filled;
+            ``_ensure_mod_code`` may add newly-encountered types at runtime.
 
     Returns:
         ``(rows, local_seen)`` where *rows* is a ``list[numpy.ndarray]``
@@ -460,7 +500,8 @@ def _process_transcript(tx_length, read_records, mod_cutoff_u8, mod_code_map):
             record,
             row,
             read_to_tx_map,
-            mod_cutoff_u8,
+            filter_threshold,
+            tracked_mod_types,
             mod_code_map,
             local_seen,
         )
@@ -469,7 +510,14 @@ def _process_transcript(tx_length, read_records, mod_cutoff_u8, mod_code_map):
 
 
 def _submit_batch(
-    executor, pending, batch, tx_length, tx_name, mod_cutoff_u8, mod_code_map
+    executor,
+    pending,
+    batch,
+    tx_length,
+    tx_name,
+    filter_threshold,
+    tracked_mod_types,
+    mod_code_map,
 ):
     """Submit one transcript batch to the process pool.
 
@@ -484,7 +532,8 @@ def _submit_batch(
         _process_transcript,
         tx_length,
         records,
-        mod_cutoff_u8,
+        filter_threshold,
+        tracked_mod_types,
         mod_code_map,
     )
     pending[future] = (tx_name, read_ids, weights)
@@ -611,7 +660,7 @@ def parse_args():
 
 
 def _run_sequential(
-    bam, args, h5, tx_names, prob_map, bam_ref_to_tx_id, mod_cutoff_u8, mod_code_map
+    bam, args, h5, tx_names, prob_map, bam_ref_to_tx_id, filter_threshold, mod_code_map
 ):
     """Stream through the BAM transcript-by-transcript (single-threaded).
 
@@ -622,6 +671,9 @@ def _run_sequential(
     mod_code_map, seen_mod_types)``.
     """
     seen_mod_types = set()
+    # Snapshot tracked modification types before any runtime mutations.
+    # Only these types participate in winner selection (modkit Step 4).
+    tracked_mod_types = frozenset(mod_code_map.keys())
 
     current_tx_id = None
     current_reads = []  # [(read_id_str, row_uint8, weight_float), ...]
@@ -705,7 +757,8 @@ def _run_sequential(
             extracted,
             row,
             read_to_tx_map,
-            mod_cutoff_u8,
+            filter_threshold,
+            tracked_mod_types,
             mod_code_map,
             seen_mod_types,
         )
@@ -757,7 +810,7 @@ def _run_parallel(
     prob_map,
     bam_ref_to_tx_id,
     tx_lengths,
-    mod_cutoff_u8,
+    filter_threshold,
     mod_code_map,
 ):
     """Stream through the BAM and process transcripts in parallel.
@@ -772,6 +825,9 @@ def _run_parallel(
     mod_code_map, seen_mod_types)``.
     """
     seen_mod_types = set()
+    # Snapshot tracked modification types before any runtime mutations.
+    # Only these types participate in winner selection (modkit Step 4).
+    tracked_mod_types = frozenset(mod_code_map.keys())
 
     max_pending = max(2, args.threads * 2)
 
@@ -825,7 +881,8 @@ def _run_parallel(
                         current_batch,
                         current_tx_length,
                         tx_names[current_tx_id],
-                        mod_cutoff_u8,
+                        filter_threshold,
+                        tracked_mod_types,
                         mod_code_map,
                     )
                     # Back-pressure: drain one if too many in-flight
@@ -912,7 +969,7 @@ def _run_parallel(
 
 def main():
     args = parse_args()
-    mod_cutoff_u8 = 256.0 * args.mod_cutoff - 0.5
+    filter_threshold = args.mod_cutoff
 
     # ---- 1. Load Oarfish assignments ----
 
@@ -980,7 +1037,7 @@ def main():
                     tx_names,
                     prob_map,
                     bam_ref_to_tx_id,
-                    mod_cutoff_u8,
+                    filter_threshold,
                     mod_code_map,
                 )
             )
@@ -994,7 +1051,7 @@ def main():
                     prob_map,
                     bam_ref_to_tx_id,
                     tx_lengths,
-                    mod_cutoff_u8,
+                    filter_threshold,
                     mod_code_map,
                 )
             )

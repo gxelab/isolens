@@ -19,12 +19,7 @@
 
 ## Why IsoLens?
 
-Most long-read RNA analysis tools either:
-
-- analyze RNA modifications or poly(A) tails without isoform uncertainty
-- assign reads to transcripts using hard labels
-
-IsoLens propagates transcript assignment probabilities from [Oarfish](https://github.com/COMBINE-lab/oarfish) throughout both modification and poly(A) analyses, enabling more accurate transcript-level estimates for genes with complex isoform structure.
+Most long-read RNA analysis tools either analyze RNA modifications or poly(A) tails without discrimination of transcript isoforms or assign reads to transcripts using hard labels. IsoLens propagates transcript assignment probabilities from [Oarfish](https://github.com/COMBINE-lab/oarfish) throughout both modification and poly(A) analyses, enabling more accurate transcript-level estimates for genes with complex isoform structure.
 
 Key capabilities:
 
