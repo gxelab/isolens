@@ -149,6 +149,10 @@ class TestBhFdr:
 class TestProcessTranscript:
     """Tests for process_transcript()."""
 
+    def _site(self, pos, n_mod, mod_level=0.5, depth=100):
+        """Helper to create a site dict for tests."""
+        return {"pos": pos, "n_mod": n_mod, "mod_level": mod_level, "depth": depth}
+
     def test_two_sites_same_type(self):
         """Two sites of same mod type produce one pair."""
         matrix = np.array(
@@ -156,7 +160,9 @@ class TestProcessTranscript:
             dtype=np.uint8,
         )
         weights = np.array([1.0, 1.0, 1.0], dtype=np.float32)
-        sites_by_mod = {"a": [(1, 3), (2, 3), (3, 2)]}
+        sites_by_mod = {
+            "a": [self._site(1, 3), self._site(2, 3), self._site(3, 2)]
+        }
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
@@ -165,7 +171,7 @@ class TestProcessTranscript:
             weights,
             sites_by_mod,
             mod_code_map,
-            min_support=2,
+            min_mod_reads=2,
         )
 
         # All 3 sites qualify (n_mod >= 2) → 3 choose 2 = 3 pairs
@@ -178,7 +184,7 @@ class TestProcessTranscript:
             dtype=np.uint8,
         )
         weights = np.array([1.0, 1.0], dtype=np.float32)
-        sites_by_mod = {"a": [(1, 2)], "m": [(2, 2)]}
+        sites_by_mod = {"a": [self._site(1, 2)], "m": [self._site(2, 2)]}
         mod_code_map = {"a": 4, "m": 5}
 
         rows = process_transcript(
@@ -187,17 +193,17 @@ class TestProcessTranscript:
             weights,
             sites_by_mod,
             mod_code_map,
-            min_support=1,
+            min_mod_reads=1,
         )
 
         assert len(rows) == 1
         assert rows[0]["modification_type"] == "a:m"
 
-    def test_below_min_support(self):
-        """Sites with n_modified < min_support are excluded."""
+    def test_below_min_mod_reads(self):
+        """Sites with n_modified < min_mod_reads are excluded."""
         matrix = np.array([[4, 4]], dtype=np.uint8)
         weights = np.array([1.0], dtype=np.float32)
-        sites_by_mod = {"a": [(1, 1), (2, 1)]}
+        sites_by_mod = {"a": [self._site(1, 1), self._site(2, 1)]}
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
@@ -206,7 +212,7 @@ class TestProcessTranscript:
             weights,
             sites_by_mod,
             mod_code_map,
-            min_support=2,  # both sites have n_mod=1 < 2
+            min_mod_reads=2,  # both sites have n_mod=1 < 2
         )
         assert rows == []
 
@@ -214,7 +220,7 @@ class TestProcessTranscript:
         """Only one candidate site → no pairs possible."""
         matrix = np.array([[4, CODE_CANONICAL]], dtype=np.uint8)
         weights = np.array([1.0], dtype=np.float32)
-        sites_by_mod = {"a": [(1, 1)]}
+        sites_by_mod = {"a": [self._site(1, 1)]}
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
@@ -223,7 +229,7 @@ class TestProcessTranscript:
             weights,
             sites_by_mod,
             mod_code_map,
-            min_support=1,
+            min_mod_reads=1,
         )
         assert rows == []
 
@@ -234,7 +240,7 @@ class TestProcessTranscript:
             dtype=np.uint8,
         )
         weights = np.array([0.5, 0.5, 0.5], dtype=np.float32)
-        sites_by_mod = {"a": [(1, 3), (2, 2)]}
+        sites_by_mod = {"a": [self._site(1, 3), self._site(2, 2)]}
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
@@ -243,7 +249,7 @@ class TestProcessTranscript:
             weights,
             sites_by_mod,
             mod_code_map,
-            min_support=1,
+            min_mod_reads=1,
             min_asp=0.9,
         )
         # All reads excluded → no rows
@@ -256,7 +262,7 @@ class TestProcessTranscript:
             dtype=np.uint8,
         )
         weights = np.array([1.0, 1.0, 1.0], dtype=np.float32)
-        sites_by_mod = {"a": [(1, 3), (2, 2)]}
+        sites_by_mod = {"a": [self._site(1, 3), self._site(2, 2)]}
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
@@ -265,7 +271,7 @@ class TestProcessTranscript:
             weights,
             sites_by_mod,
             mod_code_map,
-            min_support=2,
+            min_mod_reads=2,
         )
 
         assert len(rows) == 1
@@ -285,7 +291,7 @@ class TestProcessTranscript:
             dtype=np.uint8,
         )
         weights = np.array([1.0, 1.0], dtype=np.float32)
-        sites_by_mod = {"a": [(1, 2), (2, 2)]}
+        sites_by_mod = {"a": [self._site(1, 2), self._site(2, 2)]}
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
@@ -294,8 +300,91 @@ class TestProcessTranscript:
             weights,
             sites_by_mod,
             mod_code_map,
-            min_support=1,
+            min_mod_reads=1,
         )
+        assert rows == []
+
+    def test_min_mod_level_filter(self):
+        """Sites with mod_level below threshold are excluded."""
+        matrix = np.array(
+            [[4, 4], [4, CODE_CANONICAL]],
+            dtype=np.uint8,
+        )
+        weights = np.array([1.0, 1.0], dtype=np.float32)
+        sites_by_mod = {
+            "a": [
+                self._site(1, 2, mod_level=0.9, depth=2),
+                self._site(2, 1, mod_level=0.1, depth=2),
+            ]
+        }
+        mod_code_map = {"a": 4}
+
+        rows = process_transcript(
+            "TX1",
+            matrix,
+            weights,
+            sites_by_mod,
+            mod_code_map,
+            min_mod_reads=1,
+            min_mod_level=0.5,
+        )
+        # Only site 1 passes mod_level filter → single candidate
+        assert rows == []
+
+    def test_depth_filter(self):
+        """Sites with depth below threshold are excluded."""
+        matrix = np.array(
+            [[4, 4], [4, CODE_CANONICAL]],
+            dtype=np.uint8,
+        )
+        weights = np.array([1.0, 1.0], dtype=np.float32)
+        sites_by_mod = {
+            "a": [
+                self._site(1, 2, mod_level=0.5, depth=100),
+                self._site(2, 1, mod_level=0.5, depth=5),
+            ]
+        }
+        mod_code_map = {"a": 4}
+
+        rows = process_transcript(
+            "TX1",
+            matrix,
+            weights,
+            sites_by_mod,
+            mod_code_map,
+            min_mod_reads=1,
+            min_depth=10,
+        )
+        # Only site 1 passes depth filter → single candidate
+        assert rows == []
+
+    def test_combined_filters(self):
+        """All three filters applied together."""
+        matrix = np.array(
+            [[4, 4, 4], [4, CODE_CANONICAL, 4]],
+            dtype=np.uint8,
+        )
+        weights = np.array([1.0, 1.0], dtype=np.float32)
+        sites_by_mod = {
+            "a": [
+                self._site(1, 2, mod_level=0.9, depth=100),  # passes all
+                self._site(2, 2, mod_level=0.1, depth=100),  # fails mod_level
+                self._site(3, 2, mod_level=0.9, depth=5),    # fails depth
+            ]
+        }
+        mod_code_map = {"a": 4}
+
+        rows = process_transcript(
+            "TX1",
+            matrix,
+            weights,
+            sites_by_mod,
+            mod_code_map,
+            min_mod_reads=2,
+            min_mod_level=0.5,
+            min_depth=10,
+        )
+        # Only site 1 passes all filters → single candidate, no pairs
         assert rows == []
 
 
@@ -314,6 +403,11 @@ class TestReadSiteSummary:
                 "position": [42, 100],
                 "mod_type": ["a", "a"],
                 "n_modified": [10, 5],
+                "n_unmodified": [90, 45],
+                "n_mismatch": [0, 0],
+                "n_deletion": [0, 0],
+                "n_failed": [0, 0],
+                "mod_level": [0.1, 0.1],
             }
         )
         path = tmp_path / "sites.parquet"
@@ -322,18 +416,26 @@ class TestReadSiteSummary:
         sites = read_site_summary(str(path))
         assert "TX1" in sites
         assert "a" in sites["TX1"]
-        assert sites["TX1"]["a"] == [(42, 10), (100, 5)]
+        assert sites["TX1"]["a"] == [
+            {"pos": 42, "n_mod": 10, "mod_level": 0.1, "depth": 100},
+            {"pos": 100, "n_mod": 5, "mod_level": 0.1, "depth": 50},
+        ]
 
     def test_tsv_input(self, tmp_path):
         path = tmp_path / "sites.tsv"
         path.write_text(
-            "transcript_id\tposition\tmod_type\tn_modified\n"
-            "TX1\t42\ta\t10\n"
-            "TX1\t100\tm\t5\n"
+            "transcript_id\tposition\tmod_type\tn_modified\t"
+            "n_unmodified\tn_mismatch\tn_deletion\tn_failed\tmod_level\n"
+            "TX1\t42\ta\t10\t90\t0\t0\t0\t0.1\n"
+            "TX1\t100\tm\t5\t40\t3\t2\t0\t0.1\n"
         )
         sites = read_site_summary(str(path))
-        assert sites["TX1"]["a"] == [(42, 10)]
-        assert sites["TX1"]["m"] == [(100, 5)]
+        assert sites["TX1"]["a"] == [
+            {"pos": 42, "n_mod": 10, "mod_level": 0.1, "depth": 100}
+        ]
+        assert sites["TX1"]["m"] == [
+            {"pos": 100, "n_mod": 5, "mod_level": 0.1, "depth": 50}
+        ]
 
 
 # ---------- _write_parquet ----------

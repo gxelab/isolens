@@ -149,10 +149,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-o", "--output", required=True, help="Output file path")
     parser.add_argument(
         "-m",
-        "--min-support",
+        "--min-mod-reads",
         type=int,
         default=10,
-        help="Minimum n_modified for a site to be considered [default: 10]",
+        help="Minimum number of modified reads for a site to be "
+        "considered [default: 10]",
+    )
+    parser.add_argument(
+        "-l",
+        "--min-mod-level",
+        type=float,
+        default=0.0,
+        help="Minimum modification level for a site to be "
+        "considered [default: 0.0]",
+    )
+    parser.add_argument(
+        "-d",
+        "--depth",
+        type=int,
+        default=0,
+        help="Minimum total depth for a site to be "
+        "considered [default: 0]",
     )
     parser.add_argument(
         "-p",
@@ -201,14 +218,15 @@ def parse_args() -> argparse.Namespace:
 # ---------- site-summary reader ----------
 
 
-def read_site_summary(path: str) -> dict[str, dict[str, list[tuple[int, int]]]]:
+def read_site_summary(path: str) -> dict[str, dict[str, list[dict[str, int | float]]]]:
     """Read a modification site summary file (Parquet or TSV).
 
     Args:
         path: Path to a Parquet or TSV/TSV.GZ file from ``mod_sites``.
 
     Returns:
-        Nested dict ``{tx_name: {mod_type: [(pos_1based, n_modified), ...]}}``.
+        Nested dict ``{tx_name: {mod_type: [{"pos": int, "n_mod": int,
+        "mod_level": float, "depth": int}, ...]}}``.
     """
     if path.endswith(".parquet"):
         return _read_sites_parquet(path)
@@ -216,39 +234,82 @@ def read_site_summary(path: str) -> dict[str, dict[str, list[tuple[int, int]]]]:
         return _read_sites_tsv(path)
 
 
-def _read_sites_parquet(path: str) -> dict[str, dict[str, list[tuple[int, int]]]]:
+def _read_sites_parquet(
+    path: str,
+) -> dict[str, dict[str, list[dict[str, int | float]]]]:
     table = pq.read_table(
-        path, columns=["transcript_id", "position", "mod_type", "n_modified"]
+        path,
+        columns=[
+            "transcript_id",
+            "position",
+            "mod_type",
+            "n_modified",
+            "n_unmodified",
+            "n_mismatch",
+            "n_deletion",
+            "n_failed",
+            "mod_level",
+        ],
     )
-    sites: dict[str, dict[str, list[tuple[int, int]]]] = {}
+    sites: dict[str, dict[str, list[dict[str, int | float]]]] = {}
     for i in range(len(table)):
         tx = table.column("transcript_id")[i].as_py()
         pos = table.column("position")[i].as_py()
         mod = table.column("mod_type")[i].as_py()
         n_mod = table.column("n_modified")[i].as_py()
-        sites.setdefault(tx, {}).setdefault(mod, []).append((pos, n_mod))
+        n_unmod = table.column("n_unmodified")[i].as_py()
+        n_mismatch = table.column("n_mismatch")[i].as_py()
+        n_del = table.column("n_deletion")[i].as_py()
+        n_failed = table.column("n_failed")[i].as_py()
+        mod_level = table.column("mod_level")[i].as_py()
+        depth = n_mod + n_unmod + n_mismatch + n_del + n_failed
+        sites.setdefault(tx, {}).setdefault(mod, []).append(
+            {"pos": pos, "n_mod": n_mod, "mod_level": mod_level, "depth": depth}
+        )
     return sites
 
 
-def _read_sites_tsv(path: str) -> dict[str, dict[str, list[tuple[int, int]]]]:
+def _read_sites_tsv(
+    path: str,
+) -> dict[str, dict[str, list[dict[str, int | float]]]]:
     import gzip
 
     open_func = gzip.open if path.endswith(".gz") else open
     mode = "rt" if path.endswith(".gz") else "r"
-    sites: dict[str, dict[str, list[tuple[int, int]]]] = {}
+    sites: dict[str, dict[str, list[dict[str, int | float]]]] = {}
     with open_func(path, mode, encoding="utf-8") as f:
         header = f.readline().strip().split("\t")
         tx_col = header.index("transcript_id")
         pos_col = header.index("position")
         mod_col = header.index("mod_type")
         nmod_col = header.index("n_modified")
+        nunmod_col = header.index("n_unmodified")
+        nmis_col = header.index("n_mismatch")
+        ndel_col = header.index("n_deletion")
+        nfail_col = header.index("n_failed")
+        ml_col = header.index("mod_level")
         for line in f:
             parts = line.strip().split("\t")
-            if len(parts) <= max(tx_col, pos_col, mod_col, nmod_col):
+            if len(parts) <= max(
+                tx_col, pos_col, mod_col, nmod_col, nunmod_col,
+                nmis_col, ndel_col, nfail_col, ml_col,
+            ):
                 continue
             tx = parts[tx_col]
+            n_mod = int(parts[nmod_col])
+            n_unmod = int(parts[nunmod_col])
+            n_mismatch = int(parts[nmis_col])
+            n_del = int(parts[ndel_col])
+            n_failed = int(parts[nfail_col])
+            mod_level = float(parts[ml_col])
+            depth = n_mod + n_unmod + n_mismatch + n_del + n_failed
             sites.setdefault(tx, {}).setdefault(parts[mod_col], []).append(
-                (int(parts[pos_col]), int(parts[nmod_col]))
+                {
+                    "pos": int(parts[pos_col]),
+                    "n_mod": n_mod,
+                    "mod_level": mod_level,
+                    "depth": depth,
+                }
             )
     return sites
 
@@ -334,10 +395,12 @@ def process_transcript(
     tx_name: str,
     matrix: np.ndarray,
     weights: np.ndarray,
-    sites_by_mod: dict[str, list[tuple[int, int]]],
+    sites_by_mod: dict[str, list[dict[str, int | float]]],
     mod_code_map: dict[str, int],
-    min_support: int,
+    min_mod_reads: int,
     min_asp: float = 0.0,
+    min_mod_level: float = 0.0,
+    min_depth: int = 0,
 ) -> list[dict[str, Any]]:
     """Compute pairwise correlation statistics for one transcript.
 
@@ -347,12 +410,15 @@ def process_transcript(
         tx_name: Transcript name (used as output label).
         matrix: ``(n_reads, tx_length)`` uint8 array from HDF5.
         weights: ``(n_reads,)`` float32 Oarfish assignment probabilities.
-        sites_by_mod: ``{mod_type: [(pos_1based, n_modified), ...]}`` from
+        sites_by_mod: ``{mod_type: [{"pos": int, "n_mod": int,
+            "mod_level": float, "depth": int}, ...]}`` from
             the site summary file.
         mod_code_map: ``{mod_type_string: integer_code}`` from the HDF5
             ``/modification_codes`` group.
-        min_support: Minimum ``n_modified`` for a site to be included.
+        min_mod_reads: Minimum ``n_modified`` for a site to be included.
         min_asp: Minimum assignment probability for a read to be included.
+        min_mod_level: Minimum modification level for a site to be included.
+        min_depth: Minimum total depth for a site to be included.
 
     Returns:
         List of dicts, one per site pair, with columns from ``_OUTPUT_COLS``.
@@ -372,7 +438,11 @@ def process_transcript(
         if mod_code is None:
             continue
         candidates.extend(
-            (pos, mod_str, mod_code) for pos, n_mod in site_list if n_mod >= min_support
+            (site["pos"], mod_str, mod_code)
+            for site in site_list
+            if site["n_mod"] >= min_mod_reads
+            and site["mod_level"] >= min_mod_level
+            and site["depth"] >= min_depth
         )
     if len(candidates) < 2:
         return []
@@ -819,8 +889,10 @@ def main() -> None:
                 weights,
                 all_sites.get(tx_name, {}),
                 mod_code_map,
-                args.min_support,
+                args.min_mod_reads,
                 args.min_asp,
+                args.min_mod_level,
+                args.depth,
             )
             all_rows.extend(tx_results)
             processed += 1
