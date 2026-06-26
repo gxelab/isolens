@@ -1,9 +1,11 @@
 """Tests for mod_sites — per-position modification summaries."""
 
+import argparse
 import os
 import sys
 import tempfile
 
+import h5py
 import numpy as np
 import pyarrow.parquet as pq
 import pytest
@@ -17,9 +19,12 @@ try:
     )
     from isolens.mod_sites import (
         _TSV_COLS,
+        _validate_mod_codes,
+        _validate_tx_lengths,
         _write_parquet,
         _write_tsv,
         compute_transcript_stats,
+        main,
         read_predefined_sites,
     )
 except ImportError:
@@ -32,9 +37,12 @@ except ImportError:
     )
     from isolens.mod_sites import (  # type: ignore[no-redef]
         _TSV_COLS,
+        _validate_mod_codes,
+        _validate_tx_lengths,
         _write_parquet,
         _write_tsv,
         compute_transcript_stats,
+        main,
         read_predefined_sites,
     )
 
@@ -655,3 +663,241 @@ class TestWriteWithGtfColumns:
     def test_tsv_cols_includes_gtf(self):
         """_TSV_COLS has gene_id, chrom, strand, gpos as last four entries."""
         assert _TSV_COLS[-4:] == ["gene_id", "chrom", "strand", "gpos"]
+
+
+# ---------- _validate_mod_codes ----------
+
+
+class TestValidateModCodes:
+    """Tests for _validate_mod_codes()."""
+
+    def test_identical_codes(self):
+        codes = [("a", 4), ("m", 5)]
+        result = _validate_mod_codes([codes, codes], ["f1.h5", "f2.h5"])
+        assert result == codes
+
+    def test_mismatched_codes_raises(self):
+        codes1 = [("a", 4)]
+        codes2 = [("a", 5)]
+        with pytest.raises(ValueError, match="do not match"):
+            _validate_mod_codes([codes1, codes2], ["f1.h5", "f2.h5"])
+
+    def test_extra_code_raises(self):
+        codes1 = [("a", 4)]
+        codes2 = [("a", 4), ("m", 5)]
+        with pytest.raises(ValueError, match="do not match"):
+            _validate_mod_codes([codes1, codes2], ["f1.h5", "f2.h5"])
+
+    def test_single_file_no_validation(self):
+        codes = [("a", 4)]
+        result = _validate_mod_codes([codes], ["f1.h5"])
+        assert result == codes
+
+
+# ---------- _validate_tx_lengths ----------
+
+
+class TestValidateTxLengths:
+    """Tests for _validate_tx_lengths()."""
+
+    def test_identical_lengths(self):
+        result = _validate_tx_lengths(
+            "TX1", [100, 100, 100], ["f1.h5", "f2.h5", "f3.h5"]
+        )
+        assert result == 100
+
+    def test_with_none_absent(self):
+        result = _validate_tx_lengths(
+            "TX1", [100, None, 100], ["f1.h5", "f2.h5", "f3.h5"]
+        )
+        assert result == 100
+
+    def test_mismatch_raises(self):
+        with pytest.raises(ValueError, match="inconsistent lengths"):
+            _validate_tx_lengths("TX1", [100, 200], ["f1.h5", "f2.h5"])
+
+
+# ---------- multi-file integration ----------
+
+
+class TestMainMultiFile:
+    """Integration tests for main() with multiple HDF5 files."""
+
+    @staticmethod
+    def _make_h5(path, tx_data, mod_codes):
+        """Create a minimal HDF5 file for testing.
+
+        Args:
+            path: Output file path.
+            tx_data: dict of {tx_name: (matrix, weights)}.
+            mod_codes: dict of {mod_str: code}.
+        """
+        with h5py.File(path, "w") as h5:
+            codes_grp = h5.create_group("modification_codes")
+            for mod_str, code in mod_codes.items():
+                codes_grp.attrs[mod_str] = code
+
+            for tx_name, (matrix, weights) in tx_data.items():
+                grp = h5.create_group(f"transcripts/{tx_name}")
+                grp.create_dataset(
+                    "matrix", data=matrix, dtype=np.uint8, compression="gzip"
+                )
+                grp.create_dataset(
+                    "read_weights",
+                    data=weights,
+                    dtype=np.float32,
+                    compression="gzip",
+                )
+                grp.create_dataset(
+                    "read_ids",
+                    data=np.array(
+                        [f"read_{i}" for i in range(len(weights))],
+                        dtype=h5py.string_dtype(),
+                    ),
+                )
+
+    def test_single_file_unchanged(self, tmp_path):
+        """Single HDF5 file produces expected output."""
+        h5_path = str(tmp_path / "test.h5")
+        out_path = str(tmp_path / "out.parquet")
+
+        matrix = np.array([[4, 1], [4, 1]], dtype=np.uint8)
+        weights = np.array([0.8, 0.9], dtype=np.float32)
+        self._make_h5(h5_path, {"TX1": (matrix, weights)}, {"a": 4})
+
+        args = argparse.Namespace(
+            h5=[h5_path],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=None,
+            min_asp=0.0,
+            transcripts=None,
+            gtf=None,
+            verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        assert len(table) == 1  # position 1 has mod
+        assert table.column("transcript_id")[0].as_py() == "TX1"
+
+    def test_two_files_disjoint_transcripts(self, tmp_path):
+        """Transcripts unique to each file both appear in output."""
+        h5_a = str(tmp_path / "a.h5")
+        h5_b = str(tmp_path / "b.h5")
+        out_path = str(tmp_path / "out.parquet")
+
+        self._make_h5(
+            h5_a,
+            {"TX1": (np.array([[4, 1]], dtype=np.uint8),
+                     np.array([0.8], dtype=np.float32))},
+            {"a": 4},
+        )
+        self._make_h5(
+            h5_b,
+            {"TX2": (np.array([[1, 4]], dtype=np.uint8),
+                     np.array([0.9], dtype=np.float32))},
+            {"a": 4},
+        )
+
+        args = argparse.Namespace(
+            h5=[h5_a, h5_b],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=None,
+            min_asp=0.0,
+            transcripts=None,
+            gtf=None,
+            verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        txs = set(table.column("transcript_id").to_pylist())
+        assert txs == {"TX1", "TX2"}
+
+    def test_two_files_overlapping_transcript(self, tmp_path):
+        """Reads for same transcript are pooled across files."""
+        h5_a = str(tmp_path / "a.h5")
+        h5_b = str(tmp_path / "b.h5")
+        out_path = str(tmp_path / "out.parquet")
+
+        self._make_h5(
+            h5_a,
+            {"TX1": (np.array([[4, 1]], dtype=np.uint8),
+                     np.array([0.8], dtype=np.float32))},
+            {"a": 4},
+        )
+        self._make_h5(
+            h5_b,
+            {"TX1": (np.array([[4, 1]], dtype=np.uint8),
+                     np.array([0.9], dtype=np.float32))},
+            {"a": 4},
+        )
+
+        args = argparse.Namespace(
+            h5=[h5_a, h5_b],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=None,
+            min_asp=0.0,
+            transcripts=None,
+            gtf=None,
+            verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        r = table.to_pylist()[0]
+        assert r["transcript_id"] == "TX1"
+        assert r["position"] == 1
+        assert r["n_modified"] == 2
+        assert r["n_canonical"] == 0
+        assert r["mod_level"] == pytest.approx(1.0)
+
+    def test_filter_transcripts_union(self, tmp_path):
+        """--transcripts filter works on the union across files."""
+        h5_a = str(tmp_path / "a.h5")
+        h5_b = str(tmp_path / "b.h5")
+        out_path = str(tmp_path / "out.parquet")
+
+        self._make_h5(
+            h5_a,
+            {
+                "TX1": (np.array([[4]], dtype=np.uint8),
+                        np.array([0.8], dtype=np.float32)),
+                "TX2": (np.array([[1]], dtype=np.uint8),
+                        np.array([0.8], dtype=np.float32)),
+            },
+            {"a": 4},
+        )
+        self._make_h5(
+            h5_b,
+            {
+                "TX1": (np.array([[4]], dtype=np.uint8),
+                        np.array([0.9], dtype=np.float32)),
+                "TX3": (np.array([[4]], dtype=np.uint8),
+                        np.array([0.9], dtype=np.float32)),
+            },
+            {"a": 4},
+        )
+
+        args = argparse.Namespace(
+            h5=[h5_a, h5_b],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=None,
+            min_asp=0.0,
+            transcripts=["TX1", "TX3"],
+            gtf=None,
+            verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        txs = set(table.column("transcript_id").to_pylist())
+        assert txs == {"TX1", "TX3"}

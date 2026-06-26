@@ -30,6 +30,7 @@ import argparse
 import os
 import sys
 from collections import defaultdict
+from contextlib import ExitStack
 from typing import Any
 
 import h5py
@@ -151,7 +152,14 @@ def parse_args() -> argparse.Namespace:
         description="mod_corr: Pairwise modification site correlation analysis"
     )
     parser.add_argument(
-        "-i", "--h5", required=True, help="Input HDF5 file from mod_scan"
+        "-i",
+        "--h5",
+        required=True,
+        nargs="+",
+        metavar="H5",
+        help="Input HDF5 file(s) from mod_scan. When multiple files "
+        "are provided, reads for the same transcript are pooled "
+        "across all files before computing pairwise correlations.",
     )
     parser.add_argument(
         "-s",
@@ -851,7 +859,7 @@ def _plot_transcript_heatmap(
 
 def _generate_plots(
     all_rows: list[dict[str, Any]],
-    h5_path: str,
+    h5_paths: list[str],
     out_dir: str,
     all_sites: dict[str, dict[str, list[dict[str, int | float]]]],
     metric: str = "wcorr",
@@ -867,8 +875,8 @@ def _generate_plots(
     ----------
     all_rows : list[dict]
         Correlation rows (one per site pair).
-    h5_path : str
-        Path to the HDF5 file (for transcript lengths).
+    h5_paths : list[str]
+        Paths to HDF5 files (the first file is used for transcript lengths).
     out_dir : str
         Output directory for PDF files.
     all_sites : dict
@@ -919,7 +927,7 @@ def _generate_plots(
 
     # ---- get transcript lengths from the HDF5 ----
     tx_lengths: dict[str, int] = {}
-    with h5py.File(h5_path, "r") as h5:
+    with h5py.File(h5_paths[0], "r") as h5:
         for tx_name in h5["transcripts"]:
             tx_lengths[tx_name] = h5[f"transcripts/{tx_name}/matrix"].shape[1]
 
@@ -973,18 +981,126 @@ def _generate_plots(
         plt.close(fig)
 
 
+# ---------- HDF5 helpers ----------
+
+
+def _read_mod_codes(h5: h5py.File) -> dict[str, int]:
+    """Read modification codes from an open HDF5 file.
+
+    Returns ``{mod_type_str: code}`` dict.
+    """
+    return {mod_str: int(code) for mod_str, code in
+            h5["modification_codes"].attrs.items()}
+
+
+def _validate_mod_codes(
+    mod_maps: list[dict[str, int]],
+    filenames: list[str],
+) -> dict[str, int]:
+    """Verify all HDF5 files have identical modification codes.
+
+    Args:
+        mod_maps: One ``{mod_str: code}`` dict per input file.
+        filenames: Corresponding file paths (for error messages).
+
+    Returns:
+        Canonical modification code map from the first file.
+
+    Raises:
+        ValueError: If any file's codes differ from the first file.
+    """
+    reference = mod_maps[0]
+    for i, code_map in enumerate(mod_maps[1:], start=1):
+        if code_map != reference:
+            ref_str = "; ".join(f"{k}={v}" for k, v in sorted(reference.items()))
+            file_str = "; ".join(f"{k}={v}" for k, v in sorted(code_map.items()))
+            raise ValueError(
+                f"Modification codes in {filenames[i]} do not match "
+                f"{filenames[0]}.\n"
+                f"  {filenames[0]}: {ref_str}\n"
+                f"  {filenames[i]}: {file_str}"
+            )
+    return reference
+
+
+def _load_transcript_data(
+    h5: h5py.File,
+    tx_name: str,
+    min_asp: float,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Load matrix and weights for one transcript from one HDF5 file.
+
+    Args:
+        h5: Open HDF5 file handle.
+        tx_name: Transcript name.
+        min_asp: Minimum assignment probability filter.
+
+    Returns:
+        ``(matrix, weights)`` tuple, or ``None`` if the transcript is
+        absent from this file or has zero reads after filtering.
+    """
+    if tx_name not in h5["transcripts"]:
+        return None
+
+    grp = h5[f"transcripts/{tx_name}"]
+    matrix = grp["matrix"][:]  # (n_reads, tx_length) uint8
+    weights = grp["read_weights"][:]  # (n_reads,) float32
+
+    if min_asp > 0.0:
+        mask = weights >= min_asp
+        if mask.sum() == 0:
+            return None
+        matrix = matrix[mask]
+        weights = weights[mask]
+
+    return matrix, weights
+
+
+def _validate_tx_lengths(
+    tx_name: str,
+    lengths: list[int | None],
+    filenames: list[str],
+) -> int:
+    """Validate that a transcript has consistent length across files.
+
+    Args:
+        tx_name: Transcript name (for error messages).
+        lengths: Length from each file (``None`` if absent).
+        filenames: Corresponding file paths.
+
+    Returns:
+        Canonical length from the first file that contains the transcript.
+
+    Raises:
+        ValueError: If lengths differ across files.
+    """
+    ref_length = next(ln for ln in lengths if ln is not None)
+
+    for i, (length, fname) in enumerate(zip(lengths, filenames)):
+        if length is not None and length != ref_length:
+            raise ValueError(
+                f"Transcript '{tx_name}' has inconsistent lengths across "
+                f"input files: {ref_length} in first file vs {length} in "
+                f"{fname}. All files must use the same transcriptome "
+                f"reference."
+            )
+    return ref_length
+
+
 # ---------- main ----------
 
 
-def main() -> None:
+def main(args: argparse.Namespace | None = None) -> None:
     """Compute pairwise modification site correlations.
 
-    Reads the HDF5 matrix from ``mod_scan`` and the site summary from
-    ``mod_sites``, then computes pairwise association statistics (Pearson r,
-    odds ratio, mutual information) for each transcript.  Results are
-    written as Parquet or TSV.
+    Reads one or more HDF5 matrices from ``mod_scan`` and the site summary
+    from ``mod_sites``, then computes pairwise association statistics
+    (Pearson r, odds ratio, mutual information) for each transcript.
+    When multiple HDF5 files are provided, reads for the same transcript
+    are pooled across all files.  Results are written as Parquet or TSV.
     """
-    args = parse_args()
+    if args is None:
+        args = parse_args()
 
     if args.verbose:
         print("[mod_corr] Reading site summary...", file=sys.stderr)
@@ -993,39 +1109,108 @@ def main() -> None:
     if args.verbose:
         n_tx, n_mod = len(all_sites), sum(len(m) for m in all_sites.values())
         print(
-            f"[mod_corr] {n_tx} transcripts, {n_mod} mod-type groups", file=sys.stderr
+            f"[mod_corr] {n_tx} transcripts, {n_mod} mod-type groups",
+            file=sys.stderr,
         )
 
-    with h5py.File(args.h5, "r") as h5:
-        mod_code_map: dict[str, int] = {}
-        for mod_str, code in h5["modification_codes"].attrs.items():
-            mod_code_map[mod_str] = int(code)
+    # ---- Open all HDF5 files ----
 
-        h5_tx = set(h5["transcripts"].keys())
-        if args.transcripts is not None:
-            requested = set(args.transcripts)
-            h5_tx &= requested
-            if args.verbose:
-                print(
-                    f"[mod_corr] Filtered to {len(h5_tx)}/"
-                    f"{len(requested)} requested transcripts in HDF5",
-                    file=sys.stderr,
-                )
-        site_tx = set(all_sites.keys())
-        common_tx = sorted(h5_tx & site_tx)
+    with ExitStack() as stack:
+        h5_files = [stack.enter_context(h5py.File(f, "r")) for f in args.h5]
 
         if args.verbose:
             print(
-                f"[mod_corr] {len(common_tx)} transcripts in common",
+                f"[mod_corr] Opened {len(h5_files)} HDF5 file(s)",
                 file=sys.stderr,
             )
 
+        # Read and validate modification codes
+        all_mod_maps = [_read_mod_codes(h5) for h5 in h5_files]
+        try:
+            mod_code_map = _validate_mod_codes(all_mod_maps, list(args.h5))
+        except ValueError as exc:
+            print(f"[mod_corr] Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        # Build union of transcript names across all HDF5 files
+        all_h5_tx_sets = [set(h5["transcripts"].keys()) for h5 in h5_files]
+        h5_tx_union = set.union(*all_h5_tx_sets)
+
+        if args.transcripts is not None:
+            requested = set(args.transcripts)
+            h5_tx_union &= requested
+            if args.verbose:
+                print(
+                    f"[mod_corr] Filtered to {len(h5_tx_union)}/"
+                    f"{len(requested)} requested transcripts in HDF5 files",
+                    file=sys.stderr,
+                )
+
+        site_tx = set(all_sites.keys())
+        common_tx = sorted(h5_tx_union & site_tx)
+
+        if args.verbose:
+            file_counts = ", ".join(
+                f"{f}: {len(s)} tx"
+                for f, s in zip(args.h5, all_h5_tx_sets)
+            )
+            print(
+                f"[mod_corr] {len(common_tx)} transcripts in common "
+                f"across {len(h5_files)} files ({file_counts})",
+                file=sys.stderr,
+            )
+
+        # ---- Process each transcript (pooling across files) ----
+
         all_rows: list[dict[str, Any]] = []
         processed = 0
+
         for tx_name in common_tx:
-            grp = h5[f"transcripts/{tx_name}"]
-            matrix = grp["matrix"][:]
-            weights = grp["read_weights"][:]
+            matrices: list[np.ndarray] = []
+            weights_list: list[np.ndarray] = []
+            tx_lengths_found: list[int | None] = []
+
+            for h5 in h5_files:
+                result = _load_transcript_data(h5, tx_name, args.min_asp)
+                if result is not None:
+                    matrix_f, weights_f = result
+                    matrices.append(matrix_f)
+                    weights_list.append(weights_f)
+                    tx_lengths_found.append(matrix_f.shape[1])
+                else:
+                    tx_lengths_found.append(None)
+
+            if not matrices:
+                processed += 1
+                continue
+
+            try:
+                _validate_tx_lengths(
+                    tx_name, tx_lengths_found, list(args.h5)
+                )
+            except ValueError as exc:
+                print(
+                    f"[mod_corr] Warning: {exc} — skipping transcript",
+                    file=sys.stderr,
+                )
+                processed += 1
+                continue
+
+            if len(matrices) == 1:
+                matrix = matrices[0]
+                weights = weights_list[0]
+            else:
+                matrix = np.vstack(matrices)
+                weights = np.concatenate(weights_list)
+
+            if args.verbose and len(matrices) > 1:
+                n_from = ", ".join(f"{m.shape[0]}" for m in matrices)
+                print(
+                    f"[mod_corr] {tx_name}: {matrix.shape[0]} reads "
+                    f"pooled from {len(matrices)} file(s) ({n_from})",
+                    file=sys.stderr,
+                )
+
             tx_results = process_transcript(
                 tx_name,
                 matrix,
@@ -1041,7 +1226,8 @@ def main() -> None:
             processed += 1
             if args.verbose and processed % 1000 == 0:
                 print(
-                    f"[mod_corr] Processed {processed}/{len(common_tx)} transcripts...",
+                    f"[mod_corr] Processed {processed}/{len(common_tx)} "
+                    f"transcripts...",
                     file=sys.stderr,
                 )
 
@@ -1059,7 +1245,9 @@ def main() -> None:
                 "[mod_corr] Generating rotated triangular heatmap PDFs...",
                 file=sys.stderr,
             )
-        _generate_plots(all_rows, args.h5, args.plot_dir, all_sites, args.metric)
+        _generate_plots(
+            all_rows, list(args.h5), args.plot_dir, all_sites, args.metric
+        )
         if args.verbose:
             print(f"[mod_corr] Plots written to {args.plot_dir}/", file=sys.stderr)
 

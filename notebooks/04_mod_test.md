@@ -7,6 +7,9 @@ uv run python -m isolens.mod_sites -i examples/tmp_example2.isolens.mod_scan.h5 
 
 uv run python -m isolens.mod_corr -i examples/example2.isolens.mod_scan.h5 -s examples/example2.isolens.mod_sites.tsv.gz -o examples/example2.isolens.mod_corr.tsv.gz -f tsv -z -v -d examples/tmp
 
+# example3
+uv run python -m isolens.mod_scan -b examples/example3.txmap.bam -a examples/example3.lz4 -o examples/example3.isolens.mod_scan.h5 -c 0.95 -v
+uv run python -m isolens.mod_sites -i examples/example3.isolens.mod_scan.h5 -o examples/example3.isolens.mod_sites.tsv.gz -f tsv -z -v
 
 # example 4 prepare
 uv run python scripts/asp_extract.py -i examples/example3.lz4 -o examples/example4.lz4 -p 0.9 -n 1000 -t FBtr0076934 --compress

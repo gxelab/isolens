@@ -19,6 +19,7 @@ See notebooks/01_mod.md for the full specification.
 
 import argparse
 import sys
+from contextlib import ExitStack
 
 import h5py
 import numpy as np
@@ -50,7 +51,11 @@ def parse_args() -> argparse.Namespace:
         "-i",
         "--h5",
         required=True,
-        help="Input HDF5 file from mod_scan",
+        nargs="+",
+        metavar="H5",
+        help="Input HDF5 file(s) from mod_scan. When multiple files "
+        "are provided, reads for the same transcript are pooled "
+        "across all files before computing per-position statistics.",
     )
     parser.add_argument(
         "-o",
@@ -318,14 +323,129 @@ def compute_transcript_stats(
     return rows
 
 
-def main() -> None:
-    """Compute per-position modification summaries from a mod_scan HDF5.
+# ---------- HDF5 helpers ----------
 
-    Reads the HDF5 file produced by ``mod_scan`` and writes a Parquet
-    (or TSV) file with one row per (transcript, position, modification_type)
-    containing read counts and weighted modification levels.
+
+def _read_mod_codes(h5: h5py.File) -> list[tuple[str, int]]:
+    """Read modification codes from an open HDF5 file.
+
+    Returns sorted list of ``(mod_type_str, code)`` tuples.
     """
-    args = parse_args()
+    codes_grp = h5["modification_codes"]
+    return sorted(
+        [(mod_str, int(code)) for mod_str, code in codes_grp.attrs.items()],
+        key=lambda x: x[1],
+    )
+
+
+def _validate_mod_codes(
+    mod_codes_list: list[list[tuple[str, int]]],
+    filenames: list[str],
+) -> list[tuple[str, int]]:
+    """Verify all HDF5 files have identical modification codes.
+
+    Args:
+        mod_codes_list: One sorted code list per input file.
+        filenames: Corresponding file paths (for error messages).
+
+    Returns:
+        Canonical modification codes from the first file.
+
+    Raises:
+        ValueError: If any file's codes differ from the first file.
+    """
+    reference = mod_codes_list[0]
+    for i, codes in enumerate(mod_codes_list[1:], start=1):
+        if codes != reference:
+            ref_str = "; ".join(f"{k}={v}" for k, v in reference)
+            file_str = "; ".join(f"{k}={v}" for k, v in codes)
+            raise ValueError(
+                f"Modification codes in {filenames[i]} do not match "
+                f"{filenames[0]}.\n"
+                f"  {filenames[0]}: {ref_str}\n"
+                f"  {filenames[i]}: {file_str}"
+            )
+    return reference
+
+
+def _load_transcript_data(
+    h5: h5py.File,
+    tx_name: str,
+    min_asp: float,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Load matrix and weights for one transcript from one HDF5 file.
+
+    Args:
+        h5: Open HDF5 file handle.
+        tx_name: Transcript name.
+        min_asp: Minimum assignment probability filter.
+
+    Returns:
+        ``(matrix, weights)`` tuple, or ``None`` if the transcript is
+        absent from this file or has zero reads after filtering.
+    """
+    if tx_name not in h5["transcripts"]:
+        return None
+
+    grp = h5[f"transcripts/{tx_name}"]
+    matrix = grp["matrix"][:]  # (n_reads, tx_length) uint8
+    weights = grp["read_weights"][:]  # (n_reads,) float32
+
+    if min_asp > 0.0:
+        mask = weights >= min_asp
+        if mask.sum() == 0:
+            return None
+        matrix = matrix[mask]
+        weights = weights[mask]
+
+    return matrix, weights
+
+
+def _validate_tx_lengths(
+    tx_name: str,
+    lengths: list[int | None],
+    filenames: list[str],
+) -> int:
+    """Validate that a transcript has consistent length across files.
+
+    Args:
+        tx_name: Transcript name (for error messages).
+        lengths: Length from each file (``None`` if absent).
+        filenames: Corresponding file paths.
+
+    Returns:
+        Canonical length from the first file that contains the transcript.
+
+    Raises:
+        ValueError: If lengths differ across files.
+    """
+    ref_length = next(ln for ln in lengths if ln is not None)
+
+    for i, (length, fname) in enumerate(zip(lengths, filenames)):
+        if length is not None and length != ref_length:
+            raise ValueError(
+                f"Transcript '{tx_name}' has inconsistent lengths across "
+                f"input files: {ref_length} in first file vs {length} in "
+                f"{fname}. All files must use the same transcriptome "
+                f"reference."
+            )
+    return ref_length
+
+
+# ---------- main ----------
+
+
+def main(args: argparse.Namespace | None = None) -> None:
+    """Compute per-position modification summaries from mod_scan HDF5 files.
+
+    Reads one or more HDF5 files produced by ``mod_scan`` and writes a
+    Parquet (or TSV) file with one row per (transcript, position,
+    modification_type) containing read counts and weighted modification
+    levels.  When multiple HDF5 files are provided, reads for the same
+    transcript are pooled across all files.
+    """
+    if args is None:
+        args = parse_args()
 
     # ---- 0. Read predefined sites (optional) ----
 
@@ -362,16 +482,37 @@ def main() -> None:
                 file=sys.stderr,
             )
 
-    # ---- 1. Read modification codes from HDF5 ----
+    # ---- 1. Open all HDF5 files and validate modification codes ----
 
-    with h5py.File(args.h5, "r") as h5:
-        # Parse modification codes
-        mod_codes: list[tuple[str, int]] = []
-        codes_grp = h5["modification_codes"]
-        for mod_str, code in sorted(codes_grp.attrs.items(), key=lambda x: x[1]):
-            mod_codes.append((mod_str, int(code)))
+    with ExitStack() as stack:
+        h5_files = [stack.enter_context(h5py.File(f, "r")) for f in args.h5]
 
-        tx_names = sorted(h5["transcripts"].keys())
+        if args.verbose:
+            print(
+                f"[mod_sites] Opened {len(h5_files)} HDF5 file(s)",
+                file=sys.stderr,
+            )
+
+        # Read and validate modification codes
+        all_mod_codes = [_read_mod_codes(h5) for h5 in h5_files]
+        try:
+            mod_codes = _validate_mod_codes(all_mod_codes, list(args.h5))
+        except ValueError as exc:
+            print(f"[mod_sites] Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        if args.verbose:
+            print(
+                f"[mod_sites] {len(mod_codes)} modification types: "
+                f"{[m for m, _c in mod_codes]}",
+                file=sys.stderr,
+            )
+
+        # ---- 2. Build union of transcript names across all files ----
+
+        all_tx_sets = [set(h5["transcripts"].keys()) for h5 in h5_files]
+        tx_names = sorted(set.union(*all_tx_sets))
+
         if args.transcripts is not None:
             requested = set(args.transcripts)
             tx_names = sorted(tx for tx in tx_names if tx in requested)
@@ -384,29 +525,70 @@ def main() -> None:
         n_transcripts = len(tx_names)
 
         if args.verbose:
+            file_counts = ", ".join(
+                f"{f}: {len(s)} tx"
+                for f, s in zip(args.h5, all_tx_sets)
+            )
             print(
-                f"[mod_sites] {n_transcripts} transcripts, "
-                f"{len(mod_codes)} modification types",
+                f"[mod_sites] {n_transcripts} unique transcripts across "
+                f"{len(h5_files)} files ({file_counts})",
                 file=sys.stderr,
             )
 
-        # ---- 2. Process each transcript ----
+        # ---- 3. Process each transcript (pooling across files) ----
 
         all_rows: list[dict] = []
         processed = 0
 
         for tx_name in tx_names:
-            grp = h5[f"transcripts/{tx_name}"]
-            matrix = grp["matrix"][:]  # (n_reads, tx_length) uint8
-            weights = grp["read_weights"][:]  # (n_reads,) float32
+            # Load data from each file that contains this transcript
+            matrices: list[np.ndarray] = []
+            weights_list: list[np.ndarray] = []
+            tx_lengths_found: list[int | None] = []
 
-            if args.min_asp > 0.0:
-                read_mask = weights >= args.min_asp
-                if read_mask.sum() == 0:
-                    processed += 1
-                    continue
-                matrix = matrix[read_mask]
-                weights = weights[read_mask]
+            for h5 in h5_files:
+                result = _load_transcript_data(h5, tx_name, args.min_asp)
+                if result is not None:
+                    matrix_f, weights_f = result
+                    matrices.append(matrix_f)
+                    weights_list.append(weights_f)
+                    tx_lengths_found.append(matrix_f.shape[1])
+                else:
+                    tx_lengths_found.append(None)
+
+            if not matrices:
+                # No reads after filtering in any file
+                processed += 1
+                continue
+
+            # Validate transcript length consistency
+            try:
+                _validate_tx_lengths(
+                    tx_name, tx_lengths_found, list(args.h5)
+                )
+            except ValueError as exc:
+                print(
+                    f"[mod_sites] Warning: {exc} — skipping transcript",
+                    file=sys.stderr,
+                )
+                processed += 1
+                continue
+
+            # Pool reads across files
+            if len(matrices) == 1:
+                matrix = matrices[0]
+                weights = weights_list[0]
+            else:
+                matrix = np.vstack(matrices)
+                weights = np.concatenate(weights_list)
+
+            if args.verbose and len(matrices) > 1:
+                n_from = ", ".join(f"{m.shape[0]}" for m in matrices)
+                print(
+                    f"[mod_sites] {tx_name}: {matrix.shape[0]} reads "
+                    f"pooled from {len(matrices)} file(s) ({n_from})",
+                    file=sys.stderr,
+                )
 
             tx_rows = compute_transcript_stats(
                 matrix,
@@ -457,14 +639,15 @@ def main() -> None:
             processed += 1
             if args.verbose and processed % 1000 == 0:
                 print(
-                    f"[mod_sites] Processed {processed}/{n_transcripts} transcripts...",
+                    f"[mod_sites] Processed {processed}/{n_transcripts} "
+                    f"transcripts...",
                     file=sys.stderr,
                 )
 
     if args.verbose:
         print(f"[mod_sites] Total rows to write: {len(all_rows)}", file=sys.stderr)
 
-    # ---- 3. Write output ----
+    # ---- 4. Write output ----
 
     if args.format == "tsv":
         _write_tsv(all_rows, args.output, args.gzip)

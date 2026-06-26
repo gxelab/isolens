@@ -1,9 +1,11 @@
 """Tests for mod_corr — pairwise modification site correlation analysis."""
 
+import argparse
 import os
 import sys
 import tempfile
 
+import h5py
 import numpy as np
 import pyarrow.parquet as pq
 import pytest
@@ -16,9 +18,11 @@ try:
         _odds_ratio,
         _pearson_pvalue,
         _pearson_r_from_counts,
+        _validate_mod_codes,
         _weighted_pearson_r,
         _write_parquet,
         _write_tsv,
+        main,
         parse_args,
         process_transcript,
         read_site_summary,
@@ -37,9 +41,11 @@ except ImportError:
         _odds_ratio,
         _pearson_pvalue,
         _pearson_r_from_counts,
+        _validate_mod_codes,
         _weighted_pearson_r,
         _write_parquet,
         _write_tsv,
+        main,
         parse_args,
         process_transcript,
         read_site_summary,
@@ -774,3 +780,287 @@ class TestParseArgs:
         ]
         with pytest.raises(SystemExit):
             parse_args()
+
+
+# ---------- _validate_mod_codes ----------
+
+
+class TestValidateModCodes:
+    """Tests for _validate_mod_codes() (dict variant for mod_corr)."""
+
+    def test_identical_maps(self):
+        m1 = {"a": 4, "m": 5}
+        m2 = {"a": 4, "m": 5}
+        result = _validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
+        assert result == m1
+
+    def test_mismatched_codes_raises(self):
+        m1 = {"a": 4}
+        m2 = {"a": 5}
+        with pytest.raises(ValueError, match="do not match"):
+            _validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
+
+    def test_extra_code_raises(self):
+        m1 = {"a": 4}
+        m2 = {"a": 4, "m": 5}
+        with pytest.raises(ValueError, match="do not match"):
+            _validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
+
+    def test_single_file_no_validation(self):
+        m1 = {"a": 4}
+        result = _validate_mod_codes([m1], ["f1.h5"])
+        assert result == m1
+
+
+# ---------- multi-file integration ----------
+
+
+class TestMainMultiFile:
+    """Integration tests for main() with multiple HDF5 files."""
+
+    @staticmethod
+    def _make_h5(path, tx_data, mod_codes):
+        """Create a minimal HDF5 file for testing."""
+        with h5py.File(path, "w") as h5:
+            codes_grp = h5.create_group("modification_codes")
+            for mod_str, code in mod_codes.items():
+                codes_grp.attrs[mod_str] = code
+
+            for tx_name, (matrix, weights) in tx_data.items():
+                grp = h5.create_group(f"transcripts/{tx_name}")
+                grp.create_dataset(
+                    "matrix", data=matrix, dtype=np.uint8, compression="gzip"
+                )
+                grp.create_dataset(
+                    "read_weights",
+                    data=weights,
+                    dtype=np.float32,
+                    compression="gzip",
+                )
+                grp.create_dataset(
+                    "read_ids",
+                    data=np.array(
+                        [f"read_{i}" for i in range(len(weights))],
+                        dtype=h5py.string_dtype(),
+                    ),
+                )
+
+    @staticmethod
+    def _make_sites_parquet(path, sites_data):
+        """Create a minimal site-summary Parquet file.
+
+        sites_data: list of (tx, pos, mod_type, n_mod, n_unmod, mod_level).
+        """
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "transcript_id": [s[0] for s in sites_data],
+                "position": [s[1] for s in sites_data],
+                "mod_type": [s[2] for s in sites_data],
+                "n_modified": [s[3] for s in sites_data],
+                "n_unmodified": [s[4] for s in sites_data],
+                "n_mismatch": [0] * len(sites_data),
+                "n_deletion": [0] * len(sites_data),
+                "n_failed": [0] * len(sites_data),
+                "mod_level": [s[5] for s in sites_data],
+            }
+        )
+        pq.write_table(table, path)
+
+    def test_single_file_unchanged(self, tmp_path):
+        """Single HDF5 file produces expected output."""
+        h5_path = str(tmp_path / "test.h5")
+        sites_path = str(tmp_path / "sites.parquet")
+        out_path = str(tmp_path / "out.parquet")
+
+        self._make_h5(
+            h5_path,
+            {"TX1": (np.array([[4, 1]], dtype=np.uint8),
+                     np.array([0.8], dtype=np.float32))},
+            {"a": 4},
+        )
+        self._make_sites_parquet(sites_path, [("TX1", 1, "a", 1, 0, 1.0)])
+
+        args = argparse.Namespace(
+            h5=[h5_path],
+            sites=sites_path,
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            min_mod_reads=1,
+            min_mod_level=0.0,
+            min_coverage=0,
+            min_asp=0.0,
+            transcripts=None,
+            plot_dir=None,
+            metric="wcorr",
+            verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        assert len(table) == 0  # only 1 candidate → no pairs
+
+    def test_two_files_overlapping_transcript(self, tmp_path):
+        """Reads pooled from two files produce correlation for same transcript."""
+        h5_a = str(tmp_path / "a.h5")
+        h5_b = str(tmp_path / "b.h5")
+        sites_path = str(tmp_path / "sites.parquet")
+        out_path = str(tmp_path / "out.parquet")
+
+        # File A: 2 reads, both modified at both positions
+        self._make_h5(
+            h5_a,
+            {"TX1": (np.array([[4, 4], [4, 4]], dtype=np.uint8),
+                     np.array([0.8, 0.9], dtype=np.float32))},
+            {"a": 4},
+        )
+        # File B: 2 reads, both canonical at both positions
+        self._make_h5(
+            h5_b,
+            {"TX1": (np.array([[1, 1], [1, 1]], dtype=np.uint8),
+                     np.array([0.8, 0.9], dtype=np.float32))},
+            {"a": 4},
+        )
+        self._make_sites_parquet(
+            sites_path,
+            [("TX1", 1, "a", 2, 2, 0.5), ("TX1", 2, "a", 2, 2, 0.5)],
+        )
+
+        args = argparse.Namespace(
+            h5=[h5_a, h5_b],
+            sites=sites_path,
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            min_mod_reads=1,
+            min_mod_level=0.0,
+            min_coverage=0,
+            min_asp=0.0,
+            transcripts=None,
+            plot_dir=None,
+            metric="wcorr",
+            verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        assert len(table) == 1
+        r = table.to_pylist()[0]
+        assert r["transcript_id"] == "TX1"
+        assert r["n11"] == 2  # reads from file A: both mod at both sites
+        assert r["n00"] == 2  # reads from file B: both canonical
+        assert r["corr"] == pytest.approx(1.0)
+
+    def test_two_files_disjoint_transcripts(self, tmp_path):
+        """Transcripts unique to each file both appear in output."""
+        h5_a = str(tmp_path / "a.h5")
+        h5_b = str(tmp_path / "b.h5")
+        sites_path = str(tmp_path / "sites.parquet")
+        out_path = str(tmp_path / "out.parquet")
+
+        # TX1 in file A: 2 reads, both mod at both positions
+        self._make_h5(
+            h5_a,
+            {"TX1": (np.array([[4, 4], [4, 4]], dtype=np.uint8),
+                     np.array([0.8, 0.9], dtype=np.float32))},
+            {"a": 4},
+        )
+        # TX2 in file B: 2 reads, one mod at both, one canonical
+        self._make_h5(
+            h5_b,
+            {"TX2": (np.array([[4, 4], [1, 1]], dtype=np.uint8),
+                     np.array([0.8, 0.9], dtype=np.float32))},
+            {"a": 4},
+        )
+        self._make_sites_parquet(
+            sites_path,
+            [
+                ("TX1", 1, "a", 2, 0, 1.0),
+                ("TX1", 2, "a", 2, 0, 1.0),
+                ("TX2", 1, "a", 1, 1, 0.5),
+                ("TX2", 2, "a", 1, 1, 0.5),
+            ],
+        )
+
+        args = argparse.Namespace(
+            h5=[h5_a, h5_b],
+            sites=sites_path,
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            min_mod_reads=1,
+            min_mod_level=0.0,
+            min_coverage=0,
+            min_asp=0.0,
+            transcripts=None,
+            plot_dir=None,
+            metric="wcorr",
+            verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        txs = set(table.column("transcript_id").to_pylist())
+        assert txs == {"TX1", "TX2"}
+
+    def test_filter_transcripts_union(self, tmp_path):
+        """--transcripts filter works on the union across files."""
+        h5_a = str(tmp_path / "a.h5")
+        h5_b = str(tmp_path / "b.h5")
+        sites_path = str(tmp_path / "sites.parquet")
+        out_path = str(tmp_path / "out.parquet")
+
+        # TX1 in both files (pooled), TX2 in file A only (should be excluded),
+        # TX3 in file B only
+        self._make_h5(
+            h5_a,
+            {
+                "TX1": (np.array([[4, 4]], dtype=np.uint8),
+                        np.array([0.8], dtype=np.float32)),
+                "TX2": (np.array([[4, 4], [4, 4]], dtype=np.uint8),
+                        np.array([0.8, 0.9], dtype=np.float32)),
+            },
+            {"a": 4},
+        )
+        self._make_h5(
+            h5_b,
+            {
+                "TX1": (np.array([[4, 4]], dtype=np.uint8),
+                        np.array([0.9], dtype=np.float32)),
+                "TX3": (np.array([[4, 4], [4, 4]], dtype=np.uint8),
+                        np.array([0.9, 0.95], dtype=np.float32)),
+            },
+            {"a": 4},
+        )
+        self._make_sites_parquet(
+            sites_path,
+            [
+                ("TX1", 1, "a", 2, 0, 1.0),
+                ("TX1", 2, "a", 2, 0, 1.0),
+                ("TX3", 1, "a", 2, 0, 1.0),
+                ("TX3", 2, "a", 2, 0, 1.0),
+            ],
+        )
+
+        args = argparse.Namespace(
+            h5=[h5_a, h5_b],
+            sites=sites_path,
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            min_mod_reads=1,
+            min_mod_level=0.0,
+            min_coverage=0,
+            min_asp=0.0,
+            transcripts=["TX1", "TX3"],
+            plot_dir=None,
+            metric="wcorr",
+            verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        txs = set(table.column("transcript_id").to_pylist())
+        assert txs == {"TX1", "TX3"}
