@@ -42,10 +42,29 @@ Install:
 pip install isolens
 ```
 
+Prepare input:
+```bash
+# index transcriptome
+minimap2 -x map-ont -d transcriptome.mmi transcriptome.fa.gz
+
+# mapping (minimap2/rammap)
+samtools fastq -T MM,ML,pt reads.bam \
+    | minimap2 --eqx -N 100 -ax map-ont -y -t8 transcriptome.mmi - \
+    | samtools view -@8 -b -o alignments.bam
+
+# run oarfish
+oarfish -j 16 -a alignments.bam -o oarfish_out --filter-group no-filters \
+    --model-coverage --write-assignment-probs=compressed
+
+# sort and index alignments
+samtools sort -@ 8 -o alignments.sorted.bam alignments.bam
+samtools index alignments.sorted.bam
+```
+
 Build transcript-level modification matrices:
 
 ```bash
-python -m isolens.mod_scan -b alignments.bam -a oarfish.lz4 -o mod_scan.h5
+python -m isolens.mod_scan -b alignments.sorted.bam -a oarfish_out.prob.lz4 -o mod_scan.h5
 ```
 
 Summarize modification sites:
@@ -57,7 +76,7 @@ python -m isolens.mod_sites -i mod_scan.h5 -o sites.parquet
 Estimate transcript-level poly(A) lengths:
 
 ```bash
-python -m isolens.polya_calc -a oarfish.lz4 -b reads.bam -o polya.tsv.gz -z
+python -m isolens.polya_calc -a oarfish_out.prob.lz4 -b reads.bam -o polya.tsv.gz -z
 ```
 
 ---
@@ -78,28 +97,28 @@ python -m isolens.polya_calc -a oarfish.lz4 -b reads.bam -o polya.tsv.gz -z
 ## Pipeline Overview
 
 ```
-Oarfish (.lz4) ─────┐
-                     ├── mod_scan ──► HDF5 ──┬── mod_sites ──► site summary (.parquet/.tsv)
-Dorado BAM ─────────┘                        │                  │
-                                             │                  ├── mod_gene ──► gene-level summary (.parquet/.tsv)
-                                             │                  │
-                                             │                  ├── mod_corr ──► correlations (.parquet/.tsv)
-                                             │                  │                  + PDF heatmaps (-d)
-                                             │                  │
-                                             │                  ├── mod_dmc ───► differential modification
-                                             │                  │                  (condition comparison)
-                                             │                  │
-                                             │                  ├── mod_dmt ───► differential modification
-                                             │                  │                  (isoform comparison)
-                                             │                  │
-                                             │                  └── mod_dmcg ──► gene-level differential
-                                             │                                     modification
-                                             │
-Oarfish (.lz4) ─────┐                              │
-                     ├── polya_calc ──► polya TSV ──┬── polya_merge ──► merged TSV
-Minimap2 BAM ───────┘                               │
-                                                    ├── polya_diff ──► diff TSV
-                                                    └── polya_t2g ───► gene-level TSV
+Oarfish (.lz4) ──┐
+                  ├── mod_scan ──► HDF5 ──┬── mod_sites ──► site summary (.parquet/.tsv)
+BAM (alignment) ─┘                        │                  │
+                                          │                  ├── mod_gene ──► gene-level summary (.parquet/.tsv)
+                                          │                  │
+                                          │                  ├── mod_corr ──► correlations (.parquet/.tsv)
+                                          │                  │                  + PDF heatmaps (-d)
+                                          │                  │
+                                          │                  ├── mod_dmc ───► differential modification
+                                          │                  │                  (condition comparison)
+                                          │                  │
+                                          │                  ├── mod_dmt ───► differential modification
+                                          │                  │                  (isoform comparison)
+                                          │                  │
+                                          │                  └── mod_dmcg ──► gene-level differential
+                                          │                                     modification
+                                          │
+Oarfish (.lz4) ────────┐                  │
+                        ├── polya_calc ──► polya TSV ──┬── polya_merge ──► merged TSV
+BAM (reads/alignment) ─┘                               │
+                                                       ├── polya_diff ──► diff TSV
+                                                       └── polya_t2g ───► gene-level TSV
 ```
 
 ### Outputs
