@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `mod_gene` module — gene-level aggregation of transcript-level modification site
+  summaries. Groups sites by `(gene_id, chrom, strand, gpos, mod_type)`, sums all
+  count and weighted-count columns, and recomputes modification levels.
+- `mod_dmc` module — differential modification calling between two experimental
+  conditions. Matches sites by `(transcript_id, position, mod_type)`, pools
+  reads from multiple HDF5 files per condition, and fits read-level weighted
+  logistic regression per site. Reports log2 odds ratio, Wald p-value, and
+  Benjamini-Hochberg FDR q-value with per-condition effect sizes.
+- `mod_dmt` module — differential modification testing between transcript
+  isoforms. Groups sites by genomic locus `(gene_id, chrom, gpos, strand,
+  mod_type)`, enumerates isoform pairs, and fits weighted logistic regression
+  per pair. Requires site summaries generated with `--gtf` for genomic
+  coordinate mapping.
+- `mod_dmcg` module — gene-level differential modification calling between two
+  conditions. Takes gene-level site summaries from `mod_gene` as input and
+  applies Fisher's exact test (both unweighted on integer counts and weighted on
+  rounded `wt_modified` / `wt_unmodified`). No HDF5 or read-level data required.
+- `_stats` module — shared statistics backend providing `weighted_logistic_test`
+  (closed-form weighted MLE for logistic regression with a single binary
+  predictor, using Haldane-Anscombe correction and Wald test) and `bh_fdr`
+  (Benjamini-Hochberg FDR correction). Used by `mod_dmc`, `mod_dmt`, and
+  `mod_dmcg`.
+- `--gtf` (`-g`) option to `mod_sites` for mapping transcript coordinates to
+  genomic coordinates, adding `gene_id`, `chrom`, `strand`, and `gpos` columns
+  to the output.
+- Multi-file HDF5 pooling support in `mod_sites` and `mod_corr`: `--h5` (`-i`)
+  now accepts multiple files and pools reads for the same transcript across all
+  files before computing statistics. Validates consistent modification codes
+  and transcript lengths across files.
+
+### Changed
+
+- `mod_corr` plot flag renamed from `-P`/`--plot` to `-d`/`--plot-dir` with
+  added `-t`/`--metric` option to select the association statistic visualized
+  in heatmaps (default: `wcorr`).
+- `mod_corr` now computes both unweighted and weighted variants of all
+  association metrics (Pearson r, p-value, q-value, mutual information, odds
+  ratio).
+
 ## [0.2.0] - 2026-06-21
 
 ### Added
