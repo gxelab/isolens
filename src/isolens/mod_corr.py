@@ -42,7 +42,7 @@ import pyarrow.parquet as pq
 matplotlib.use("Agg")  # non-interactive backend for PDF output
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
-from scipy.stats import fisher_exact
+from scipy.stats import t as t_dist
 
 try:
     from isolens.mod_scan import (
@@ -67,25 +67,38 @@ _OUTPUT_COLS = [
     "transcript_id",
     "site1",
     "site2",
-    "modification_type",
+    "mod_type1",
+    "mod_type2",
     "n11",
     "n10",
     "n01",
     "n00",
-    "weighted_n11",
-    "weighted_n10",
-    "weighted_n01",
-    "weighted_n00",
-    "phi",
-    "weighted_phi",
-    "odds_ratio",
-    "p_value",
-    "q_value",
-    "mutual_information",
-    "weighted_mutual_information",
+    "w11",
+    "w10",
+    "w01",
+    "w00",
+    "corr",
+    "pvalue",
+    "qvalue",
+    "wcorr",
+    "wpvalue",
+    "wqvalue",
+    "mi",
+    "wmi",
+    "or",
+    "wor",
 ]
 
 _TSV_HEADER = "\t".join(_OUTPUT_COLS)
+
+_METRIC_LABELS: dict[str, str] = {
+    "corr": "Pearson r",
+    "wcorr": "Weighted Pearson r",
+    "mi": "Mutual Information (bits)",
+    "wmi": "Weighted Mutual Information (bits)",
+    "or": "Log$_2$ Odds Ratio",
+    "wor": "Weighted Log$_2$ Odds Ratio",
+}
 
 # SAM modification codes → human-readable names (from notebooks/01_mod.md).
 # 2'-O-methyl variants on C/A/G/U are combined under a single "2Ome" label.
@@ -151,25 +164,25 @@ def parse_args() -> argparse.Namespace:
         "-m",
         "--min-mod-reads",
         type=int,
-        default=10,
+        default=2,
         help="Minimum number of modified reads for a site to be "
-        "considered [default: 10]",
+        "considered [default: 2]",
     )
     parser.add_argument(
         "-l",
         "--min-mod-level",
         type=float,
-        default=0.0,
+        default=0.05,
         help="Minimum modification level for a site to be "
-        "considered [default: 0.0]",
+        "considered [default: 0.05]",
     )
     parser.add_argument(
-        "-d",
-        "--depth",
+        "-c",
+        "--min-coverage",
         type=int,
-        default=0,
+        default=10,
         help="Minimum total depth for a site to be "
-        "considered [default: 0]",
+        "considered [default: 10]",
     )
     parser.add_argument(
         "-p",
@@ -193,12 +206,20 @@ def parse_args() -> argparse.Namespace:
         help="Gzip-compress TSV output (ignored for parquet)",
     )
     parser.add_argument(
-        "-P",
-        "--plot",
+        "-d",
+        "--plot-dir",
         metavar="DIR",
         default=None,
         help="Generate rotated triangular heatmap PDFs per transcript "
         "in the given output directory",
+    )
+    parser.add_argument(
+        "-t",
+        "--metric",
+        choices=["corr", "wcorr", "mi", "wmi", "or", "wor"],
+        default="wcorr",
+        help="Association statistic to visualize in heatmaps "
+        "[default: wcorr]",
     )
     parser.add_argument(
         "-x",
@@ -317,10 +338,15 @@ def _read_sites_tsv(
 # ---------- statistics ----------
 
 
-def _phi_coefficient(n11: float, n10: float, n01: float, n00: float) -> float:
-    """Compute the Phi coefficient from a 2×2 contingency table.
+def _pearson_r_from_counts(
+    n11: float, n10: float, n01: float, n00: float
+) -> float:
+    """Compute Pearson correlation from a 2×2 contingency table.
 
-    Phi = (n11*n00 - n10*n01) / sqrt(n1• * n0• * n•1 * n•0)
+    For binary (0/1) variables, Pearson's r is mathematically equivalent
+    to the Phi coefficient:
+
+        r = (n11*n00 - n10*n01) / sqrt(n1• * n0• * n•1 * n•0)
 
     Returns 0.0 if any marginal total is zero.
     """
@@ -330,6 +356,68 @@ def _phi_coefficient(n11: float, n10: float, n01: float, n00: float) -> float:
     if denom <= 0:
         return 0.0
     return (n11 * n00 - n10 * n01) / np.sqrt(denom)
+
+
+def _pearson_pvalue(r: float, n: float) -> float:
+    """Compute two-sided p-value for Pearson's r from the t-distribution.
+
+    ``t = r * sqrt((n-2) / (1 - r²))``, with *n* - 2 degrees of freedom.
+
+    Returns 0.0 when |r| ≈ 1 and 1.0 when n ≤ 2.
+    """
+    if n <= 2:
+        return 1.0
+    r_abs = abs(r)
+    if r_abs >= 1.0 - 1e-15:
+        return 0.0
+    denom = 1.0 - r * r
+    if denom <= 0.0:
+        return 0.0 if r_abs > 1e-15 else 1.0
+    t_stat = r_abs * np.sqrt((n - 2.0) / denom)
+    return float(2.0 * t_dist.sf(t_stat, n - 2))
+
+
+def _effective_sample_size(weights: np.ndarray) -> float:
+    """Compute Kish's effective sample size from a weight vector.
+
+    ``n_eff = (Σ w)² / Σ(w²)``
+    """
+    w_sum = weights.sum()
+    if w_sum <= 0:
+        return 0.0
+    return float(w_sum * w_sum / (weights * weights).sum())
+
+
+def _weighted_pearson_r(
+    x: np.ndarray, y: np.ndarray, w: np.ndarray
+) -> tuple[float, float]:
+    """Compute weighted Pearson correlation between two binary vectors.
+
+    Uses weighted means, covariance, and variances.  Returns ``(r, n_eff)``
+    where *n_eff* is the effective sample size for p-value computation.
+
+    Returns ``(0.0, 0.0)`` when the total weight is zero or either weighted
+    variance is zero.
+    """
+    w_sum = w.sum()
+    if w_sum <= 0:
+        return 0.0, 0.0
+    x_f = x.astype(np.float64)
+    y_f = y.astype(np.float64)
+    mx = (w * x_f).sum() / w_sum
+    my = (w * y_f).sum() / w_sum
+    xc = x_f - mx
+    yc = y_f - my
+    cov_w = (w * xc * yc).sum() / w_sum
+    var_x = (w * xc * xc).sum() / w_sum
+    var_y = (w * yc * yc).sum() / w_sum
+    denom_sqrt = np.sqrt(var_x * var_y)
+    if denom_sqrt <= 0:
+        return 0.0, _effective_sample_size(w)
+    r = cov_w / denom_sqrt
+    # Clamp to [-1, 1] to guard against floating-point drift
+    r = max(-1.0, min(1.0, r))
+    return r, _effective_sample_size(w)
 
 
 def _odds_ratio(n11: float, n10: float, n01: float, n00: float) -> float:
@@ -469,6 +557,7 @@ def process_transcript(
     k = len(candidates)
 
     pair_p_values: list[float] = []
+    pair_wp_values: list[float] = []
     pair_rows: list[dict[str, Any]] = []
 
     for i in range(k):
@@ -498,44 +587,46 @@ def process_transcript(
             w01 = (w_joint * (1.0 - bi_num) * bj_num).sum()
             w00 = (w_joint * (1.0 - bi_num) * (1.0 - bj_num)).sum()
 
-            phi = _phi_coefficient(n11, n10, n01, n00)
-            w_phi = _phi_coefficient(w11, w10, w01, w00)
-            odds = _odds_ratio(n11, n10, n01, n00)
-            try:
-                _, p_val = fisher_exact([[n11, n10], [n01, n00]])
-            except ValueError, OverflowError:
-                p_val = 1.0
+            # Unweighted statistics
+            n_total = n11 + n10 + n01 + n00
+            corr = _pearson_r_from_counts(n11, n10, n01, n00)
+            p_val = _pearson_pvalue(corr, n_total)
             mi = _mutual_information(n11, n10, n01, n00)
-            w_mi = _mutual_information(w11, w10, w01, w00)
+            odds = _odds_ratio(n11, n10, n01, n00)
 
-            # Label: single mod type or "mod_a:mod_b" for cross-type
-            if mod_i == mod_j:
-                mod_label = mod_i
-            else:
-                mod_label = f"{mod_i}:{mod_j}"
+            # Weighted statistics
+            wcorr, n_eff = _weighted_pearson_r(bi_j, bj_j, w_joint)
+            w_p_val = _pearson_pvalue(wcorr, n_eff)
+            w_mi = _mutual_information(w11, w10, w01, w00)
+            w_odds = _odds_ratio(w11, w10, w01, w00)
 
             pair_p_values.append(p_val)
+            pair_wp_values.append(w_p_val)
             pair_rows.append(
                 {
                     "transcript_id": tx_name,
                     "site1": pos_i,
                     "site2": pos_j,
-                    "modification_type": mod_label,
+                    "mod_type1": mod_i,
+                    "mod_type2": mod_j,
                     "n11": n11,
                     "n10": n10,
                     "n01": n01,
                     "n00": n00,
-                    "weighted_n11": round(w11, 4),
-                    "weighted_n10": round(w10, 4),
-                    "weighted_n01": round(w01, 4),
-                    "weighted_n00": round(w00, 4),
-                    "phi": round(phi, 6),
-                    "weighted_phi": round(w_phi, 6),
-                    "odds_ratio": round(odds, 6),
-                    "p_value": p_val,
-                    "q_value": 0.0,
-                    "mutual_information": round(mi, 6),
-                    "weighted_mutual_information": round(w_mi, 6),
+                    "w11": round(w11, 4),
+                    "w10": round(w10, 4),
+                    "w01": round(w01, 4),
+                    "w00": round(w00, 4),
+                    "corr": round(corr, 6),
+                    "pvalue": p_val,
+                    "qvalue": 0.0,
+                    "wcorr": round(wcorr, 6),
+                    "wpvalue": w_p_val,
+                    "wqvalue": 0.0,
+                    "mi": round(mi, 6),
+                    "wmi": round(w_mi, 6),
+                    "or": round(odds, 6),
+                    "wor": round(w_odds, 6),
                 }
             )
 
@@ -543,7 +634,11 @@ def process_transcript(
     if pair_p_values:
         q_values = _bh_fdr(pair_p_values)
         for r, qv in zip(pair_rows, q_values):
-            r["q_value"] = round(qv, 6)
+            r["qvalue"] = round(qv, 6)
+    if pair_wp_values:
+        wq_values = _bh_fdr(pair_wp_values)
+        for r, qv in zip(pair_rows, wq_values):
+            r["wqvalue"] = round(qv, 6)
 
     return pair_rows
 
@@ -574,22 +669,26 @@ def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
                 ("transcript_id", pa.string()),
                 ("site1", pa.int32()),
                 ("site2", pa.int32()),
-                ("modification_type", pa.string()),
+                ("mod_type1", pa.string()),
+                ("mod_type2", pa.string()),
                 ("n11", pa.int32()),
                 ("n10", pa.int32()),
                 ("n01", pa.int32()),
                 ("n00", pa.int32()),
-                ("weighted_n11", pa.float64()),
-                ("weighted_n10", pa.float64()),
-                ("weighted_n01", pa.float64()),
-                ("weighted_n00", pa.float64()),
-                ("phi", pa.float64()),
-                ("weighted_phi", pa.float64()),
-                ("odds_ratio", pa.float64()),
-                ("p_value", pa.float64()),
-                ("q_value", pa.float64()),
-                ("mutual_information", pa.float64()),
-                ("weighted_mutual_information", pa.float64()),
+                ("w11", pa.float64()),
+                ("w10", pa.float64()),
+                ("w01", pa.float64()),
+                ("w00", pa.float64()),
+                ("corr", pa.float64()),
+                ("pvalue", pa.float64()),
+                ("qvalue", pa.float64()),
+                ("wcorr", pa.float64()),
+                ("wpvalue", pa.float64()),
+                ("wqvalue", pa.float64()),
+                ("mi", pa.float64()),
+                ("wmi", pa.float64()),
+                ("or", pa.float64()),
+                ("wor", pa.float64()),
             ]
         )
         with pq.ParquetWriter(path, schema) as w:
@@ -602,7 +701,7 @@ def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
     arrays = {}
     for col in _OUTPUT_COLS:
         values = [r[col] for r in all_rows]
-        if col in ("transcript_id", "modification_type"):
+        if col in ("transcript_id", "mod_type1", "mod_type2"):
             arrays[col] = pa.array(values)
         elif col in ("site1", "site2", "n11", "n10", "n01", "n00"):
             arrays[col] = pa.array(values, type=pa.int32())
@@ -622,6 +721,7 @@ def _plot_transcript_heatmap(
     type_colors: dict[str, str],
     rna_length: int,
     title: str,
+    metric_label: str = "Pearson r",
 ) -> None:
     """Plot an upward-pointing pyramid heatmap for RNA modification associations.
 
@@ -636,7 +736,7 @@ def _plot_transcript_heatmap(
     ----------
     ax : matplotlib.axes.Axes
     matrix : (N, N) np.ndarray
-        Dense symmetric matrix of association scores (values in [-1, 1]).
+        Dense symmetric matrix of association scores.
     positions : (N,) array-like
         Nucleotide positions of the modification sites (sorted, 1-based).
     mod_types_str : (N,) list of str
@@ -647,16 +747,20 @@ def _plot_transcript_heatmap(
         Total transcript length for proportional axis mapping.
     title : str
         Figure title.
+    metric_label : str
+        Label for the colour bar (e.g. "Weighted Pearson r").
     """
     N = len(positions)
     ax.set_aspect("equal")
 
     cmap = plt.get_cmap("bwr")
+    vmin, vmax = -1.0, 1.0
 
     # ---- vertical offset from transcript axis to pyramid base ----
     offset = max(1.0, N * 0.15)
 
     # ---- diamond cells (pyramid) ----
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
     for i in range(N):
         for j in range(i, N):
             val = matrix[i, j]
@@ -673,8 +777,7 @@ def _plot_transcript_heatmap(
                 (x_c - 0.5, y_c),  # Left
             ]
 
-            color_val = (val + 1) / 2.0  # [-1, 1] → [0, 1]
-            color = cmap(color_val)
+            color = cmap(norm(val))
 
             poly = Polygon(vertices, facecolor=color, edgecolor="white", linewidth=1)
             ax.add_patch(poly)
@@ -725,13 +828,12 @@ def _plot_transcript_heatmap(
         )
 
     # ---- colour bar ----
-    norm = mcolors.Normalize(vmin=-1, vmax=1)
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = ax.figure.colorbar(
         sm, ax=ax, orientation="horizontal", pad=0.08, shrink=0.4, aspect=20
     )
-    cbar.set_label("Phi coefficient")
+    cbar.set_label(metric_label)
 
     # ---- formatting ----
     ax.set_xlim(axis_start_x - 1.5, axis_end_x + 1.5)
@@ -747,29 +849,72 @@ def _plot_transcript_heatmap(
     )
 
 
-def _generate_plots(all_rows: list[dict[str, Any]], h5_path: str, out_dir: str) -> None:
+def _generate_plots(
+    all_rows: list[dict[str, Any]],
+    h5_path: str,
+    out_dir: str,
+    all_sites: dict[str, dict[str, list[dict[str, int | float]]]],
+    metric: str = "wcorr",
+) -> None:
     """Generate pyramid heatmap PDFs per transcript.
 
-    Prepares per-transcript data (dense correlation matrix, site positions,
+    Prepares per-transcript data (dense association matrix, site positions,
     modification types) and delegates drawing to
     :func:`_plot_transcript_heatmap`, which follows the visualisation scheme
     from ``scripts/mod_plot.py``.
+
+    Parameters
+    ----------
+    all_rows : list[dict]
+        Correlation rows (one per site pair).
+    h5_path : str
+        Path to the HDF5 file (for transcript lengths).
+    out_dir : str
+        Output directory for PDF files.
+    all_sites : dict
+        Site summary data, used to determine the dominant modification type
+        (by ``mod_level``) at each site for colouring.
+    metric : str
+        Column name of the association statistic to visualise in the heatmap.
     """
     os.makedirs(out_dir, exist_ok=True)
+
+    metric_label = _METRIC_LABELS.get(metric, metric)
 
     # ---- collect single mod types (human-readable) and assign colours ----
     raw_mod_types: set[str] = set()
     for row in all_rows:
-        for part in row["modification_type"].split(":"):
-            raw_mod_types.add(_sam_to_human(part))
+        raw_mod_types.add(_sam_to_human(row["mod_type1"]))
+        raw_mod_types.add(_sam_to_human(row["mod_type2"]))
     # Use predefined colours for known types; grey fallback for unknowns
     mod_color = {mt: _MOD_COLORS.get(mt, "#999999") for mt in sorted(raw_mod_types)}
+
+    # ---- build dominant mod type lookup from site summary (by mod_level) ----
+    # site_summary_dominant: {tx_name: {pos: human_readable_mod_type}}
+    site_summary_dominant: dict[str, dict[int, str]] = {}
+    for tx_name, mod_groups in all_sites.items():
+        pos_best: dict[int, tuple[str, float]] = {}
+        for mod_type, sites in mod_groups.items():
+            for site in sites:
+                pos = site["pos"]
+                ml = site["mod_level"]
+                if pos not in pos_best or ml > pos_best[pos][1]:
+                    pos_best[pos] = (_sam_to_human(mod_type), ml)
+        site_summary_dominant[tx_name] = {
+            pos: mt for pos, (mt, _ml) in pos_best.items()
+        }
 
     # ---- group by transcript ----
     tx_groups: dict[str, list] = defaultdict(list)
     for row in all_rows:
         tx_groups[row["transcript_id"]].append(
-            (row["site1"], row["site2"], row["phi"], row["modification_type"])
+            (
+                row["site1"],
+                row["site2"],
+                row[metric],
+                row["mod_type1"],
+                row["mod_type2"],
+            )
         )
 
     # ---- get transcript lengths from the HDF5 ----
@@ -782,7 +927,7 @@ def _generate_plots(all_rows: list[dict[str, Any]], h5_path: str, out_dir: str) 
         pairs = tx_groups[tx_name]
         rna_length = tx_lengths.get(tx_name)
         if rna_length is None:
-            rna_length = max(max(s1, s2) for s1, s2, _, _ in pairs) + 100
+            rna_length = max(max(s1, s2) for s1, s2, _, _, _ in pairs) + 100
 
         # ---- collect unique sites and their dominant modification type ----
         sites = sorted(set(s for p in pairs for s in (p[0], p[1])))
@@ -790,39 +935,37 @@ def _generate_plots(all_rows: list[dict[str, Any]], h5_path: str, out_dir: str) 
         if n_sites < 2:
             continue
 
+        dominant_lookup = site_summary_dominant.get(tx_name, {})
         site_mod: dict[int, str] = {}
         for pos in sites:
-            mods: list[str] = []
-            for s1, s2, _, mt in pairs:
-                if s1 == pos or s2 == pos:
-                    mods.extend(mt.split(":"))
-            site_mod[pos] = (
-                _sam_to_human(max(set(mods), key=mods.count)) if mods else "?"
-            )
+            site_mod[pos] = dominant_lookup.get(pos, "?")
 
         site_to_idx = {s: i for i, s in enumerate(sites)}
         mod_types_str = [site_mod[s] for s in sites]
 
-        # ---- build dense correlation matrix ----
-        corr = np.full((n_sites, n_sites), np.nan)
-        for s1, s2, phi_val, _ in pairs:
+        # ---- build dense association matrix ----
+        assoc = np.full((n_sites, n_sites), np.nan)
+        for s1, s2, val, _, _ in pairs:
             i, j = site_to_idx[s1], site_to_idx[s2]
             if i < j:
-                corr[i, j] = phi_val
+                assoc[i, j] = val
             else:
-                corr[j, i] = phi_val
-        np.fill_diagonal(corr, 1.0)  # self-correlation for pyramid base
+                assoc[j, i] = val
+        # Self-correlation / self-value for pyramid base
+        diag_val = 1.0 if metric in ("corr", "wcorr") else 0.0
+        np.fill_diagonal(assoc, diag_val)
 
         # ---- plot ----
         fig, ax = plt.subplots(figsize=(12, 8))
         _plot_transcript_heatmap(
             ax,
-            corr,
+            assoc,
             sites,
             mod_types_str,
             mod_color,
             rna_length,
             tx_name,
+            metric_label=metric_label,
         )
         fig.tight_layout()
         pdf_path = os.path.join(out_dir, f"{tx_name}.pdf")
@@ -837,9 +980,9 @@ def main() -> None:
     """Compute pairwise modification site correlations.
 
     Reads the HDF5 matrix from ``mod_scan`` and the site summary from
-    ``mod_sites``, then computes pairwise association statistics (Phi,
-    odds ratio, Fisher's exact test, mutual information) for each
-    transcript.  Results are written as Parquet or TSV.
+    ``mod_sites``, then computes pairwise association statistics (Pearson r,
+    odds ratio, mutual information) for each transcript.  Results are
+    written as Parquet or TSV.
     """
     args = parse_args()
 
@@ -892,7 +1035,7 @@ def main() -> None:
                 args.min_mod_reads,
                 args.min_asp,
                 args.min_mod_level,
-                args.depth,
+                args.min_coverage,
             )
             all_rows.extend(tx_results)
             processed += 1
@@ -910,15 +1053,15 @@ def main() -> None:
     else:
         _write_parquet(all_rows, args.output)
 
-    if args.plot:
+    if args.plot_dir:
         if args.verbose:
             print(
                 "[mod_corr] Generating rotated triangular heatmap PDFs...",
                 file=sys.stderr,
             )
-        _generate_plots(all_rows, args.h5, args.plot)
+        _generate_plots(all_rows, args.h5, args.plot_dir, all_sites, args.metric)
         if args.verbose:
-            print(f"[mod_corr] Plots written to {args.plot}/", file=sys.stderr)
+            print(f"[mod_corr] Plots written to {args.plot_dir}/", file=sys.stderr)
 
     if args.verbose:
         print(f"[mod_corr] Done. Output written to {args.output}", file=sys.stderr)
