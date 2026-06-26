@@ -97,6 +97,14 @@ def parse_args() -> argparse.Namespace:
         "[default: all transcripts in the HDF5]",
     )
     parser.add_argument(
+        "-g",
+        "--gtf",
+        default=None,
+        help="GTF annotation file for mapping transcript coordinates "
+        "to genomic coordinates. When provided, three additional "
+        "columns (chrom, strand, gpos) are appended to the output.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -333,6 +341,27 @@ def main() -> None:
                 file=sys.stderr,
             )
 
+    # ---- 0b. Parse GTF annotation (optional) ----
+
+    gtf: dict | None = None
+    if args.gtf is not None:
+        try:
+            from gppy.gtf import parse_gtf  # type: ignore[import-untyped]
+        except ImportError:
+            print(
+                "[mod_sites] Error: --gtf requires the 'gppy' package. "
+                "Install it with: pip install gppy",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        gtf = parse_gtf(args.gtf)
+        if args.verbose:
+            print(
+                f"[mod_sites] Loaded {len(gtf)} transcripts from GTF",
+                file=sys.stderr,
+            )
+
     # ---- 1. Read modification codes from HDF5 ----
 
     with h5py.File(args.h5, "r") as h5:
@@ -391,6 +420,38 @@ def main() -> None:
             )
             for row in tx_rows:
                 row["transcript_id"] = tx_name
+
+            # ---- Enrich with genomic coordinates (if GTF provided) ----
+            if gtf is not None:
+                tx_gtf = gtf.get(tx_name)
+                if tx_gtf is None:
+                    if args.verbose:
+                        print(
+                            f"[mod_sites] Warning: {tx_name} not found in GTF",
+                            file=sys.stderr,
+                        )
+                    for row in tx_rows:
+                        row["gene_id"] = None
+                        row["chrom"] = None
+                        row["strand"] = None
+                        row["gpos"] = None
+                else:
+                    gene_id = tx_gtf.gene.gene_id
+                    chrom = tx_gtf.gene.chrom
+                    strand = tx_gtf.gene.strand
+                    for row in tx_rows:
+                        gpos = tx_gtf.tpos_to_gpos(row["position"])
+                        row["gene_id"] = gene_id
+                        row["chrom"] = chrom
+                        row["strand"] = strand
+                        row["gpos"] = gpos if gpos > 0 else None
+            else:
+                for row in tx_rows:
+                    row["gene_id"] = None
+                    row["chrom"] = None
+                    row["strand"] = None
+                    row["gpos"] = None
+
             all_rows.extend(tx_rows)
 
             processed += 1
@@ -422,6 +483,7 @@ _TSV_HEADER = (
     "\tn_othermod\twt_othermod\tn_mismatch\twt_mismatch"
     "\tn_deletion\twt_deletion\tn_failed\twt_failed"
     "\tmod_level\twt_mod_level"
+    "\tgene_id\tchrom\tstrand\tgpos"
 )
 
 _TSV_COLS = [
@@ -444,6 +506,10 @@ _TSV_COLS = [
     "wt_failed",
     "mod_level",
     "wt_mod_level",
+    "gene_id",
+    "chrom",
+    "strand",
+    "gpos",
 ]
 
 
@@ -457,7 +523,12 @@ def _write_tsv(all_rows: list[dict], path: str, use_gzip: bool) -> None:
     with open_func(path, mode, encoding="utf-8") as f:
         f.write(_TSV_HEADER + "\n")
         for row in all_rows:
-            f.write("\t".join(str(row[c]) for c in _TSV_COLS) + "\n")
+            f.write(
+                "\t".join(
+                    "NA" if row[c] is None else str(row[c]) for c in _TSV_COLS
+                )
+                + "\n"
+            )
 
 
 def _write_parquet(all_rows: list[dict], path: str) -> None:
@@ -492,6 +563,10 @@ def _write_parquet(all_rows: list[dict], path: str) -> None:
                 ("wt_failed", pa.float64()),
                 ("mod_level", pa.float64()),
                 ("wt_mod_level", pa.float64()),
+                ("gene_id", pa.string()),
+                ("chrom", pa.string()),
+                ("strand", pa.string()),
+                ("gpos", pa.int32()),
             ]
         )
         with pq.ParquetWriter(path, schema) as writer:
@@ -505,9 +580,13 @@ def _write_parquet(all_rows: list[dict], path: str) -> None:
     columns = {}
     for col in _TSV_COLS:
         values = [r[col] for r in all_rows]
-        if col == "transcript_id" or col == "mod_type":
+        if col in ("transcript_id", "mod_type", "gene_id"):
             columns[col] = pa.array(values)
+        elif col in ("chrom", "strand"):
+            columns[col] = pa.array(values, type=pa.string())
         elif col == "position":
+            columns[col] = pa.array(values, type=pa.int32())
+        elif col == "gpos":
             columns[col] = pa.array(values, type=pa.int32())
         elif col.startswith("n_"):
             columns[col] = pa.array(values, type=pa.int32())

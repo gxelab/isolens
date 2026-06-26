@@ -5,7 +5,7 @@
 uv run python -m isolens.mod_scan -b examples/example2.txmap.bam -a examples/example2.lz4 -o examples/tmp_example2.isolens.mod_scan.h5 -c 0.95 -v -t 2
 uv run python -m isolens.mod_sites -i examples/tmp_example2.isolens.mod_scan.h5 -o examples/tmp_example2.isolens.mod_sites.tsv.gz -f tsv -z -v
 
-uv run python -m isolens.mod_corr -i examples/example2.isolens.mod_scan.h5 -s examples/example2.isolens.mod_sites.tsv.gz -o examples/example2.isolens.mod_corr.tsv.gz -f tsv -z -v -P tmp
+uv run python -m isolens.mod_corr -i examples/example2.isolens.mod_scan.h5 -s examples/example2.isolens.mod_sites.tsv.gz -o examples/example2.isolens.mod_corr.tsv.gz -f tsv -z -v -d examples/tmp
 
 
 # example 4 prepare
@@ -17,7 +17,7 @@ samtools index examples/example4.txmap.bam
 uv run python -m isolens.mod_scan -b examples/example4.txmap.bam -a examples/example4.lz4 -o examples/example4.isolens.mod_scan.h5 -c 0.95 -v
 uv run python -m isolens.mod_sites -i examples/example4.isolens.mod_scan.h5 -o examples/example4.isolens.mod_sites.tsv.gz -f tsv -z -v
 
-uv run python -m isolens.mod_corr -i examples/example4.isolens.mod_scan.h5 -s examples/example4.isolens.mod_sites.tsv.gz -o examples/example4.isolens.mod_corr.tsv.gz -f tsv -z -v -P tmp
+uv run python -m isolens.mod_corr -i examples/example4.isolens.mod_scan.h5 -s examples/example4.isolens.mod_sites.tsv.gz -o examples/example4.isolens.mod_corr.tsv.gz -f tsv -z -v -d examples/tmp -m 10 -l 0.05
 
 # compare with modkit
 ~/miniforge3/envs/lrs/bin/modkit pileup examples/example4.txmap.bam examples/example4.modkit.pileup.tsv \
