@@ -5,6 +5,7 @@ Used by mod_scan.py, polya_calc.py, and downstream analysis modules.
 
 import gzip
 import hashlib
+import typing
 import uuid
 
 import lz4.frame
@@ -91,7 +92,7 @@ def parse_oarfish(
 # ---------- shared I/O utilities ----------
 
 
-def open_by_suffix(path: str, mode: str = "r") -> gzip.GzipFile | open:
+def open_by_suffix(path: str, mode: str = "r") -> typing.IO:
     """Open a file for reading or writing, auto-detecting gzip by suffix.
 
     Args:

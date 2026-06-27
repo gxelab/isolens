@@ -3,7 +3,6 @@
 import argparse
 import os
 import sys
-import tempfile
 
 import h5py
 import numpy as np
@@ -16,7 +15,6 @@ try:
         _extract_site_reads,
         _read_mod_codes,
         _validate_mod_codes,
-        _validate_tx_lengths,
         _write_parquet,
         _write_tsv,
         main,
@@ -27,10 +25,7 @@ try:
     )
     from isolens.mod_scan import (
         CODE_CANONICAL,
-        CODE_DELETION,
         CODE_FAIL,
-        CODE_MISMATCH,
-        CODE_UNCOVERED,
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -38,7 +33,6 @@ except ImportError:
         _extract_site_reads,
         _read_mod_codes,
         _validate_mod_codes,
-        _validate_tx_lengths,
         _write_parquet,
         _write_tsv,
         main,
@@ -49,10 +43,7 @@ except ImportError:
     )
     from isolens.mod_scan import (  # type: ignore[no-redef]
         CODE_CANONICAL,
-        CODE_DELETION,
         CODE_FAIL,
-        CODE_MISMATCH,
-        CODE_UNCOVERED,
     )
 
 
@@ -699,12 +690,6 @@ class TestMainIntegration:
             {"a": 4},
         )
         # Sites without gene_id/gpos
-        cols = [
-            "transcript_id", "position", "mod_type",
-            "n_modified", "wt_modified", "n_unmodified", "wt_unmodified",
-            "mod_level", "wt_mod_level",
-            "gene_id", "chrom", "strand", "gpos",
-        ]
         table = pa.table({
             "transcript_id": ["TX1"],
             "position": [10],
