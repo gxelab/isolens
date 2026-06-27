@@ -19,7 +19,7 @@
 
 ## Why IsoLens?
 
-Most long-read RNA analysis tools either analyze RNA modifications or poly(A) tails without discrimination of transcript isoforms or assign reads to transcripts using hard labels. IsoLens propagates transcript assignment probabilities from [Oarfish](https://github.com/COMBINE-lab/oarfish) throughout both modification and poly(A) analyses, enabling more accurate transcript-level estimates for genes with complex isoform structure.
+Most long-read RNA analysis tools either analyze RNA modifications or poly(A) tails **without discrimination of transcript isoforms** or **only use reads uniquely mappp to a single isoform**. IsoLens propagates transcript assignment probabilities from [Oarfish](https://github.com/COMBINE-lab/oarfish) throughout both modification and poly(A) analyses, enabling more accurate transcript-level estimates for genes with complex isoform structure.
 
 Key capabilities:
 
@@ -42,7 +42,7 @@ Install:
 pip install isolens
 ```
 
-Prepare input:
+IsoLens requires sorted transcriptome alignments and Oarfish read assignment probabilities as input:
 ```bash
 # index transcriptome
 minimap2 -x map-ont -d transcriptome.mmi transcriptome.fa.gz
@@ -67,7 +67,7 @@ Build transcript-level modification matrices:
 python -m isolens.mod_scan -b alignments.sorted.bam -a oarfish_out.prob.lz4 -o mod_scan.h5
 ```
 
-Summarize modification sites:
+Summarize modification sites per transcript:
 
 ```bash
 python -m isolens.mod_sites -i mod_scan.h5 -o sites.parquet
@@ -125,13 +125,13 @@ BAM (reads/alignment) ─┘                               │
 
 | Command | Output |
 |----------|----------|
-| `mod_scan` | HDF5 read × position modification matrices |
-| `mod_sites` | Per-site modification summaries |
-| `mod_gene` | Gene-level modification summaries |
-| `mod_corr` | Pairwise modification site correlations |
-| `mod_dmc` | Differential modification between conditions |
-| `mod_dmt` | Differential modification between isoforms |
-| `mod_dmcg` | Gene-level differential modification |
+| `mod_scan` | HDF5 read × transcript position modification matrices |
+| `mod_sites` | Transcript-level per-site modification summaries |
+| `mod_gene` | Gene-level per-site modification summaries |
+| `mod_corr` | Pairwise modification site correlations within the same transcript |
+| `mod_dmc` | Transcript-level differentially modified sites between conditions) |
+| `mod_dmt` | Differential modification of sites between isoforms |
+| `mod_dmcg` | Gene-level differentially modified sites between conditions |
 | `polya_calc` | Transcript-level poly(A) estimates |
 | `polya_merge` | Merged replicate poly(A) estimates |
 | `polya_diff` | Differential poly(A) comparison |
