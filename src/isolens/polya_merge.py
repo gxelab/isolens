@@ -41,7 +41,7 @@ def read_tsv_to_dict(filename: str) -> dict[int, dict[str, Any]]:
 
     Args:
         filename: Path to a TSV (or TSV.GZ) file with columns
-            ``tx_name, tx_idx, n_reads, pa_wlen, probs, pa_lens``.
+            ``transcript_id, tx_idx, n_reads, pa_wlen, probs, pa_lens``.
 
     Returns:
         ``dict[int, dict]`` mapping ``tx_idx`` to
@@ -107,7 +107,7 @@ def main() -> None:
 
     write_mode = "wt" if output_filename.endswith(".gz") else "w"
     with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+        out_f.write("transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
 
         for tx_idx in all_tx_indices:
             tx_name = None

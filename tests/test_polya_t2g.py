@@ -122,7 +122,7 @@ class TestMainIntegration:
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
         _make_polya_tsv(in_path, [
-            "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
             "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
             "TX2\t1\t1\t300.0\t1.0\t300\tGENE_A",
             "TX3\t2\t1\t50.0\t1.0\t50\tGENE_B",
@@ -148,7 +148,7 @@ class TestMainIntegration:
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
         _make_polya_tsv(in_path, [
-            "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
             "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
             "TX2\t1\t1\t300.0\t1.0\t300\tNA",
             "TX3\t2\t1\t50.0\t1.0\t50\t.",
@@ -171,7 +171,7 @@ class TestMainIntegration:
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
         _make_polya_tsv(in_path, [
-            "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
             "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
         ])
         args = argparse.Namespace(
@@ -189,7 +189,7 @@ class TestMainIntegration:
         out_path = tmp_path / "out.tsv"
         gtf_path = tmp_path / "test.gtf"
         _make_polya_tsv(in_path, [
-            "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
             "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
             "TX2\t1\t1\t300.0\t1.0\t300",
         ])

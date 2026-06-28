@@ -21,7 +21,7 @@ class TestReadTsvToDict:
     def test_valid_tsv(self, tmp_path):
         path = tmp_path / "test.tsv"
         path.write_text(
-            "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
+            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
             "TX1\t0\t2\t100.5\t0.5,0.5\t100,101\n"
             "TX2\t1\t1\t200.0\t1.0\t200\n"
         )
@@ -36,7 +36,7 @@ class TestReadTsvToDict:
         path = tmp_path / "test.tsv.gz"
         with gzip.open(path, "wt", encoding="utf-8") as f:
             f.write(
-                "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
                 "TX1\t0\t1\t42.0\t1.0\t42\n"
             )
         data = read_tsv_to_dict(str(path))
@@ -51,14 +51,14 @@ class TestReadTsvToDict:
 
     def test_empty_data(self, tmp_path):
         path = tmp_path / "empty.tsv"
-        path.write_text("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+        path.write_text("transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
         data = read_tsv_to_dict(str(path))
         assert data == {}
 
     def test_short_lines_skipped(self, tmp_path):
         path = tmp_path / "test.tsv"
         path.write_text(
-            "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
+            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
             "TX1\t0\t2\t100.5\t0.5,0.5\t100,101\n"
             "short\n"
             "TX2\t1\t1\t200.0\t1.0\t200\n"

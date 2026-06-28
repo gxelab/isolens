@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
 def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
     """Parse a poly(A) TSV file and return ``(id_column_name, data_dict)``.
 
-    Handles both transcript-level (``tx_name`` column) and gene-level
+    Handles both transcript-level (``transcript_id`` column) and gene-level
     (``gene_id`` column) input formats.  Auto-detects gzip by ``.gz``
     suffix.
 
@@ -59,7 +59,7 @@ def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
         header = f.readline().strip().split("\t")
 
         # Detect whether transcript-level or gene-level output
-        id_col_name = "tx_name" if "tx_name" in header else "gene_id"
+        id_col_name = "transcript_id" if "transcript_id" in header else "gene_id"
         id_col = header.index(id_col_name)
         probs_col = header.index("probs")
         lens_col = header.index("pa_lens")

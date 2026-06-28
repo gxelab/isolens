@@ -109,11 +109,11 @@ class TestParsePolyaFile:
     def test_valid_tsv(self, tmp_path):
         path = tmp_path / "test.tsv"
         path.write_text(
-            "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
+            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
             "TX1\t0\t2\t100.5\t0.5,0.5\t100,101\n"
         )
         id_name, data = parse_polyA_file(str(path))
-        assert id_name == "tx_name"
+        assert id_name == "transcript_id"
         assert "TX1" in data
         assert data["TX1"]["n_reads"] == 2
         assert len(data["TX1"]["probs"]) == 2
@@ -132,7 +132,7 @@ class TestParsePolyaFile:
         path = tmp_path / "test.tsv.gz"
         with gzip.open(path, "wt", encoding="utf-8") as f:
             f.write(
-                "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
                 "TX1\t0\t1\t100.0\t1.0\t100\n"
             )
         id_name, data = parse_polyA_file(str(path))
@@ -140,6 +140,6 @@ class TestParsePolyaFile:
 
     def test_empty_file_after_header(self, tmp_path):
         path = tmp_path / "empty.tsv"
-        path.write_text("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+        path.write_text("transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
         _, data = parse_polyA_file(str(path))
         assert data == {}

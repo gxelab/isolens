@@ -66,15 +66,19 @@ def main(args: argparse.Namespace | None = None) -> None:
     read_mode = "rt" if args.input.endswith(".gz") else "r"
     with open_by_suffix(args.input, read_mode) as f:
         header = f.readline().strip().split("\t")
-        if "tx_name" not in header or "probs" not in header or "pa_lens" not in header:
+        if (
+            "transcript_id" not in header
+            or "probs" not in header
+            or "pa_lens" not in header
+        ):
             print(
-                "Error: Input file must contain 'tx_name', 'probs', "
+                "Error: Input file must contain 'transcript_id', 'probs', "
                 "and 'pa_lens' headers.",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-        tx_col = header.index("tx_name")
+        tx_col = header.index("transcript_id")
         probs_col = header.index("probs")
         lens_col = header.index("pa_lens")
 

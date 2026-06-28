@@ -146,10 +146,10 @@ def main() -> None:
     with open_by_suffix(output_filename, write_mode) as out_f:
         if tx_to_gene is not None:
             out_f.write(
-                "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id\n"
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id\n"
             )
         else:
-            out_f.write("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+            out_f.write("transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
 
         for tx_idx, tx_name in tx_idx_to_name.items():
             data = tx_data.get(tx_idx, [])
