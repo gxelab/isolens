@@ -46,6 +46,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Compress the output TSV file using gzip",
     )
+    parser.add_argument(
+        "-g",
+        "--gtf",
+        default=None,
+        help="GTF annotation file for adding gene_id to output",
+    )
     return parser.parse_args()
 
 
@@ -69,6 +75,29 @@ def main() -> None:
         f"{n_assignments} reads with assignments.",
         file=sys.stderr,
     )
+
+    # Optionally load transcript-to-gene mapping from GTF
+    tx_to_gene: dict[str, str] | None = None
+    if args.gtf is not None:
+        try:
+            from gppy.gtf import parse_gtf  # type: ignore[import-untyped]
+        except ImportError:
+            print(
+                "Error: --gtf requires the 'gppy' package. "
+                "Install it with: pip install gppy",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        print(f"Reading GTF annotation from {args.gtf}...", file=sys.stderr)
+        gtf = parse_gtf(args.gtf)
+        tx_to_gene = {}
+        for tx_name, tx in gtf.items():
+            tx_to_gene[tx_name] = tx.gene.gene_id
+        print(
+            f"Loaded gene mappings for {len(tx_to_gene)} transcripts.",
+            file=sys.stderr,
+        )
 
     if not prob_map:
         print(
@@ -131,7 +160,12 @@ def main() -> None:
     print(f"Writing results to {output_filename}...", file=sys.stderr)
     write_mode = "wt" if output_filename.endswith(".gz") else "w"
     with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+        if tx_to_gene is not None:
+            out_f.write(
+                "tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id\n"
+            )
+        else:
+            out_f.write("tx_name\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
 
         for tx_idx, tx_name in tx_idx_to_name.items():
             data = tx_data.get(tx_idx, [])
@@ -148,10 +182,14 @@ def main() -> None:
             probs_str = ",".join(f"{p:.5g}" for p in probs)
             pa_lens_str = ",".join(str(pa_len) for pa_len in pa_lens)
 
-            out_f.write(
+            line = (
                 f"{tx_name}\t{tx_idx}\t{n_reads}\t{pa_wlen:.3f}\t"
-                f"{probs_str}\t{pa_lens_str}\n"
+                f"{probs_str}\t{pa_lens_str}"
             )
+            if tx_to_gene is not None:
+                gene_id = tx_to_gene.get(tx_name, "NA")
+                line += f"\t{gene_id}"
+            out_f.write(line + "\n")
 
     print("Done!", file=sys.stderr)
 

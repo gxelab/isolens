@@ -27,11 +27,12 @@ def parse_args() -> argparse.Namespace:
         help="Input transcript poly(A) TSV file (gzipped or raw)",
     )
     parser.add_argument(
-        "-m",
-        "--map",
-        required=True,
-        help="Mapping file containing 'tx_name' and 'gene_id' columns "
-        "(gzipped or raw TSV)",
+        "-g",
+        "--gtf",
+        default=None,
+        help="GTF annotation file for transcript-to-gene mapping "
+        "(gzipped or raw). Required if the input file does not "
+        "already contain a gene_id column.",
     )
     parser.add_argument(
         "-o", "--output", required=True, help="Output gene-level TSV file path"
@@ -45,63 +46,48 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_gene_mapping(map_file: str) -> dict[str, str]:
-    """Parse a TSV mapping file and return ``{tx_name: gene_id}``.
+def load_gene_mapping_from_gtf(gtf_path: str) -> dict[str, str]:
+    """Parse a GTF file and return ``{tx_name: gene_id}``.
 
     Args:
-        map_file: Path to a TSV or TSV.GZ file with ``tx_name`` and
-            ``gene_id`` columns.
+        gtf_path: Path to a GTF (or GTF.GZ) file.
 
     Returns:
         ``dict[str, str]`` mapping each transcript name to its gene ID.
     """
-    print(f"Reading mapping file from {map_file}...", file=sys.stderr)
+    try:
+        from gppy.gtf import parse_gtf  # type: ignore[import-untyped]
+    except ImportError:
+        print(
+            "Error: --gtf requires the 'gppy' package. "
+            "Install it with: pip install gppy",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Reading GTF annotation from {gtf_path}...", file=sys.stderr)
+    gtf = parse_gtf(gtf_path)
+
     tx_to_gene: dict[str, str] = {}
-
-    read_mode = "rt" if map_file.endswith(".gz") else "r"
-    with open_by_suffix(map_file, read_mode) as f:
-        header = f.readline().strip().split("\t")
-
-        if "tx_name" not in header or "gene_id" not in header:
-            print(
-                "Error: Mapping file must contain both 'tx_name' and "
-                "'gene_id' column headers.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        tx_col = header.index("tx_name")
-        gene_col = header.index("gene_id")
-
-        for line in f:
-            parts = line.strip().split("\t")
-            if len(parts) <= max(tx_col, gene_col):
-                continue
-
-            tx_to_gene[parts[tx_col]] = parts[gene_col]
+    for tx_name, tx in gtf.items():
+        tx_to_gene[tx_name] = tx.gene.gene_id
 
     print(f"Loaded mappings for {len(tx_to_gene)} unique transcripts.", file=sys.stderr)
     return tx_to_gene
 
 
-def main() -> None:
+def main(args: argparse.Namespace | None = None) -> None:
     """Aggregate per-transcript poly(A) data to gene level.
 
-    Reads a transcript-level poly(A) TSV (from ``polya_calc``) and a
-    ``tx_name → gene_id`` mapping file, pools reads by gene, and writes
-    a gene-level poly(A) TSV with recalculated weighted average lengths.
+    Reads a transcript-level poly(A) TSV (from ``polya_calc``).  If the
+    input already contains a ``gene_id`` column (e.g. from ``polya_calc
+    -g``), that column is used directly.  Otherwise a GTF annotation file
+    must be provided via ``--gtf`` to map transcript names to gene IDs.
     """
-    args = parse_args()
+    if args is None:
+        args = parse_args()
 
-    # Load transcript-to-gene relationships
-    tx_to_gene = load_gene_mapping(args.map)
-
-    # Read transcript data and pool by gene
-    gene_pools: dict[str, dict[str, list]] = defaultdict(
-        lambda: {"probs": [], "pa_lens": []}
-    )
-    unmapped_transcripts: set[str] = set()
-
+    # Read header and detect columns
     print(
         f"Processing transcript poly(A) lengths from {args.input}...", file=sys.stderr
     )
@@ -120,28 +106,73 @@ def main() -> None:
         probs_col = header.index("probs")
         lens_col = header.index("pa_lens")
 
+        has_gene_id_col = "gene_id" in header
+        gene_id_col = header.index("gene_id") if has_gene_id_col else -1
+
+        # Determine mapping source
+        if has_gene_id_col:
+            # Use gene_id directly from input rows
+            print(
+                "Using gene_id column from input file.", file=sys.stderr
+            )
+        elif args.gtf is not None:
+            print(
+                "No gene_id column in input — using GTF annotation.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Error: Input file does not contain a 'gene_id' column "
+                "and no --gtf annotation was provided.  "
+                "Either run polya_calc with --gtf, or provide --gtf "
+                "to polya_t2g.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Load GTF mapping if needed
+        tx_to_gene: dict[str, str] = {}
+        if not has_gene_id_col:
+            tx_to_gene = load_gene_mapping_from_gtf(args.gtf)
+
+        # Read transcript data and pool by gene
+        gene_pools: dict[str, dict[str, list]] = defaultdict(
+            lambda: {"probs": [], "pa_lens": []}
+        )
+        unmapped_transcripts: set[str] = set()
+
         for line in f:
             parts = line.strip().split("\t")
             if len(parts) <= max(probs_col, lens_col):
                 continue
 
+            if has_gene_id_col and len(parts) <= gene_id_col:
+                continue
+
             tx_name = parts[tx_col]
 
-            if tx_name in tx_to_gene:
+            # Resolve gene_id
+            if has_gene_id_col:
+                gene_id = parts[gene_id_col]
+                if gene_id in ("", "NA", "."):
+                    unmapped_transcripts.add(tx_name)
+                    continue
+            elif tx_name in tx_to_gene:
                 gene_id = tx_to_gene[tx_name]
-
-                probs = [float(p) for p in parts[probs_col].split(",")]
-                pa_lens = [int(pa_len) for pa_len in parts[lens_col].split(",")]
-
-                gene_pools[gene_id]["probs"].extend(probs)
-                gene_pools[gene_id]["pa_lens"].extend(pa_lens)
             else:
                 unmapped_transcripts.add(tx_name)
+                continue
+
+            probs = [float(p) for p in parts[probs_col].split(",")]
+            pa_lens = [int(pa_len) for pa_len in parts[lens_col].split(",")]
+
+            gene_pools[gene_id]["probs"].extend(probs)
+            gene_pools[gene_id]["pa_lens"].extend(pa_lens)
 
     if unmapped_transcripts:
         print(
             f"Warning: Ignored {len(unmapped_transcripts)} transcripts "
-            "that were missing from the mapping file.",
+            "that could not be mapped to a gene.",
             file=sys.stderr,
         )
 
