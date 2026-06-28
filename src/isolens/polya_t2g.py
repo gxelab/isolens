@@ -6,8 +6,10 @@ import sys
 from collections import defaultdict
 
 try:
+    from isolens._gtf import build_tx_to_gene
     from isolens._parsing import calc_weighted_pa_len, open_by_suffix
 except ImportError:
+    from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _parsing import (  # type: ignore[no-redef]
         calc_weighted_pa_len,
         open_by_suffix,
@@ -44,36 +46,6 @@ def parse_args() -> argparse.Namespace:
         help="Compress the output TSV file using gzip",
     )
     return parser.parse_args()
-
-
-def load_gene_mapping_from_gtf(gtf_path: str) -> dict[str, str]:
-    """Parse a GTF file and return ``{tx_name: gene_id}``.
-
-    Args:
-        gtf_path: Path to a GTF (or GTF.GZ) file.
-
-    Returns:
-        ``dict[str, str]`` mapping each transcript name to its gene ID.
-    """
-    try:
-        from gppy.gtf import parse_gtf  # type: ignore[import-untyped]
-    except ImportError:
-        print(
-            "Error: --gtf requires the 'gppy' package. "
-            "Install it with: pip install gppy",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    print(f"Reading GTF annotation from {gtf_path}...", file=sys.stderr)
-    gtf = parse_gtf(gtf_path)
-
-    tx_to_gene: dict[str, str] = {}
-    for tx_name, tx in gtf.items():
-        tx_to_gene[tx_name] = tx.gene.gene_id
-
-    print(f"Loaded mappings for {len(tx_to_gene)} unique transcripts.", file=sys.stderr)
-    return tx_to_gene
 
 
 def main(args: argparse.Namespace | None = None) -> None:
@@ -133,7 +105,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         # Load GTF mapping if needed
         tx_to_gene: dict[str, str] = {}
         if not has_gene_id_col:
-            tx_to_gene = load_gene_mapping_from_gtf(args.gtf)
+            tx_to_gene = build_tx_to_gene(args.gtf)
 
         # Read transcript data and pool by gene
         gene_pools: dict[str, dict[str, list]] = defaultdict(

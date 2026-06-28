@@ -27,6 +27,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 try:
+    from isolens._gtf import load_gtf
     from isolens.mod_scan import (
         CODE_CANONICAL,
         CODE_DELETION,
@@ -34,6 +35,7 @@ try:
         CODE_MISMATCH,
     )
 except ImportError:
+    from _gtf import load_gtf  # type: ignore[no-redef]
     from mod_scan import (  # type: ignore[no-redef]
         CODE_CANONICAL,
         CODE_DELETION,
@@ -465,17 +467,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     gtf: dict | None = None
     if args.gtf is not None:
-        try:
-            from gppy.gtf import parse_gtf  # type: ignore[import-untyped]
-        except ImportError:
-            print(
-                "[mod_sites] Error: --gtf requires the 'gppy' package. "
-                "Install it with: pip install gppy",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        gtf = parse_gtf(args.gtf)
+        gtf = load_gtf(args.gtf)
         if args.verbose:
             print(
                 f"[mod_sites] Loaded {len(gtf)} transcripts from GTF",

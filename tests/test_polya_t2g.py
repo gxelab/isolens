@@ -8,11 +8,13 @@ import sys
 import pytest
 
 try:
-    from isolens.polya_t2g import load_gene_mapping_from_gtf, main
+    from isolens._gtf import build_tx_to_gene
+    from isolens.polya_t2g import main
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from _gtf import build_tx_to_gene  # type: ignore[no-redef]
+
     from isolens.polya_t2g import (  # type: ignore[no-redef]
-        load_gene_mapping_from_gtf,
         main,
     )
 
@@ -37,8 +39,8 @@ def _make_polya_tsv(path, lines: list[str], gzip_output: bool = False):
         path.write_text(content)
 
 
-class TestLoadGeneMappingFromGtf:
-    """Tests for load_gene_mapping_from_gtf()."""
+class TestBuildTxToGene:
+    """Tests for build_tx_to_gene()."""
 
     def test_valid_gtf(self, tmp_path):
         """Three transcripts across two genes."""
@@ -61,7 +63,7 @@ class TestLoadGeneMappingFromGtf:
                            'gene_id "GENE_B"; transcript_id "TX3";'),
         ]
         path.write_text("".join(lines))
-        mapping = load_gene_mapping_from_gtf(str(path))
+        mapping = build_tx_to_gene(str(path))
         assert mapping == {"TX1": "GENE_A", "TX2": "GENE_A", "TX3": "GENE_B"}
 
     def test_gzipped_gtf(self, tmp_path):
@@ -82,14 +84,14 @@ class TestLoadGeneMappingFromGtf:
         ])
         with gzip.open(path, "wt", encoding="utf-8") as f:
             f.write(content)
-        mapping = load_gene_mapping_from_gtf(str(path))
+        mapping = build_tx_to_gene(str(path))
         assert mapping == {"TX_A": "GENE_X", "TX_B": "GENE_X"}
 
     def test_empty_gtf(self, tmp_path):
         """GTF with no transcript entries returns empty dict."""
         path = tmp_path / "empty.gtf"
         path.write_text(_GTF_HEADER)
-        mapping = load_gene_mapping_from_gtf(str(path))
+        mapping = build_tx_to_gene(str(path))
         assert mapping == {}
 
     def test_multiple_transcripts_one_gene(self, tmp_path):
@@ -108,7 +110,7 @@ class TestLoadGeneMappingFromGtf:
                                f'gene_id "G1"; transcript_id "{tx}";')
             )
         path.write_text("".join(lines))
-        mapping = load_gene_mapping_from_gtf(str(path))
+        mapping = build_tx_to_gene(str(path))
         assert mapping == {"TX_A": "G1", "TX_B": "G1", "TX_C": "G1"}
 
 

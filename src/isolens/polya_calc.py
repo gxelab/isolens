@@ -9,6 +9,7 @@ import sys
 import pysam
 
 try:
+    from isolens._gtf import build_tx_to_gene
     from isolens._parsing import (
         calc_weighted_pa_len,
         open_by_suffix,
@@ -16,6 +17,7 @@ try:
         read_id_to_int,
     )
 except ImportError:
+    from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _parsing import (  # type: ignore[no-redef]
         calc_weighted_pa_len,
         open_by_suffix,
@@ -79,25 +81,7 @@ def main() -> None:
     # Optionally load transcript-to-gene mapping from GTF
     tx_to_gene: dict[str, str] | None = None
     if args.gtf is not None:
-        try:
-            from gppy.gtf import parse_gtf  # type: ignore[import-untyped]
-        except ImportError:
-            print(
-                "Error: --gtf requires the 'gppy' package. "
-                "Install it with: pip install gppy",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        print(f"Reading GTF annotation from {args.gtf}...", file=sys.stderr)
-        gtf = parse_gtf(args.gtf)
-        tx_to_gene = {}
-        for tx_name, tx in gtf.items():
-            tx_to_gene[tx_name] = tx.gene.gene_id
-        print(
-            f"Loaded gene mappings for {len(tx_to_gene)} transcripts.",
-            file=sys.stderr,
-        )
+        tx_to_gene = build_tx_to_gene(args.gtf)
 
     if not prob_map:
         print(
