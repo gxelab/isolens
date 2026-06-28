@@ -5,10 +5,13 @@ Used by mod_scan.py, polya_calc.py, and downstream analysis modules.
 
 import gzip
 import hashlib
+import sys
 import typing
 import uuid
+from typing import Any
 
 import lz4.frame
+import numpy as np
 
 
 class TargetAssignment:
@@ -127,3 +130,58 @@ def calc_weighted_pa_len(probs: list[float], pa_lens: list[int]) -> float:
     if sum_prob <= 0:
         return 0.0
     return sum(p * pl for p, pl in zip(probs, pa_lens)) / sum_prob
+
+
+def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Parse a poly(A) TSV file and return ``(id_column_name, data_dict)``.
+
+    Handles both transcript-level (``transcript_id`` column) and gene-level
+    (``gene_id`` column) input formats.  Auto-detects gzip by ``.gz``
+    suffix.
+
+    Args:
+        filename: Path to the input TSV or TSV.GZ file.
+
+    Returns:
+        ``(id_col_name, data_dict)`` where *data_dict* maps feature IDs
+        to dicts with keys ``n_reads``, ``pa_wlen``, ``probs``, ``pa_lens``.
+    """
+    print(f"Loading data from {filename}...", file=sys.stderr)
+    data_dict: dict[str, dict[str, Any]] = {}
+
+    with open_by_suffix(filename, "rt" if filename.endswith(".gz") else "r") as f:
+        header = f.readline().strip().split("\t")
+
+        # Detect whether transcript-level or gene-level output
+        id_col_name = "transcript_id" if "transcript_id" in header else "gene_id"
+        id_col = header.index(id_col_name)
+        probs_col = header.index("probs")
+        lens_col = header.index("pa_lens")
+
+        for line in f:
+            parts = line.strip().split("\t")
+            if len(parts) <= max(probs_col, lens_col):
+                continue
+
+            feature_id = parts[id_col]
+            probs = np.array([float(p) for p in parts[probs_col].split(",")])
+            pa_lens = np.array(
+                [int(pa_len) for pa_len in parts[lens_col].split(",")]
+            )
+
+            n_reads = len(probs)
+            sum_prob = float(np.sum(probs))
+            pa_wlen = (
+                float(np.sum(probs * pa_lens) / sum_prob)
+                if sum_prob > 0
+                else 0.0
+            )
+
+            data_dict[feature_id] = {
+                "n_reads": n_reads,
+                "pa_wlen": pa_wlen,
+                "probs": probs,
+                "pa_lens": pa_lens,
+            }
+
+    return id_col_name, data_dict
