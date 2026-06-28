@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
         "weights) is below this threshold (default: 30)",
     )
     parser.add_argument(
-        "--kde-prominence", type=float, default=0.05,
+        "-k", "--kde-prominence", type=float, default=0.05,
         help="Prominence threshold for KDE peak detection "
         "(default: 0.05)",
     )
