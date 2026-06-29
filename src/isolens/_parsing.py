@@ -165,17 +165,11 @@ def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
 
             feature_id = parts[id_col]
             probs = np.array([float(p) for p in parts[probs_col].split(",")])
-            pa_lens = np.array(
-                [int(pa_len) for pa_len in parts[lens_col].split(",")]
-            )
+            pa_lens = np.array([int(pa_len) for pa_len in parts[lens_col].split(",")])
 
             n_reads = len(probs)
             sum_prob = float(np.sum(probs))
-            pa_wlen = (
-                float(np.sum(probs * pa_lens) / sum_prob)
-                if sum_prob > 0
-                else 0.0
-            )
+            pa_wlen = float(np.sum(probs * pa_lens) / sum_prob) if sum_prob > 0 else 0.0
 
             data_dict[feature_id] = {
                 "n_reads": n_reads,

@@ -30,37 +30,52 @@ def parse_args() -> argparse.Namespace:
         "per transcript or gene using weighted GMM and KDE."
     )
     parser.add_argument(
-        "-i", "--input", required=True,
-        help="Input poly(A) TSV file (from polya_calc or polya_t2g, "
-        "gzipped or raw)",
+        "-i",
+        "--input",
+        required=True,
+        help="Input poly(A) TSV file (from polya_calc or polya_t2g, gzipped or raw)",
     )
     parser.add_argument(
-        "-o", "--output", required=True,
+        "-o",
+        "--output",
+        required=True,
         help="Output bimodality TSV results file",
     )
     parser.add_argument(
-        "-z", "--gzip", action="store_true",
+        "-z",
+        "--gzip",
+        action="store_true",
         help="Compress the output TSV file using gzip",
     )
     parser.add_argument(
-        "-l", "--min-length", type=float, default=0.0,
-        help="Drop reads with poly(A) length below this threshold "
-        "(default: 0)",
+        "-l",
+        "--min-length",
+        type=float,
+        default=0.0,
+        help="Drop reads with poly(A) length below this threshold (default: 0)",
     )
     parser.add_argument(
-        "-p", "--min-asp", type=float, default=0.1,
+        "-p",
+        "--min-asp",
+        type=float,
+        default=0.1,
         help="Drop reads with assignment probability below this "
         "threshold (default: 0.1)",
     )
     parser.add_argument(
-        "-e", "--min-ess", type=float, default=30.0,
+        "-e",
+        "--min-ess",
+        type=float,
+        default=30.0,
         help="Skip feature if effective sample size (sum of remaining "
         "weights) is below this threshold (default: 30)",
     )
     parser.add_argument(
-        "-k", "--kde-prominence", type=float, default=0.05,
-        help="Prominence threshold for KDE peak detection "
-        "(default: 0.05)",
+        "-k",
+        "--kde-prominence",
+        type=float,
+        default=0.05,
+        help="Prominence threshold for KDE peak detection (default: 0.05)",
     )
     return parser.parse_args()
 
@@ -143,15 +158,19 @@ def _fit_weighted_gmm_1d(
         mean2 = mean1 + 1.0
 
     means = np.array([mean1, mean2])
-    variances = np.array([
-        max(float(np.average((x_left - mean1) ** 2, weights=w_left)), 1e-6),
-        max(float(np.average((x_right - mean2) ** 2, weights=w_right)), 1e-6),
-    ])
+    variances = np.array(
+        [
+            max(float(np.average((x_left - mean1) ** 2, weights=w_left)), 1e-6),
+            max(float(np.average((x_right - mean2) ** 2, weights=w_right)), 1e-6),
+        ]
+    )
     sw_left = float(np.sum(w_left))
-    mix_weights = np.array([
-        max(sw_left / ess, 0.05),
-        max(1.0 - sw_left / ess, 0.05),
-    ])
+    mix_weights = np.array(
+        [
+            max(sw_left / ess, 0.05),
+            max(1.0 - sw_left / ess, 0.05),
+        ]
+    )
     mix_weights /= mix_weights.sum()
 
     prev_ll = -np.inf
@@ -160,9 +179,8 @@ def _fit_weighted_gmm_1d(
         # E-step (log-space)
         log_resp = np.empty((len(x), 2))
         for k in range(2):
-            log_resp[:, k] = (
-                np.log(mix_weights[k])
-                + _log_gaussian_pdf(x, means[k], variances[k])
+            log_resp[:, k] = np.log(mix_weights[k]) + _log_gaussian_pdf(
+                x, means[k], variances[k]
             )
 
         log_prob = logsumexp(log_resp, axis=1)
@@ -182,13 +200,9 @@ def _fit_weighted_gmm_1d(
         for k in range(2):
             Nk = float(np.sum(weights * resp[:, k]))
             if Nk > 1e-10:
-                means[k] = float(
-                    np.sum(weights * resp[:, k] * x) / Nk
-                )
+                means[k] = float(np.sum(weights * resp[:, k] * x) / Nk)
                 diff = x - means[k]
-                variances[k] = float(
-                    np.sum(weights * resp[:, k] * diff**2) / Nk
-                )
+                variances[k] = float(np.sum(weights * resp[:, k] * diff**2) / Nk)
                 variances[k] = max(variances[k], 1e-6)
             else:
                 variances[k] = 1e-6
@@ -311,26 +325,18 @@ def _process_feature(
     x_log = np.log(pa_lens_f + 1.0)
 
     # GMM k=1 (always computable)
-    _means1, _vars1, _mix1, ll_k1 = _fit_weighted_gmm_1d(
-        x_log, probs_f, n_components=1
-    )
+    _means1, _vars1, _mix1, ll_k1 = _fit_weighted_gmm_1d(x_log, probs_f, n_components=1)
     bic_k1 = _compute_bic(ll_k1, n_params=2, ess=ess)
 
     # GMM k=2
-    _means2, _vars2, _mix2, ll_k2 = _fit_weighted_gmm_1d(
-        x_log, probs_f, n_components=2
-    )
+    _means2, _vars2, _mix2, ll_k2 = _fit_weighted_gmm_1d(x_log, probs_f, n_components=2)
     bic_k2 = _compute_bic(ll_k2, n_params=5, ess=ess)
 
     delta_bic = bic_k1 - bic_k2  # positive = evidence for k=2
-    bimodal_gmm = bool(
-        (not np.isnan(delta_bic)) and delta_bic > 10.0
-    )
+    bimodal_gmm = bool((not np.isnan(delta_bic)) and delta_bic > 10.0)
 
     # KDE peak detection
-    n_kde_peaks = _find_peaks_kde(
-        x_log, probs_f, prominence=kde_prominence
-    )
+    n_kde_peaks = _find_peaks_kde(x_log, probs_f, prominence=kde_prominence)
     bimodal_kde = n_kde_peaks >= 2
 
     return {
@@ -373,8 +379,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         sys.exit(0)
 
     print(
-        f"Testing {len(data_dict)} features for bimodal poly(A) "
-        f"distributions...",
+        f"Testing {len(data_dict)} features for bimodal poly(A) distributions...",
         file=sys.stderr,
     )
 

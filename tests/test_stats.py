@@ -81,8 +81,10 @@ class TestWeightedKsTest:
 
     def test_single_element(self):
         stat, p = weighted_ks_test(
-            np.array([1.0]), np.array([1.0]),
-            np.array([5.0]), np.array([1.0]),
+            np.array([1.0]),
+            np.array([1.0]),
+            np.array([5.0]),
+            np.array([1.0]),
         )
         assert stat == pytest.approx(1.0)
         assert 0.0 <= p <= 1.0
@@ -235,7 +237,10 @@ class TestWeightedRankSumTest:
         v1 = np.array([1.0, 2.0])
         v2 = np.array([3.0, 4.0])
         z_stat, p = weighted_rank_sum_test(
-            v1, np.ones(2), v2, np.zeros(2),
+            v1,
+            np.ones(2),
+            v2,
+            np.zeros(2),
         )
         assert np.isnan(z_stat)
         assert np.isnan(p)

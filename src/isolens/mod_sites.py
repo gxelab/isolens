@@ -518,8 +518,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
         if args.verbose:
             file_counts = ", ".join(
-                f"{f}: {len(s)} tx"
-                for f, s in zip(args.h5, all_tx_sets)
+                f"{f}: {len(s)} tx" for f, s in zip(args.h5, all_tx_sets)
             )
             print(
                 f"[mod_sites] {n_transcripts} unique transcripts across "
@@ -555,9 +554,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
             # Validate transcript length consistency
             try:
-                _validate_tx_lengths(
-                    tx_name, tx_lengths_found, list(args.h5)
-                )
+                _validate_tx_lengths(tx_name, tx_lengths_found, list(args.h5))
             except ValueError as exc:
                 print(
                     f"[mod_sites] Warning: {exc} — skipping transcript",
@@ -631,8 +628,7 @@ def main(args: argparse.Namespace | None = None) -> None:
             processed += 1
             if args.verbose and processed % 1000 == 0:
                 print(
-                    f"[mod_sites] Processed {processed}/{n_transcripts} "
-                    f"transcripts...",
+                    f"[mod_sites] Processed {processed}/{n_transcripts} transcripts...",
                     file=sys.stderr,
                 )
 
@@ -699,9 +695,7 @@ def _write_tsv(all_rows: list[dict], path: str, use_gzip: bool) -> None:
         f.write(_TSV_HEADER + "\n")
         for row in all_rows:
             f.write(
-                "\t".join(
-                    "NA" if row[c] is None else str(row[c]) for c in _TSV_COLS
-                )
+                "\t".join("NA" if row[c] is None else str(row[c]) for c in _TSV_COLS)
                 + "\n"
             )
 

@@ -36,30 +36,44 @@ def parse_args() -> argparse.Namespace:
         "between transcript isoforms of the same gene."
     )
     parser.add_argument(
-        "-i", "--input", required=True,
+        "-i",
+        "--input",
+        required=True,
         help="Transcript-level poly(A) TSV file (gzipped or raw)",
     )
     parser.add_argument(
-        "-g", "--gtf", default=None,
+        "-g",
+        "--gtf",
+        default=None,
         help="GTF annotation file for transcript-to-gene mapping "
         "(gzipped or raw). Required if the input file does not "
         "already contain a gene_id column.",
     )
     parser.add_argument(
-        "-o", "--output", required=True,
+        "-o",
+        "--output",
+        required=True,
         help="Output pairwise TSV results file",
     )
     parser.add_argument(
-        "-z", "--gzip", action="store_true",
+        "-z",
+        "--gzip",
+        action="store_true",
         help="Compress the output TSV file using gzip",
     )
     parser.add_argument(
-        "-p", "--min-asp", type=float, default=0.0,
+        "-p",
+        "--min-asp",
+        type=float,
+        default=0.0,
         help="Minimum assignment probability threshold "
         "(default: 0.0, i.e. no filtering)",
     )
     parser.add_argument(
-        "-n", "--min-pareads", type=int, default=5,
+        "-n",
+        "--min-pareads",
+        type=int,
+        default=5,
         help="Minimum number of reads with effective (non-negative) "
         "poly(A) length estimation (default: 5)",
     )
@@ -102,8 +116,7 @@ def _load_and_group(
 
         if "probs" not in header or "pa_lens" not in header:
             print(
-                "Error: Input file must contain 'probs' and 'pa_lens' "
-                "columns.",
+                "Error: Input file must contain 'probs' and 'pa_lens' columns.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -116,9 +129,7 @@ def _load_and_group(
         gene_id_col = header.index("gene_id") if has_gene_id_col else -1
 
         if has_gene_id_col:
-            print(
-                "Using gene_id column from input file.", file=sys.stderr
-            )
+            print("Using gene_id column from input file.", file=sys.stderr)
         elif gtf_path is not None:
             print(
                 "No gene_id column in input — using GTF annotation.",
@@ -164,9 +175,7 @@ def _load_and_group(
                     continue
 
             probs = np.array([float(p) for p in parts[probs_col].split(",")])
-            pa_lens = np.array(
-                [int(pl) for pl in parts[lens_col].split(",")]
-            )
+            pa_lens = np.array([int(pl) for pl in parts[lens_col].split(",")])
 
             # Apply min_asp filter and non-negative length filter
             mask = (probs >= min_asp) & (pa_lens >= 0)
@@ -187,9 +196,7 @@ def _load_and_group(
         )
 
     # Remove genes with fewer than 2 transcripts
-    gene_groups = {
-        g: txs for g, txs in gene_groups.items() if len(txs) >= 2
-    }
+    gene_groups = {g: txs for g, txs in gene_groups.items() if len(txs) >= 2}
 
     return tx_data, gene_groups
 
@@ -205,9 +212,7 @@ def main(args: argparse.Namespace | None = None) -> None:
     if args is None:
         args = parse_args()
 
-    tx_data, gene_groups = _load_and_group(
-        args.input, args.gtf, args.min_asp
-    )
+    tx_data, gene_groups = _load_and_group(args.input, args.gtf, args.min_asp)
 
     if not gene_groups:
         print(
@@ -217,12 +222,10 @@ def main(args: argparse.Namespace | None = None) -> None:
         sys.exit(0)
 
     total_pairs = sum(
-        len(list(itertools.combinations(txs, 2)))
-        for txs in gene_groups.values()
+        len(list(itertools.combinations(txs, 2))) for txs in gene_groups.values()
     )
     print(
-        f"Processing {len(gene_groups)} genes "
-        f"({total_pairs} transcript pairs)...",
+        f"Processing {len(gene_groups)} genes ({total_pairs} transcript pairs)...",
         file=sys.stderr,
     )
 
@@ -263,12 +266,16 @@ def main(args: argparse.Namespace | None = None) -> None:
                 p_b = d_b["probs"]
                 l_b = d_b["pa_lens"]
 
-                row["pa_wlen_1"] = float(
-                    np.average(l_a, weights=p_a)
-                ) if p_a.sum() > 0 else float("nan")
-                row["pa_wlen_2"] = float(
-                    np.average(l_b, weights=p_b)
-                ) if p_b.sum() > 0 else float("nan")
+                row["pa_wlen_1"] = (
+                    float(np.average(l_a, weights=p_a))
+                    if p_a.sum() > 0
+                    else float("nan")
+                )
+                row["pa_wlen_2"] = (
+                    float(np.average(l_b, weights=p_b))
+                    if p_b.sum() > 0
+                    else float("nan")
+                )
 
                 ks_stat, ks_p = weighted_ks_test(l_a, p_a, l_b, p_b)
                 row["ks_stat"] = ks_stat
@@ -289,8 +296,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         p_key = f"{test_key}_p_value"
         q_key = f"{test_key}_q_value"
         valid_indices = [
-            i for i, r in enumerate(results)
-            if not np.isnan(r.get(p_key, float("nan")))
+            i for i, r in enumerate(results) if not np.isnan(r.get(p_key, float("nan")))
         ]
         if valid_indices:
             p_vals = [results[i][p_key] for i in valid_indices]

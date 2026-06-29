@@ -51,16 +51,10 @@ class TestWeightedLogisticTest:
         """Non-uniform weights produce correct weighted estimates."""
         # Use enough reads per group so the weighted effect is significant
         n = 20
-        y = np.array(
-            [0.0] * n + [1.0] * n, dtype=np.float64
-        )
-        x = np.array(
-            [0.0] * n + [1.0] * n, dtype=np.float64
-        )
+        y = np.array([0.0] * n + [1.0] * n, dtype=np.float64)
+        x = np.array([0.0] * n + [1.0] * n, dtype=np.float64)
         # Group 0 has low weights, group 1 high weights
-        w = np.array(
-            [0.1] * n + [2.0] * n, dtype=np.float64
-        )
+        w = np.array([0.1] * n + [2.0] * n, dtype=np.float64)
 
         result = weighted_logistic_test(y, x, w)
 
@@ -154,7 +148,11 @@ class TestWeightedLogisticTest:
 
         result = weighted_logistic_test(y, x, w)
         assert set(result.keys()) == {
-            "log2_or", "p_value", "beta0", "beta1", "se_beta1"
+            "log2_or",
+            "p_value",
+            "beta0",
+            "beta1",
+            "se_beta1",
         }
 
     def test_log2_or_sign_matches_direction(self):
@@ -203,6 +201,7 @@ class TestBhFdr:
     def test_monotonic(self):
         """Q-values should be monotonic with respect to sorted p-values."""
         import random
+
         p = [random.uniform(0.001, 0.1) for _ in range(20)]
         q = bh_fdr(p)
         # After sorting by p-value, q-values should be non-decreasing

@@ -91,8 +91,7 @@ _SITE_COLS = [
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for mod_dmc."""
     parser = argparse.ArgumentParser(
-        description="mod_dmc: Differential modification calling between "
-        "two conditions"
+        description="mod_dmc: Differential modification calling between two conditions"
     )
     parser.add_argument(
         "--h5-1",
@@ -124,9 +123,7 @@ def parse_args() -> argparse.Namespace:
         help="Pooled site summary for condition 2 (Parquet or TSV/TSV.GZ "
         "from mod_sites)",
     )
-    parser.add_argument(
-        "-o", "--output", required=True, help="Output file path"
-    )
+    parser.add_argument("-o", "--output", required=True, help="Output file path")
     parser.add_argument(
         "-f",
         "--format",
@@ -218,8 +215,10 @@ def _read_sites_tsv(path: str) -> dict[tuple, dict[str, Any]]:
                 elif c in ("n_modified", "n_unmodified", "position"):
                     row[c] = int(val)
                 elif c in (
-                    "wt_modified", "wt_unmodified",
-                    "mod_level", "wt_mod_level",
+                    "wt_modified",
+                    "wt_unmodified",
+                    "mod_level",
+                    "wt_mod_level",
                 ):
                     row[c] = float(val)
                 elif c == "gpos":
@@ -295,8 +294,7 @@ def _extract_site_reads(
 def _read_mod_codes(h5: h5py.File) -> dict[str, int]:
     """Read modification codes from an open HDF5 file."""
     return {
-        mod_str: int(code)
-        for mod_str, code in h5["modification_codes"].attrs.items()
+        mod_str: int(code) for mod_str, code in h5["modification_codes"].attrs.items()
     }
 
 
@@ -308,12 +306,8 @@ def _validate_mod_codes(
     reference = mod_maps[0]
     for i, code_map in enumerate(mod_maps[1:], start=1):
         if code_map != reference:
-            ref_str = "; ".join(
-                f"{k}={v}" for k, v in sorted(reference.items())
-            )
-            file_str = "; ".join(
-                f"{k}={v}" for k, v in sorted(code_map.items())
-            )
+            ref_str = "; ".join(f"{k}={v}" for k, v in sorted(reference.items()))
+            file_str = "; ".join(f"{k}={v}" for k, v in sorted(code_map.items()))
             raise ValueError(
                 f"Modification codes in {filenames[i]} do not match "
                 f"{filenames[0]}.\n"
@@ -389,8 +383,7 @@ def _pool_transcript_data(
     if not matrices:
         return None
 
-    _validate_tx_lengths(tx_name, tx_lengths_found,
-                         [f.filename for f in h5_files])
+    _validate_tx_lengths(tx_name, tx_lengths_found, [f.filename for f in h5_files])
 
     if len(matrices) == 1:
         return matrices[0], weights_list[0], matrices[0].shape[1]
@@ -436,8 +429,7 @@ def process_transcript(
         One dict per matched site with all ``_OUTPUT_COLS`` fields.
     """
     # Intersection of site keys for this transcript
-    common_keys = sorted(set(sites_1_for_tx.keys())
-                         & set(sites_2_for_tx.keys()))
+    common_keys = sorted(set(sites_1_for_tx.keys()) & set(sites_2_for_tx.keys()))
     if not common_keys:
         return []
 
@@ -463,10 +455,12 @@ def process_transcript(
 
         # Build design: condition 1 = 0, condition 2 = 1
         y = np.concatenate([y_1, y_2])
-        x = np.concatenate([
-            np.zeros(len(y_1), dtype=np.float64),
-            np.ones(len(y_2), dtype=np.float64),
-        ])
+        x = np.concatenate(
+            [
+                np.zeros(len(y_1), dtype=np.float64),
+                np.ones(len(y_2), dtype=np.float64),
+            ]
+        )
         w = np.concatenate([w_1, w_2])
 
         result = weighted_logistic_test(y, x, w)
@@ -480,40 +474,40 @@ def process_transcript(
         wml1 = s1.get("wt_mod_level")
         wml2 = s2.get("wt_mod_level")
 
-        rows.append({
-            "transcript_id": tx_name,
-            "position": pos,
-            "mod_type": mod_str,
-            "gene_id": s1.get("gene_id"),
-            "chrom": s1.get("chrom"),
-            "strand": s1.get("strand"),
-            "gpos": s1.get("gpos"),
-            "n_modified_1": s1.get("n_modified"),
-            "n_unmodified_1": s1.get("n_unmodified"),
-            "n_modified_2": s2.get("n_modified"),
-            "n_unmodified_2": s2.get("n_unmodified"),
-            "wt_modified_1": s1.get("wt_modified"),
-            "wt_unmodified_1": s1.get("wt_unmodified"),
-            "wt_modified_2": s2.get("wt_modified"),
-            "wt_unmodified_2": s2.get("wt_unmodified"),
-            "mod_level_1": ml1,
-            "mod_level_2": ml2,
-            "wt_mod_level_1": wml1,
-            "wt_mod_level_2": wml2,
-            "delta_mod_level": (
-                round(ml2 - ml1, 6)
-                if ml1 is not None and ml2 is not None
-                else None
-            ),
-            "delta_wt_mod_level": (
-                round(wml2 - wml1, 6)
-                if wml1 is not None and wml2 is not None
-                else None
-            ),
-            "log2_or": result["log2_or"],
-            "p_value": result["p_value"],
-            "q_value": 0.0,  # filled after global BH correction
-        })
+        rows.append(
+            {
+                "transcript_id": tx_name,
+                "position": pos,
+                "mod_type": mod_str,
+                "gene_id": s1.get("gene_id"),
+                "chrom": s1.get("chrom"),
+                "strand": s1.get("strand"),
+                "gpos": s1.get("gpos"),
+                "n_modified_1": s1.get("n_modified"),
+                "n_unmodified_1": s1.get("n_unmodified"),
+                "n_modified_2": s2.get("n_modified"),
+                "n_unmodified_2": s2.get("n_unmodified"),
+                "wt_modified_1": s1.get("wt_modified"),
+                "wt_unmodified_1": s1.get("wt_unmodified"),
+                "wt_modified_2": s2.get("wt_modified"),
+                "wt_unmodified_2": s2.get("wt_unmodified"),
+                "mod_level_1": ml1,
+                "mod_level_2": ml2,
+                "wt_mod_level_1": wml1,
+                "wt_mod_level_2": wml2,
+                "delta_mod_level": (
+                    round(ml2 - ml1, 6) if ml1 is not None and ml2 is not None else None
+                ),
+                "delta_wt_mod_level": (
+                    round(wml2 - wml1, 6)
+                    if wml1 is not None and wml2 is not None
+                    else None
+                ),
+                "log2_or": result["log2_or"],
+                "p_value": result["p_value"],
+                "q_value": 0.0,  # filled after global BH correction
+            }
+        )
 
     return rows
 
@@ -521,9 +515,7 @@ def process_transcript(
 # ---------- output writers ----------
 
 
-def _write_tsv(
-    all_rows: list[dict[str, Any]], path: str, use_gzip: bool
-) -> None:
+def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
     """Write rows as tab-separated values."""
     import gzip
 
@@ -533,10 +525,7 @@ def _write_tsv(
         fh.write(_TSV_HEADER + "\n")
         for row in all_rows:
             fh.write(
-                "\t".join(
-                    "NA" if row[c] is None else str(row[c])
-                    for c in _OUTPUT_COLS
-                )
+                "\t".join("NA" if row[c] is None else str(row[c]) for c in _OUTPUT_COLS)
                 + "\n"
             )
 
@@ -544,38 +533,39 @@ def _write_tsv(
 def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
     """Write rows as a Parquet file via pyarrow."""
     if not all_rows:
-        schema = pa.schema([
-            ("transcript_id", pa.string()),
-            ("position", pa.int32()),
-            ("mod_type", pa.string()),
-            ("gene_id", pa.string()),
-            ("chrom", pa.string()),
-            ("strand", pa.string()),
-            ("gpos", pa.int32()),
-            ("n_modified_1", pa.int32()),
-            ("n_unmodified_1", pa.int32()),
-            ("n_modified_2", pa.int32()),
-            ("n_unmodified_2", pa.int32()),
-            ("wt_modified_1", pa.float64()),
-            ("wt_unmodified_1", pa.float64()),
-            ("wt_modified_2", pa.float64()),
-            ("wt_unmodified_2", pa.float64()),
-            ("mod_level_1", pa.float64()),
-            ("mod_level_2", pa.float64()),
-            ("wt_mod_level_1", pa.float64()),
-            ("wt_mod_level_2", pa.float64()),
-            ("delta_mod_level", pa.float64()),
-            ("delta_wt_mod_level", pa.float64()),
-            ("log2_or", pa.float64()),
-            ("p_value", pa.float64()),
-            ("q_value", pa.float64()),
-        ])
+        schema = pa.schema(
+            [
+                ("transcript_id", pa.string()),
+                ("position", pa.int32()),
+                ("mod_type", pa.string()),
+                ("gene_id", pa.string()),
+                ("chrom", pa.string()),
+                ("strand", pa.string()),
+                ("gpos", pa.int32()),
+                ("n_modified_1", pa.int32()),
+                ("n_unmodified_1", pa.int32()),
+                ("n_modified_2", pa.int32()),
+                ("n_unmodified_2", pa.int32()),
+                ("wt_modified_1", pa.float64()),
+                ("wt_unmodified_1", pa.float64()),
+                ("wt_modified_2", pa.float64()),
+                ("wt_unmodified_2", pa.float64()),
+                ("mod_level_1", pa.float64()),
+                ("mod_level_2", pa.float64()),
+                ("wt_mod_level_1", pa.float64()),
+                ("wt_mod_level_2", pa.float64()),
+                ("delta_mod_level", pa.float64()),
+                ("delta_wt_mod_level", pa.float64()),
+                ("log2_or", pa.float64()),
+                ("p_value", pa.float64()),
+                ("q_value", pa.float64()),
+            ]
+        )
         with pq.ParquetWriter(path, schema) as w:
             w.write_table(
-                pa.table({
-                    k: pa.array([], type=schema.field(k).type)
-                    for k in schema.names
-                })
+                pa.table(
+                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
+                )
             )
         return
 
@@ -629,12 +619,8 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     # ---- 2. Open all HDF5 files ----
     with ExitStack() as stack:
-        h5_1 = [
-            stack.enter_context(h5py.File(f, "r")) for f in args.h5_1
-        ]
-        h5_2 = [
-            stack.enter_context(h5py.File(f, "r")) for f in args.h5_2
-        ]
+        h5_1 = [stack.enter_context(h5py.File(f, "r")) for f in args.h5_1]
+        h5_2 = [stack.enter_context(h5py.File(f, "r")) for f in args.h5_2]
 
         if args.verbose:
             print(
@@ -665,9 +651,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         sites_1_tx = {k[0] for k in sites_1}
         sites_2_tx = {k[0] for k in sites_2}
 
-        common_tx = sorted(
-            h5_1_tx & h5_2_tx & sites_1_tx & sites_2_tx
-        )
+        common_tx = sorted(h5_1_tx & h5_2_tx & sites_1_tx & sites_2_tx)
 
         if args.transcripts is not None:
             requested = set(args.transcripts)
@@ -675,8 +659,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
         if args.verbose:
             print(
-                f"[mod_dmc] {len(common_tx)} transcripts in common "
-                f"across all inputs",
+                f"[mod_dmc] {len(common_tx)} transcripts in common across all inputs",
                 file=sys.stderr,
             )
 
@@ -686,12 +669,8 @@ def main(args: argparse.Namespace | None = None) -> None:
 
         for tx_name in common_tx:
             # Pool reads within each condition
-            pooled_1 = _pool_transcript_data(
-                h5_1, tx_name, args.min_asp, "cond1"
-            )
-            pooled_2 = _pool_transcript_data(
-                h5_2, tx_name, args.min_asp, "cond2"
-            )
+            pooled_1 = _pool_transcript_data(h5_1, tx_name, args.min_asp, "cond1")
+            pooled_2 = _pool_transcript_data(h5_2, tx_name, args.min_asp, "cond2")
 
             if pooled_1 is None or pooled_2 is None:
                 processed += 1
@@ -701,14 +680,8 @@ def main(args: argparse.Namespace | None = None) -> None:
             matrix_2, weights_2, _len2 = pooled_2
 
             if args.verbose and (
-                len(
-                    [h for h in h5_1
-                     if tx_name in h["transcripts"]]
-                ) > 1
-                or len(
-                    [h for h in h5_2
-                     if tx_name in h["transcripts"]]
-                ) > 1
+                len([h for h in h5_1 if tx_name in h["transcripts"]]) > 1
+                or len([h for h in h5_2 if tx_name in h["transcripts"]]) > 1
             ):
                 print(
                     f"[mod_dmc] {tx_name}: cond1={matrix_1.shape[0]} "
@@ -717,25 +690,25 @@ def main(args: argparse.Namespace | None = None) -> None:
                 )
 
             # Filter site keys to this transcript
-            st1 = {
-                k: v for k, v in sites_1.items() if k[0] == tx_name
-            }
-            st2 = {
-                k: v for k, v in sites_2.items() if k[0] == tx_name
-            }
+            st1 = {k: v for k, v in sites_1.items() if k[0] == tx_name}
+            st2 = {k: v for k, v in sites_2.items() if k[0] == tx_name}
 
             tx_rows = process_transcript(
-                tx_name, matrix_1, weights_1,
-                matrix_2, weights_2,
-                st1, st2, mod_code_map,
+                tx_name,
+                matrix_1,
+                weights_1,
+                matrix_2,
+                weights_2,
+                st1,
+                st2,
+                mod_code_map,
             )
             all_rows.extend(tx_rows)
             processed += 1
 
             if args.verbose and processed % 1000 == 0:
                 print(
-                    f"[mod_dmc] Processed {processed}/{len(common_tx)} "
-                    f"transcripts...",
+                    f"[mod_dmc] Processed {processed}/{len(common_tx)} transcripts...",
                     file=sys.stderr,
                 )
 
@@ -747,9 +720,7 @@ def main(args: argparse.Namespace | None = None) -> None:
             r["q_value"] = round(qv, 6)
 
     if args.verbose:
-        print(
-            f"[mod_dmc] Total tests: {len(all_rows)}", file=sys.stderr
-        )
+        print(f"[mod_dmc] Total tests: {len(all_rows)}", file=sys.stderr)
 
     # ---- 7. Write output ----
     if args.format == "tsv":

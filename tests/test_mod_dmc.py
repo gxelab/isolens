@@ -93,12 +93,29 @@ def _make_sites_parquet(path, sites_data):
     sites_data: list of dicts with keys matching mod_sites output columns.
     """
     cols = [
-        "transcript_id", "position", "mod_type",
-        "n_modified", "wt_modified", "n_unmodified", "wt_unmodified",
-        "n_canonical", "wt_canonical", "n_othermod", "wt_othermod",
-        "n_mismatch", "wt_mismatch", "n_deletion", "wt_deletion",
-        "n_failed", "wt_failed", "mod_level", "wt_mod_level",
-        "gene_id", "chrom", "strand", "gpos",
+        "transcript_id",
+        "position",
+        "mod_type",
+        "n_modified",
+        "wt_modified",
+        "n_unmodified",
+        "wt_unmodified",
+        "n_canonical",
+        "wt_canonical",
+        "n_othermod",
+        "wt_othermod",
+        "n_mismatch",
+        "wt_mismatch",
+        "n_deletion",
+        "wt_deletion",
+        "n_failed",
+        "wt_failed",
+        "mod_level",
+        "wt_mod_level",
+        "gene_id",
+        "chrom",
+        "strand",
+        "gpos",
     ]
     arrays = {}
     for c in cols:
@@ -126,8 +143,7 @@ class TestExtractSiteReads:
 
     def test_simple_modified(self):
         """All reads have the modification at position 1."""
-        matrix = np.array([[4, CODE_CANONICAL], [4, CODE_CANONICAL]],
-                          dtype=np.uint8)
+        matrix = np.array([[4, CODE_CANONICAL], [4, CODE_CANONICAL]], dtype=np.uint8)
         weights = np.array([1.0, 0.5], dtype=np.float32)
         y, w = _extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 2
@@ -145,8 +161,7 @@ class TestExtractSiteReads:
 
     def test_filters_failed(self):
         """Failed reads are excluded."""
-        matrix = np.array([[4], [CODE_FAIL], [CODE_CANONICAL]],
-                          dtype=np.uint8)
+        matrix = np.array([[4], [CODE_FAIL], [CODE_CANONICAL]], dtype=np.uint8)
         weights = np.ones(3, dtype=np.float32)
         y, w = _extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 2
@@ -201,20 +216,36 @@ class TestReadSiteSummaryFull:
 
     def test_parquet(self, tmp_path):
         path = str(tmp_path / "sites.parquet")
-        _make_sites_parquet(path, [
-            {
-                "transcript_id": "TX1", "position": 10, "mod_type": "a",
-                "n_modified": 5, "wt_modified": 4.5,
-                "n_unmodified": 15, "wt_unmodified": 14.0,
-                "n_canonical": 10, "wt_canonical": 9.0,
-                "n_othermod": 5, "wt_othermod": 5.0,
-                "n_mismatch": 2, "wt_mismatch": 1.8,
-                "n_deletion": 1, "wt_deletion": 0.9,
-                "n_failed": 0, "wt_failed": 0.0,
-                "mod_level": 0.25, "wt_mod_level": 0.2432,
-                "gene_id": "G1", "chrom": "2L", "strand": "+", "gpos": 100,
-            },
-        ])
+        _make_sites_parquet(
+            path,
+            [
+                {
+                    "transcript_id": "TX1",
+                    "position": 10,
+                    "mod_type": "a",
+                    "n_modified": 5,
+                    "wt_modified": 4.5,
+                    "n_unmodified": 15,
+                    "wt_unmodified": 14.0,
+                    "n_canonical": 10,
+                    "wt_canonical": 9.0,
+                    "n_othermod": 5,
+                    "wt_othermod": 5.0,
+                    "n_mismatch": 2,
+                    "wt_mismatch": 1.8,
+                    "n_deletion": 1,
+                    "wt_deletion": 0.9,
+                    "n_failed": 0,
+                    "wt_failed": 0.0,
+                    "mod_level": 0.25,
+                    "wt_mod_level": 0.2432,
+                    "gene_id": "G1",
+                    "chrom": "2L",
+                    "strand": "+",
+                    "gpos": 100,
+                },
+            ],
+        )
         sites = read_site_summary_full(path)
         key = ("TX1", 10, "a")
         assert key in sites
@@ -255,10 +286,7 @@ class TestReadSiteSummaryFull:
                 "mod_level\twt_mod_level\t"
                 "gene_id\tchrom\tstrand\tgpos\n"
             )
-            f.write(
-                "TX1\t5\tm\t3\t2.5\t7\t6.5\t0.3\t0.28\t"
-                "NA\tNA\tNA\tNA\n"
-            )
+            f.write("TX1\t5\tm\t3\t2.5\t7\t6.5\t0.3\t0.28\tNA\tNA\tNA\tNA\n")
         sites = read_site_summary_full(path)
         key = ("TX1", 5, "m")
         assert key in sites
@@ -267,32 +295,61 @@ class TestReadSiteSummaryFull:
 
     def test_multiple_sites(self, tmp_path):
         path = str(tmp_path / "sites.parquet")
-        _make_sites_parquet(path, [
-            {
-                "transcript_id": "TX1", "position": 10, "mod_type": "a",
-                "n_modified": 5, "wt_modified": 4.5,
-                "n_unmodified": 15, "wt_unmodified": 14.0,
-                "n_canonical": 10, "wt_canonical": 9.0,
-                "n_othermod": 5, "wt_othermod": 5.0,
-                "n_mismatch": 0, "wt_mismatch": 0.0,
-                "n_deletion": 0, "wt_deletion": 0.0,
-                "n_failed": 0, "wt_failed": 0.0,
-                "mod_level": 0.25, "wt_mod_level": 0.2432,
-                "gene_id": "G1", "chrom": "2L", "strand": "+", "gpos": 100,
-            },
-            {
-                "transcript_id": "TX1", "position": 20, "mod_type": "a",
-                "n_modified": 8, "wt_modified": 7.0,
-                "n_unmodified": 12, "wt_unmodified": 11.0,
-                "n_canonical": 8, "wt_canonical": 7.5,
-                "n_othermod": 4, "wt_othermod": 3.5,
-                "n_mismatch": 0, "wt_mismatch": 0.0,
-                "n_deletion": 0, "wt_deletion": 0.0,
-                "n_failed": 0, "wt_failed": 0.0,
-                "mod_level": 0.4, "wt_mod_level": 0.389,
-                "gene_id": "G1", "chrom": "2L", "strand": "+", "gpos": 110,
-            },
-        ])
+        _make_sites_parquet(
+            path,
+            [
+                {
+                    "transcript_id": "TX1",
+                    "position": 10,
+                    "mod_type": "a",
+                    "n_modified": 5,
+                    "wt_modified": 4.5,
+                    "n_unmodified": 15,
+                    "wt_unmodified": 14.0,
+                    "n_canonical": 10,
+                    "wt_canonical": 9.0,
+                    "n_othermod": 5,
+                    "wt_othermod": 5.0,
+                    "n_mismatch": 0,
+                    "wt_mismatch": 0.0,
+                    "n_deletion": 0,
+                    "wt_deletion": 0.0,
+                    "n_failed": 0,
+                    "wt_failed": 0.0,
+                    "mod_level": 0.25,
+                    "wt_mod_level": 0.2432,
+                    "gene_id": "G1",
+                    "chrom": "2L",
+                    "strand": "+",
+                    "gpos": 100,
+                },
+                {
+                    "transcript_id": "TX1",
+                    "position": 20,
+                    "mod_type": "a",
+                    "n_modified": 8,
+                    "wt_modified": 7.0,
+                    "n_unmodified": 12,
+                    "wt_unmodified": 11.0,
+                    "n_canonical": 8,
+                    "wt_canonical": 7.5,
+                    "n_othermod": 4,
+                    "wt_othermod": 3.5,
+                    "n_mismatch": 0,
+                    "wt_mismatch": 0.0,
+                    "n_deletion": 0,
+                    "wt_deletion": 0.0,
+                    "n_failed": 0,
+                    "wt_failed": 0.0,
+                    "mod_level": 0.4,
+                    "wt_mod_level": 0.389,
+                    "gene_id": "G1",
+                    "chrom": "2L",
+                    "strand": "+",
+                    "gpos": 110,
+                },
+            ],
+        )
         sites = read_site_summary_full(path)
         assert len(sites) == 2
         assert ("TX1", 10, "a") in sites
@@ -309,9 +366,7 @@ class TestProcessTranscript:
         """One matched site with clear difference between conditions."""
         n = 10
         # Condition 1: all unmodified
-        matrix_1 = np.array(
-            [[CODE_CANONICAL]] * n, dtype=np.uint8
-        )
+        matrix_1 = np.array([[CODE_CANONICAL]] * n, dtype=np.uint8)
         weights_1 = np.ones(n, dtype=np.float32)
 
         # Condition 2: all modified (code 4)
@@ -320,25 +375,43 @@ class TestProcessTranscript:
 
         sites_1 = {
             ("TX1", 1, "a"): {
-                "n_modified": 0, "wt_modified": 0.0,
-                "n_unmodified": n, "wt_unmodified": float(n),
-                "mod_level": 0.0, "wt_mod_level": 0.0,
-                "gene_id": "G1", "chrom": "2L", "strand": "+", "gpos": 100,
+                "n_modified": 0,
+                "wt_modified": 0.0,
+                "n_unmodified": n,
+                "wt_unmodified": float(n),
+                "mod_level": 0.0,
+                "wt_mod_level": 0.0,
+                "gene_id": "G1",
+                "chrom": "2L",
+                "strand": "+",
+                "gpos": 100,
             }
         }
         sites_2 = {
             ("TX1", 1, "a"): {
-                "n_modified": n, "wt_modified": float(n),
-                "n_unmodified": 0, "wt_unmodified": 0.0,
-                "mod_level": 1.0, "wt_mod_level": 1.0,
-                "gene_id": "G1", "chrom": "2L", "strand": "+", "gpos": 100,
+                "n_modified": n,
+                "wt_modified": float(n),
+                "n_unmodified": 0,
+                "wt_unmodified": 0.0,
+                "mod_level": 1.0,
+                "wt_mod_level": 1.0,
+                "gene_id": "G1",
+                "chrom": "2L",
+                "strand": "+",
+                "gpos": 100,
             }
         }
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
-            "TX1", matrix_1, weights_1, matrix_2, weights_2,
-            sites_1, sites_2, mod_code_map,
+            "TX1",
+            matrix_1,
+            weights_1,
+            matrix_2,
+            weights_2,
+            sites_1,
+            sites_2,
+            mod_code_map,
         )
 
         assert len(rows) == 1
@@ -363,17 +436,29 @@ class TestProcessTranscript:
 
         sites_1 = {
             ("TX1", 1, "a"): {
-                "n_modified": 2, "n_unmodified": 0,
-                "mod_level": 1.0, "wt_mod_level": 1.0,
-                "wt_modified": 2.0, "wt_unmodified": 0.0,
-                "gene_id": None, "chrom": None, "strand": None, "gpos": None,
+                "n_modified": 2,
+                "n_unmodified": 0,
+                "mod_level": 1.0,
+                "wt_mod_level": 1.0,
+                "wt_modified": 2.0,
+                "wt_unmodified": 0.0,
+                "gene_id": None,
+                "chrom": None,
+                "strand": None,
+                "gpos": None,
             }
         }
         sites_2 = {}  # No sites for this transcript in condition 2
 
         rows = process_transcript(
-            "TX1", matrix_1, weights_1, matrix_2, weights_2,
-            sites_1, sites_2, {"a": 4},
+            "TX1",
+            matrix_1,
+            weights_1,
+            matrix_2,
+            weights_2,
+            sites_1,
+            sites_2,
+            {"a": 4},
         )
         assert rows == []
 
@@ -386,24 +471,42 @@ class TestProcessTranscript:
 
         sites_1 = {
             ("TX1", 1, "a"): {
-                "n_modified": 0, "n_unmodified": 0,
-                "mod_level": 0.0, "wt_mod_level": 0.0,
-                "wt_modified": 0.0, "wt_unmodified": 0.0,
-                "gene_id": None, "chrom": None, "strand": None, "gpos": None,
+                "n_modified": 0,
+                "n_unmodified": 0,
+                "mod_level": 0.0,
+                "wt_mod_level": 0.0,
+                "wt_modified": 0.0,
+                "wt_unmodified": 0.0,
+                "gene_id": None,
+                "chrom": None,
+                "strand": None,
+                "gpos": None,
             }
         }
         sites_2 = {
             ("TX1", 1, "a"): {
-                "n_modified": 2, "n_unmodified": 0,
-                "mod_level": 1.0, "wt_mod_level": 1.0,
-                "wt_modified": 2.0, "wt_unmodified": 0.0,
-                "gene_id": None, "chrom": None, "strand": None, "gpos": None,
+                "n_modified": 2,
+                "n_unmodified": 0,
+                "mod_level": 1.0,
+                "wt_mod_level": 1.0,
+                "wt_modified": 2.0,
+                "wt_unmodified": 0.0,
+                "gene_id": None,
+                "chrom": None,
+                "strand": None,
+                "gpos": None,
             }
         }
 
         rows = process_transcript(
-            "TX1", matrix_1, weights_1, matrix_2, weights_2,
-            sites_1, sites_2, {"a": 4},
+            "TX1",
+            matrix_1,
+            weights_1,
+            matrix_2,
+            weights_2,
+            sites_1,
+            sites_2,
+            {"a": 4},
         )
         assert rows == []
 
@@ -416,24 +519,42 @@ class TestProcessTranscript:
 
         sites_1 = {
             ("TX1", 1, "a"): {
-                "n_modified": 1, "n_unmodified": 0,
-                "mod_level": 1.0, "wt_mod_level": 1.0,
-                "wt_modified": 1.0, "wt_unmodified": 0.0,
-                "gene_id": None, "chrom": None, "strand": None, "gpos": None,
+                "n_modified": 1,
+                "n_unmodified": 0,
+                "mod_level": 1.0,
+                "wt_mod_level": 1.0,
+                "wt_modified": 1.0,
+                "wt_unmodified": 0.0,
+                "gene_id": None,
+                "chrom": None,
+                "strand": None,
+                "gpos": None,
             }
         }
         sites_2 = {
             ("TX1", 2, "a"): {  # Different position
-                "n_modified": 1, "n_unmodified": 0,
-                "mod_level": 1.0, "wt_mod_level": 1.0,
-                "wt_modified": 1.0, "wt_unmodified": 0.0,
-                "gene_id": None, "chrom": None, "strand": None, "gpos": None,
+                "n_modified": 1,
+                "n_unmodified": 0,
+                "mod_level": 1.0,
+                "wt_mod_level": 1.0,
+                "wt_modified": 1.0,
+                "wt_unmodified": 0.0,
+                "gene_id": None,
+                "chrom": None,
+                "strand": None,
+                "gpos": None,
             }
         }
 
         rows = process_transcript(
-            "TX1", matrix_1, weights_1, matrix_2, weights_2,
-            sites_1, sites_2, {"a": 4},
+            "TX1",
+            matrix_1,
+            weights_1,
+            matrix_2,
+            weights_2,
+            sites_1,
+            sites_2,
+            {"a": 4},
         )
         assert rows == []
 
@@ -441,43 +562,73 @@ class TestProcessTranscript:
         """Verify all expected output columns are present."""
         matrix_1 = np.array([[4], [CODE_CANONICAL]], dtype=np.uint8)
         weights_1 = np.ones(2, dtype=np.float32)
-        matrix_2 = np.array(
-            [[CODE_CANONICAL], [CODE_CANONICAL]], dtype=np.uint8
-        )
+        matrix_2 = np.array([[CODE_CANONICAL], [CODE_CANONICAL]], dtype=np.uint8)
         weights_2 = np.ones(2, dtype=np.float32)
 
         site = {
-            "n_modified": 1, "wt_modified": 0.8,
-            "n_unmodified": 1, "wt_unmodified": 0.9,
-            "mod_level": 0.5, "wt_mod_level": 0.471,
-            "gene_id": "G1", "chrom": "2L", "strand": "+", "gpos": 100,
+            "n_modified": 1,
+            "wt_modified": 0.8,
+            "n_unmodified": 1,
+            "wt_unmodified": 0.9,
+            "mod_level": 0.5,
+            "wt_mod_level": 0.471,
+            "gene_id": "G1",
+            "chrom": "2L",
+            "strand": "+",
+            "gpos": 100,
         }
 
         rows = process_transcript(
-            "TX1", matrix_1, weights_1, matrix_2, weights_2,
+            "TX1",
+            matrix_1,
+            weights_1,
+            matrix_2,
+            weights_2,
             {("TX1", 1, "a"): site},
-            {("TX1", 1, "a"): {
-                "n_modified": 0, "wt_modified": 0.0,
-                "n_unmodified": 2, "wt_unmodified": 1.8,
-                "mod_level": 0.0, "wt_mod_level": 0.0,
-                "gene_id": "G1", "chrom": "2L", "strand": "+", "gpos": 100,
-            }},
+            {
+                ("TX1", 1, "a"): {
+                    "n_modified": 0,
+                    "wt_modified": 0.0,
+                    "n_unmodified": 2,
+                    "wt_unmodified": 1.8,
+                    "mod_level": 0.0,
+                    "wt_mod_level": 0.0,
+                    "gene_id": "G1",
+                    "chrom": "2L",
+                    "strand": "+",
+                    "gpos": 100,
+                }
+            },
             {"a": 4},
         )
 
         assert len(rows) == 1
         r = rows[0]
         expected_cols = {
-            "transcript_id", "position", "mod_type",
-            "gene_id", "chrom", "strand", "gpos",
-            "n_modified_1", "n_unmodified_1",
-            "n_modified_2", "n_unmodified_2",
-            "wt_modified_1", "wt_unmodified_1",
-            "wt_modified_2", "wt_unmodified_2",
-            "mod_level_1", "mod_level_2",
-            "wt_mod_level_1", "wt_mod_level_2",
-            "delta_mod_level", "delta_wt_mod_level",
-            "log2_or", "p_value", "q_value",
+            "transcript_id",
+            "position",
+            "mod_type",
+            "gene_id",
+            "chrom",
+            "strand",
+            "gpos",
+            "n_modified_1",
+            "n_unmodified_1",
+            "n_modified_2",
+            "n_unmodified_2",
+            "wt_modified_1",
+            "wt_unmodified_1",
+            "wt_modified_2",
+            "wt_unmodified_2",
+            "mod_level_1",
+            "mod_level_2",
+            "wt_mod_level_1",
+            "wt_mod_level_2",
+            "delta_mod_level",
+            "delta_wt_mod_level",
+            "log2_or",
+            "p_value",
+            "q_value",
         }
         assert set(r.keys()) == expected_cols
 
@@ -489,14 +640,24 @@ class TestProcessTranscript:
         weights_2 = np.ones(1, dtype=np.float32)
 
         site = {
-            "n_modified": 1, "n_unmodified": 0,
-            "mod_level": 1.0, "wt_mod_level": 1.0,
-            "wt_modified": 1.0, "wt_unmodified": 0.0,
-            "gene_id": None, "chrom": None, "strand": None, "gpos": None,
+            "n_modified": 1,
+            "n_unmodified": 0,
+            "mod_level": 1.0,
+            "wt_mod_level": 1.0,
+            "wt_modified": 1.0,
+            "wt_unmodified": 0.0,
+            "gene_id": None,
+            "chrom": None,
+            "strand": None,
+            "gpos": None,
         }
 
         rows = process_transcript(
-            "TX1", matrix_1, weights_1, matrix_2, weights_2,
+            "TX1",
+            matrix_1,
+            weights_1,
+            matrix_2,
+            weights_2,
             {("TX1", 1, "unknown"): site},
             {("TX1", 1, "unknown"): site},
             {"a": 4},  # "unknown" not in map
@@ -584,8 +745,12 @@ class TestHDF5Helpers:
         path = str(tmp_path / "test.h5")
         _make_h5(
             path,
-            {"TX1": (np.array([[4]], dtype=np.uint8),
-                     np.array([1.0], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([1.0], dtype=np.float32),
+                )
+            },
             {"a": 4, "m": 5},
         )
         with h5py.File(path, "r") as h5:
@@ -614,9 +779,7 @@ class TestHDF5Helpers:
 
     def test_validate_tx_lengths_inconsistent(self):
         with pytest.raises(ValueError):
-            _validate_tx_lengths(
-                "TX1", [100, 200], ["f1.h5", "f2.h5"]
-            )
+            _validate_tx_lengths("TX1", [100, 200], ["f1.h5", "f2.h5"])
 
 
 # ---------- CLI ----------
@@ -627,13 +790,19 @@ class TestCLI:
 
     def test_required_args(self):
         argv = [
-            "--h5-1", "a.h5",
-            "--h5-2", "b.h5",
-            "--sites-1", "a.parquet",
-            "--sites-2", "b.parquet",
-            "-o", "out.parquet",
+            "--h5-1",
+            "a.h5",
+            "--h5-2",
+            "b.h5",
+            "--sites-1",
+            "a.parquet",
+            "--sites-2",
+            "b.parquet",
+            "-o",
+            "out.parquet",
         ]
         import sys as _sys
+
         _sys.argv = ["mod_dmc"] + argv
         args = parse_args()
         assert args.h5_1 == ["a.h5"]
@@ -643,13 +812,21 @@ class TestCLI:
 
     def test_multi_h5(self):
         argv = [
-            "--h5-1", "a1.h5", "a2.h5",
-            "--h5-2", "b1.h5", "b2.h5",
-            "--sites-1", "a.parquet",
-            "--sites-2", "b.parquet",
-            "-o", "out.parquet",
+            "--h5-1",
+            "a1.h5",
+            "a2.h5",
+            "--h5-2",
+            "b1.h5",
+            "b2.h5",
+            "--sites-1",
+            "a.parquet",
+            "--sites-2",
+            "b.parquet",
+            "-o",
+            "out.parquet",
         ]
         import sys as _sys
+
         _sys.argv = ["mod_dmc"] + argv
         args = parse_args()
         assert args.h5_1 == ["a1.h5", "a2.h5"]
@@ -657,18 +834,28 @@ class TestCLI:
 
     def test_optional_args(self):
         argv = [
-            "--h5-1", "a.h5",
-            "--h5-2", "b.h5",
-            "--sites-1", "a.parquet",
-            "--sites-2", "b.parquet",
-            "-o", "out.tsv",
-            "-f", "tsv",
+            "--h5-1",
+            "a.h5",
+            "--h5-2",
+            "b.h5",
+            "--sites-1",
+            "a.parquet",
+            "--sites-2",
+            "b.parquet",
+            "-o",
+            "out.tsv",
+            "-f",
+            "tsv",
             "-z",
-            "-p", "0.5",
-            "-x", "TX1", "TX2",
+            "-p",
+            "0.5",
+            "-x",
+            "TX1",
+            "TX2",
             "-v",
         ]
         import sys as _sys
+
         _sys.argv = ["mod_dmc"] + argv
         args = parse_args()
         assert args.format == "tsv"
@@ -692,28 +879,46 @@ class TestMainIntegration:
     def _make_sites_file(path, sites_data):
         _make_sites_parquet(path, sites_data)
 
-    def _make_site_row(self, tx, pos, mod, n_mod, n_unmod,
-                       mod_level, gene_id=None, gpos=None):
+    def _make_site_row(
+        self, tx, pos, mod, n_mod, n_unmod, mod_level, gene_id=None, gpos=None
+    ):
         return {
-            "transcript_id": tx, "position": pos, "mod_type": mod,
-            "n_modified": n_mod, "wt_modified": float(n_mod),
-            "n_unmodified": n_unmod, "wt_unmodified": float(n_unmod),
-            "n_canonical": n_unmod, "wt_canonical": float(n_unmod),
-            "n_othermod": 0, "wt_othermod": 0.0,
-            "n_mismatch": 0, "wt_mismatch": 0.0,
-            "n_deletion": 0, "wt_deletion": 0.0,
-            "n_failed": 0, "wt_failed": 0.0,
-            "mod_level": mod_level, "wt_mod_level": mod_level,
-            "gene_id": gene_id, "chrom": "2L" if gene_id else None,
-            "strand": "+" if gene_id else None, "gpos": gpos,
+            "transcript_id": tx,
+            "position": pos,
+            "mod_type": mod,
+            "n_modified": n_mod,
+            "wt_modified": float(n_mod),
+            "n_unmodified": n_unmod,
+            "wt_unmodified": float(n_unmod),
+            "n_canonical": n_unmod,
+            "wt_canonical": float(n_unmod),
+            "n_othermod": 0,
+            "wt_othermod": 0.0,
+            "n_mismatch": 0,
+            "wt_mismatch": 0.0,
+            "n_deletion": 0,
+            "wt_deletion": 0.0,
+            "n_failed": 0,
+            "wt_failed": 0.0,
+            "mod_level": mod_level,
+            "wt_mod_level": mod_level,
+            "gene_id": gene_id,
+            "chrom": "2L" if gene_id else None,
+            "strand": "+" if gene_id else None,
+            "gpos": gpos,
         }
 
     def test_end_to_end_parquet(self, tmp_path):
         """Full pipeline with two conditions produces valid output."""
         # Condition 1: mostly unmodified (1 modified out of 5)
         matrix_1 = np.array(
-            [[4], [CODE_CANONICAL], [CODE_CANONICAL],
-             [CODE_CANONICAL], [CODE_CANONICAL]],
+            [
+                [4],
+                [CODE_CANONICAL],
+                [CODE_CANONICAL],
+                [CODE_CANONICAL],
+                [CODE_CANONICAL],
+            ],
             dtype=np.uint8,
         )
         weights_1 = np.ones(5, dtype=np.float32)
@@ -731,18 +936,14 @@ class TestMainIntegration:
         sites_2_path = str(tmp_path / "sites2.parquet")
         out_path = str(tmp_path / "out.parquet")
 
-        self._make_h5_file(
-            h5_1_path, {"TX1": (matrix_1, weights_1)}, {"a": 4}
+        self._make_h5_file(h5_1_path, {"TX1": (matrix_1, weights_1)}, {"a": 4})
+        self._make_h5_file(h5_2_path, {"TX1": (matrix_2, weights_2)}, {"a": 4})
+        self._make_sites_file(
+            sites_1_path, [self._make_site_row("TX1", 1, "a", 1, 4, 0.2, "G1", 100)]
         )
-        self._make_h5_file(
-            h5_2_path, {"TX1": (matrix_2, weights_2)}, {"a": 4}
+        self._make_sites_file(
+            sites_2_path, [self._make_site_row("TX1", 1, "a", 4, 1, 0.8, "G1", 100)]
         )
-        self._make_sites_file(sites_1_path, [
-            self._make_site_row("TX1", 1, "a", 1, 4, 0.2, "G1", 100)
-        ])
-        self._make_sites_file(sites_2_path, [
-            self._make_site_row("TX1", 1, "a", 4, 1, 0.8, "G1", 100)
-        ])
 
         args = argparse.Namespace(
             h5_1=[h5_1_path],
@@ -777,20 +978,28 @@ class TestMainIntegration:
 
         self._make_h5_file(
             h5_1_path,
-            {"TX1": (np.array([[4]], dtype=np.uint8),
-                     np.array([1.0], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([1.0], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         self._make_h5_file(
             h5_2_path,
-            {"TX1": (np.array([[CODE_CANONICAL]], dtype=np.uint8),
-                     np.array([1.0], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[CODE_CANONICAL]], dtype=np.uint8),
+                    np.array([1.0], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         # Sites in different transcripts → no match
-        self._make_sites_file(sites_1_path, [
-            self._make_site_row("TX1", 1, "a", 1, 0, 1.0)
-        ])
+        self._make_sites_file(
+            sites_1_path, [self._make_site_row("TX1", 1, "a", 1, 0, 1.0)]
+        )
         self._make_sites_file(sites_2_path, [])  # No sites in cond2
 
         args = argparse.Namespace(
@@ -823,13 +1032,20 @@ class TestMainIntegration:
         self._make_h5_file(h5_1_path, {"TX1": (matrix, weights)}, {"a": 4})
         self._make_h5_file(
             h5_2_path,
-            {"TX1": (np.array([[CODE_CANONICAL]], dtype=np.uint8),
-                     np.ones(1, dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[CODE_CANONICAL]], dtype=np.uint8),
+                    np.ones(1, dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
-        self._make_sites_file(sites_path, [
-            self._make_site_row("TX1", 1, "a", 1, 0, 1.0),
-        ])
+        self._make_sites_file(
+            sites_path,
+            [
+                self._make_site_row("TX1", 1, "a", 1, 0, 1.0),
+            ],
+        )
 
         args = argparse.Namespace(
             h5_1=[h5_1_path],
@@ -870,9 +1086,12 @@ class TestMainIntegration:
             {"TX1": (matrix, weights)},
             {"a": 4},
         )
-        self._make_sites_file(sites_path, [
-            self._make_site_row("TX1", 1, "a", 1, 0, 1.0),
-        ])
+        self._make_sites_file(
+            sites_path,
+            [
+                self._make_site_row("TX1", 1, "a", 1, 0, 1.0),
+            ],
+        )
 
         # Request a transcript not in the data
         args = argparse.Namespace(

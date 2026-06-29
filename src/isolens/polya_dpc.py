@@ -36,28 +36,42 @@ def parse_args() -> argparse.Namespace:
         "between two conditions using weighted two-sample tests."
     )
     parser.add_argument(
-        "-c1", "--condition1", required=True,
+        "-c1",
+        "--condition1",
+        required=True,
         help="Condition 1 TSV/TSV.GZ file",
     )
     parser.add_argument(
-        "-c2", "--condition2", required=True,
+        "-c2",
+        "--condition2",
+        required=True,
         help="Condition 2 TSV/TSV.GZ file",
     )
     parser.add_argument(
-        "-o", "--output", required=True,
+        "-o",
+        "--output",
+        required=True,
         help="Output TSV results file",
     )
     parser.add_argument(
-        "-z", "--gzip", action="store_true",
+        "-z",
+        "--gzip",
+        action="store_true",
         help="Compress the output TSV file using gzip",
     )
     parser.add_argument(
-        "-p", "--min-asp", type=float, default=0.0,
+        "-p",
+        "--min-asp",
+        type=float,
+        default=0.0,
         help="Minimum assignment probability threshold "
         "(default: 0.0, i.e. no filtering)",
     )
     parser.add_argument(
-        "-n", "--min-pareads", type=int, default=5,
+        "-n",
+        "--min-pareads",
+        type=int,
+        default=5,
         help="Minimum number of reads with effective (non-negative) "
         "poly(A) length estimation (default: 5)",
     )
@@ -81,12 +95,9 @@ def main(args: argparse.Namespace | None = None) -> None:
     id_col_header = id_name_1 if id_name_1 == id_name_2 else "feature_id"
 
     # Only compare features present in both conditions
-    shared_features = sorted(
-        set(cond1_data.keys()) & set(cond2_data.keys())
-    )
+    shared_features = sorted(set(cond1_data.keys()) & set(cond2_data.keys()))
     print(
-        f"Comparing {len(shared_features)} shared features "
-        f"genome-wide...",
+        f"Comparing {len(shared_features)} shared features genome-wide...",
         file=sys.stderr,
     )
 
@@ -127,12 +138,12 @@ def main(args: argparse.Namespace | None = None) -> None:
             l2 = f2["pa_lens"][mask2]
 
             # Weighted mean poly(A) lengths
-            row["pa_wlen_1"] = float(
-                np.average(l1, weights=p1)
-            ) if p1.sum() > 0 else float("nan")
-            row["pa_wlen_2"] = float(
-                np.average(l2, weights=p2)
-            ) if p2.sum() > 0 else float("nan")
+            row["pa_wlen_1"] = (
+                float(np.average(l1, weights=p1)) if p1.sum() > 0 else float("nan")
+            )
+            row["pa_wlen_2"] = (
+                float(np.average(l2, weights=p2)) if p2.sum() > 0 else float("nan")
+            )
 
             # Run three tests
             ks_stat, ks_p = weighted_ks_test(l1, p1, l2, p2)
@@ -154,8 +165,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         p_key = f"{test_key}_p_value"
         q_key = f"{test_key}_q_value"
         valid_indices = [
-            i for i, r in enumerate(results)
-            if not np.isnan(r.get(p_key, float("nan")))
+            i for i, r in enumerate(results) if not np.isnan(r.get(p_key, float("nan")))
         ]
         if valid_indices:
             p_vals = [results[i][p_key] for i in valid_indices]

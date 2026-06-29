@@ -443,7 +443,7 @@ class TestGtfMapping:
         gtf_path = _make_gtf(
             tmp_path,
             [
-                'chr1\tgtf\texon\t101\t200\t.\t+\t.\t'
+                "chr1\tgtf\texon\t101\t200\t.\t+\t.\t"
                 'gene_id "G1"; transcript_id "TX1";',
             ],
         )
@@ -466,7 +466,7 @@ class TestGtfMapping:
         gtf_path = _make_gtf(
             tmp_path,
             [
-                'chr1\tgtf\texon\t101\t200\t.\t-\t.\t'
+                "chr1\tgtf\texon\t101\t200\t.\t-\t.\t"
                 'gene_id "G1"; transcript_id "TX1";',
             ],
         )
@@ -488,9 +488,9 @@ class TestGtfMapping:
             tmp_path,
             [
                 # exon 1: 101-150 (len 50), exon 2: 201-250 (len 50)
-                'chr1\tgtf\texon\t101\t150\t.\t+\t.\t'
+                "chr1\tgtf\texon\t101\t150\t.\t+\t.\t"
                 'gene_id "G1"; transcript_id "TX1";',
-                'chr1\tgtf\texon\t201\t250\t.\t+\t.\t'
+                "chr1\tgtf\texon\t201\t250\t.\t+\t.\t"
                 'gene_id "G1"; transcript_id "TX1";',
             ],
         )
@@ -517,9 +517,9 @@ class TestGtfMapping:
                 # exon 1 (genomic): 101-150 (len 50), exon 2 (genomic): 201-250 (len 50)
                 # On minus strand: tpos 1 = last base of exon 2 = 250
                 #                  tpos 100 = first base of exon 1 = 101
-                'chr1\tgtf\texon\t101\t150\t.\t-\t.\t'
+                "chr1\tgtf\texon\t101\t150\t.\t-\t.\t"
                 'gene_id "G1"; transcript_id "TX1";',
-                'chr1\tgtf\texon\t201\t250\t.\t-\t.\t'
+                "chr1\tgtf\texon\t201\t250\t.\t-\t.\t"
                 'gene_id "G1"; transcript_id "TX1";',
             ],
         )
@@ -543,7 +543,7 @@ class TestGtfMapping:
         gtf_path = _make_gtf(
             tmp_path,
             [
-                'chr1\tgtf\texon\t101\t200\t.\t+\t.\t'
+                "chr1\tgtf\texon\t101\t200\t.\t+\t.\t"
                 'gene_id "G1"; transcript_id "TX1";',
             ],
         )
@@ -790,14 +790,22 @@ class TestMainMultiFile:
 
         self._make_h5(
             h5_a,
-            {"TX1": (np.array([[4, 1]], dtype=np.uint8),
-                     np.array([0.8], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4, 1]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         self._make_h5(
             h5_b,
-            {"TX2": (np.array([[1, 4]], dtype=np.uint8),
-                     np.array([0.9], dtype=np.float32))},
+            {
+                "TX2": (
+                    np.array([[1, 4]], dtype=np.uint8),
+                    np.array([0.9], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
 
@@ -826,14 +834,22 @@ class TestMainMultiFile:
 
         self._make_h5(
             h5_a,
-            {"TX1": (np.array([[4, 1]], dtype=np.uint8),
-                     np.array([0.8], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4, 1]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         self._make_h5(
             h5_b,
-            {"TX1": (np.array([[4, 1]], dtype=np.uint8),
-                     np.array([0.9], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4, 1]], dtype=np.uint8),
+                    np.array([0.9], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
 
@@ -867,20 +883,28 @@ class TestMainMultiFile:
         self._make_h5(
             h5_a,
             {
-                "TX1": (np.array([[4]], dtype=np.uint8),
-                        np.array([0.8], dtype=np.float32)),
-                "TX2": (np.array([[1]], dtype=np.uint8),
-                        np.array([0.8], dtype=np.float32)),
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                ),
+                "TX2": (
+                    np.array([[1]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                ),
             },
             {"a": 4},
         )
         self._make_h5(
             h5_b,
             {
-                "TX1": (np.array([[4]], dtype=np.uint8),
-                        np.array([0.9], dtype=np.float32)),
-                "TX3": (np.array([[4]], dtype=np.uint8),
-                        np.array([0.9], dtype=np.float32)),
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([0.9], dtype=np.float32),
+                ),
+                "TX3": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([0.9], dtype=np.float32),
+                ),
             },
             {"a": 4},
         )

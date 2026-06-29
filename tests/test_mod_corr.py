@@ -82,9 +82,7 @@ class TestPearsonRFromCounts:
     def test_float_inputs(self):
         """Works with float (weighted) inputs."""
         result = _pearson_r_from_counts(10.5, 2.0, 3.0, 8.5)
-        expected = (10.5 * 8.5 - 2.0 * 3.0) / np.sqrt(
-            12.5 * 11.5 * 13.5 * 10.5
-        )
+        expected = (10.5 * 8.5 - 2.0 * 3.0) / np.sqrt(12.5 * 11.5 * 13.5 * 10.5)
         assert result == pytest.approx(expected)
 
 
@@ -265,9 +263,7 @@ class TestProcessTranscript:
             dtype=np.uint8,
         )
         weights = np.array([1.0, 1.0, 1.0], dtype=np.float32)
-        sites_by_mod = {
-            "a": [self._site(1, 3), self._site(2, 3), self._site(3, 2)]
-        }
+        sites_by_mod = {"a": [self._site(1, 3), self._site(2, 3), self._site(3, 2)]}
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
@@ -732,7 +728,13 @@ class TestParseArgs:
         import sys as _sys
 
         _sys.argv = [
-            "mod_corr", "-i", "test.h5", "-s", "sites.parquet", "-o", "out.parquet"
+            "mod_corr",
+            "-i",
+            "test.h5",
+            "-s",
+            "sites.parquet",
+            "-o",
+            "out.parquet",
         ]
         args = parse_args()
         assert args.metric == "wcorr"
@@ -743,10 +745,14 @@ class TestParseArgs:
 
         _sys.argv = [
             "mod_corr",
-            "-i", "test.h5",
-            "-s", "sites.parquet",
-            "-o", "out.parquet",
-            "-t", "mi",
+            "-i",
+            "test.h5",
+            "-s",
+            "sites.parquet",
+            "-o",
+            "out.parquet",
+            "-t",
+            "mi",
         ]
         args = parse_args()
         assert args.metric == "mi"
@@ -757,11 +763,16 @@ class TestParseArgs:
 
         _sys.argv = [
             "mod_corr",
-            "-i", "test.h5",
-            "-s", "sites.parquet",
-            "-o", "out.parquet",
-            "-d", "/tmp/plots",
-            "-t", "corr",
+            "-i",
+            "test.h5",
+            "-s",
+            "sites.parquet",
+            "-o",
+            "out.parquet",
+            "-d",
+            "/tmp/plots",
+            "-t",
+            "corr",
         ]
         args = parse_args()
         assert args.plot_dir == "/tmp/plots"
@@ -773,10 +784,14 @@ class TestParseArgs:
 
         _sys.argv = [
             "mod_corr",
-            "-i", "test.h5",
-            "-s", "sites.parquet",
-            "-o", "out.parquet",
-            "-t", "invalid",
+            "-i",
+            "test.h5",
+            "-s",
+            "sites.parquet",
+            "-o",
+            "out.parquet",
+            "-t",
+            "invalid",
         ]
         with pytest.raises(SystemExit):
             parse_args()
@@ -876,8 +891,12 @@ class TestMainMultiFile:
 
         self._make_h5(
             h5_path,
-            {"TX1": (np.array([[4, 1]], dtype=np.uint8),
-                     np.array([0.8], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4, 1]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         self._make_sites_parquet(sites_path, [("TX1", 1, "a", 1, 0, 1.0)])
@@ -912,15 +931,23 @@ class TestMainMultiFile:
         # File A: 2 reads, both modified at both positions
         self._make_h5(
             h5_a,
-            {"TX1": (np.array([[4, 4], [4, 4]], dtype=np.uint8),
-                     np.array([0.8, 0.9], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4, 4], [4, 4]], dtype=np.uint8),
+                    np.array([0.8, 0.9], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         # File B: 2 reads, both canonical at both positions
         self._make_h5(
             h5_b,
-            {"TX1": (np.array([[1, 1], [1, 1]], dtype=np.uint8),
-                     np.array([0.8, 0.9], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[1, 1], [1, 1]], dtype=np.uint8),
+                    np.array([0.8, 0.9], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         self._make_sites_parquet(
@@ -963,15 +990,23 @@ class TestMainMultiFile:
         # TX1 in file A: 2 reads, both mod at both positions
         self._make_h5(
             h5_a,
-            {"TX1": (np.array([[4, 4], [4, 4]], dtype=np.uint8),
-                     np.array([0.8, 0.9], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4, 4], [4, 4]], dtype=np.uint8),
+                    np.array([0.8, 0.9], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         # TX2 in file B: 2 reads, one mod at both, one canonical
         self._make_h5(
             h5_b,
-            {"TX2": (np.array([[4, 4], [1, 1]], dtype=np.uint8),
-                     np.array([0.8, 0.9], dtype=np.float32))},
+            {
+                "TX2": (
+                    np.array([[4, 4], [1, 1]], dtype=np.uint8),
+                    np.array([0.8, 0.9], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         self._make_sites_parquet(
@@ -1017,20 +1052,28 @@ class TestMainMultiFile:
         self._make_h5(
             h5_a,
             {
-                "TX1": (np.array([[4, 4]], dtype=np.uint8),
-                        np.array([0.8], dtype=np.float32)),
-                "TX2": (np.array([[4, 4], [4, 4]], dtype=np.uint8),
-                        np.array([0.8, 0.9], dtype=np.float32)),
+                "TX1": (
+                    np.array([[4, 4]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                ),
+                "TX2": (
+                    np.array([[4, 4], [4, 4]], dtype=np.uint8),
+                    np.array([0.8, 0.9], dtype=np.float32),
+                ),
             },
             {"a": 4},
         )
         self._make_h5(
             h5_b,
             {
-                "TX1": (np.array([[4, 4]], dtype=np.uint8),
-                        np.array([0.9], dtype=np.float32)),
-                "TX3": (np.array([[4, 4], [4, 4]], dtype=np.uint8),
-                        np.array([0.9, 0.95], dtype=np.float32)),
+                "TX1": (
+                    np.array([[4, 4]], dtype=np.uint8),
+                    np.array([0.9], dtype=np.float32),
+                ),
+                "TX3": (
+                    np.array([[4, 4], [4, 4]], dtype=np.uint8),
+                    np.array([0.9, 0.95], dtype=np.float32),
+                ),
             },
             {"a": 4},
         )

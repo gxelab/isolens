@@ -120,10 +120,12 @@ class TestFitWeightedGmm1d:
         n = 200
         half = n // 2
         # Two well-separated Gaussians on log scale
-        x = np.concatenate([
-            np.random.normal(2.0, 0.2, half),   # short tail
-            np.random.normal(5.0, 0.2, half),   # long tail
-        ])
+        x = np.concatenate(
+            [
+                np.random.normal(2.0, 0.2, half),  # short tail
+                np.random.normal(5.0, 0.2, half),  # long tail
+            ]
+        )
         w = np.ones(n)
         means, variances, mix, ll = _fit_weighted_gmm_1d(x, w, 2)
         # Should recover two components
@@ -162,10 +164,12 @@ class TestFitWeightedGmm1d:
         # 90% from one mode, 10% from another
         n1 = int(n * 0.9)
         n2 = n - n1
-        x = np.concatenate([
-            np.random.normal(3.0, 0.3, n1),
-            np.random.normal(5.5, 0.2, n2),
-        ])
+        x = np.concatenate(
+            [
+                np.random.normal(3.0, 0.3, n1),
+                np.random.normal(5.5, 0.2, n2),
+            ]
+        )
         w = np.ones(n)
         means, variances, mix, ll = _fit_weighted_gmm_1d(x, w, 2)
         assert not np.isnan(ll)
@@ -193,10 +197,12 @@ class TestFindPeaksKde:
 
     def test_well_separated_bimodal(self):
         np.random.seed(8)
-        x = np.concatenate([
-            np.random.normal(2.0, 0.2, 100),
-            np.random.normal(5.0, 0.2, 100),
-        ])
+        x = np.concatenate(
+            [
+                np.random.normal(2.0, 0.2, 100),
+                np.random.normal(5.0, 0.2, 100),
+            ]
+        )
         w = np.ones(200)
         n = _find_peaks_kde(x, w, prominence=0.05)
         assert n == 2
@@ -219,10 +225,12 @@ class TestFindPeaksKde:
 
     def test_weighted_kde(self):
         np.random.seed(11)
-        x = np.concatenate([
-            np.random.normal(2.0, 0.3, 100),
-            np.random.normal(5.0, 0.3, 100),
-        ])
+        x = np.concatenate(
+            [
+                np.random.normal(2.0, 0.3, 100),
+                np.random.normal(5.0, 0.3, 100),
+            ]
+        )
         w = np.ones(200)
         n = _find_peaks_kde(x, w, prominence=0.05)
         assert n == 2
@@ -240,8 +248,14 @@ class TestProcessFeature:
         probs = np.array([0.5, 0.5])
         pa_lens = np.array([100, 200])
         result = _process_feature(
-            "TX1", "transcript_id", probs, pa_lens,
-            min_length=0.0, min_asp=0.0, min_ess=30.0, kde_prominence=0.05,
+            "TX1",
+            "transcript_id",
+            probs,
+            pa_lens,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         assert result is None
 
@@ -249,8 +263,14 @@ class TestProcessFeature:
         probs = np.ones(50)
         pa_lens = np.full(50, -1.0)
         result = _process_feature(
-            "TX1", "transcript_id", probs, pa_lens,
-            min_length=0.0, min_asp=0.0, min_ess=10.0, kde_prominence=0.05,
+            "TX1",
+            "transcript_id",
+            probs,
+            pa_lens,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=10.0,
+            kde_prominence=0.05,
         )
         assert result is None
 
@@ -261,8 +281,14 @@ class TestProcessFeature:
         pa_lens = np.clip(pa_lens, 0, None)
         probs = np.ones(n)
         result = _process_feature(
-            "TX1", "transcript_id", probs, pa_lens,
-            min_length=0.0, min_asp=0.0, min_ess=30.0, kde_prominence=0.05,
+            "TX1",
+            "transcript_id",
+            probs,
+            pa_lens,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         assert result is not None
         assert result["feature_id"] == "TX1"
@@ -275,15 +301,23 @@ class TestProcessFeature:
         np.random.seed(14)
         n = 200
         half = n // 2
-        pa_lens = np.concatenate([
-            np.random.normal(30, 5, half),    # short tail
-            np.random.normal(150, 10, half),  # long tail
-        ]).astype(float)
+        pa_lens = np.concatenate(
+            [
+                np.random.normal(30, 5, half),  # short tail
+                np.random.normal(150, 10, half),  # long tail
+            ]
+        ).astype(float)
         pa_lens = np.clip(pa_lens, 0, None)
         probs = np.ones(n)
         result = _process_feature(
-            "GENE1", "gene_id", probs, pa_lens,
-            min_length=0.0, min_asp=0.0, min_ess=30.0, kde_prominence=0.03,
+            "GENE1",
+            "gene_id",
+            probs,
+            pa_lens,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.03,
         )
         assert result is not None
         assert result["id_type"] == "gene_id"
@@ -301,14 +335,30 @@ class TestProcessFeature:
         pa_lens = np.clip(pa_lens, 0, None)
         probs = np.ones(50)
         result = _process_feature(
-            "TX1", "transcript_id", probs, pa_lens,
-            min_length=0.0, min_asp=0.0, min_ess=30.0, kde_prominence=0.05,
+            "TX1",
+            "transcript_id",
+            probs,
+            pa_lens,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         expected_keys = {
-            "feature_id", "id_type", "n_reads_raw", "n_reads_filtered",
-            "ess", "delta_bic", "bic_k1", "bic_k2",
-            "ll_k1", "ll_k2", "n_kde_peaks",
-            "bimodal_gmm", "bimodal_kde", "bimodal_call",
+            "feature_id",
+            "id_type",
+            "n_reads_raw",
+            "n_reads_filtered",
+            "ess",
+            "delta_bic",
+            "bic_k1",
+            "bic_k2",
+            "ll_k1",
+            "ll_k2",
+            "n_kde_peaks",
+            "bimodal_gmm",
+            "bimodal_kde",
+            "bimodal_call",
         }
         assert set(result.keys()) == expected_keys
 
@@ -340,9 +390,13 @@ class TestMainIntegration:
         _make_polya_tsv(in_path, polya_lines)
 
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gzip=False, min_length=0.0, min_asp=0.0,
-            min_ess=30.0, kde_prominence=0.05,
+            input=str(in_path),
+            output=str(out_path),
+            gzip=False,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         main(args)
 
@@ -362,10 +416,12 @@ class TestMainIntegration:
         np.random.seed(17)
         n = 200
         half = n // 2
-        pa_lens = np.concatenate([
-            np.random.normal(25, 4, half),
-            np.random.normal(150, 10, half),
-        ]).astype(float)
+        pa_lens = np.concatenate(
+            [
+                np.random.normal(25, 4, half),
+                np.random.normal(150, 10, half),
+            ]
+        ).astype(float)
         pa_lens = np.clip(pa_lens, 0, None)
         polya_lines = [
             "gene_id\tn_reads\tpa_wlen\tprobs\tpa_lens",
@@ -376,9 +432,13 @@ class TestMainIntegration:
         _make_polya_tsv(in_path, polya_lines)
 
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gzip=False, min_length=0.0, min_asp=0.0,
-            min_ess=30.0, kde_prominence=0.03,
+            input=str(in_path),
+            output=str(out_path),
+            gzip=False,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.03,
         )
         main(args)
 
@@ -404,9 +464,13 @@ class TestMainIntegration:
         _make_polya_tsv(in_path, polya_lines)
 
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gzip=True, min_length=0.0, min_asp=0.0,
-            min_ess=30.0, kde_prominence=0.05,
+            input=str(in_path),
+            output=str(out_path),
+            gzip=True,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         main(args)
         gz_path = tmp_path / "out.tsv.gz"
@@ -415,13 +479,20 @@ class TestMainIntegration:
     def test_empty_input(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gzip=False, min_length=0.0, min_asp=0.0,
-            min_ess=30.0, kde_prominence=0.05,
+            input=str(in_path),
+            output=str(out_path),
+            gzip=False,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         with pytest.raises(SystemExit):
             main(args)
@@ -440,9 +511,13 @@ class TestMainIntegration:
         _make_polya_tsv(in_path, polya_lines)
 
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gzip=False, min_length=0.0, min_asp=0.1,
-            min_ess=30.0, kde_prominence=0.05,
+            input=str(in_path),
+            output=str(out_path),
+            gzip=False,
+            min_length=0.0,
+            min_asp=0.1,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         with pytest.raises(SystemExit):  # no features pass
             main(args)
@@ -460,9 +535,13 @@ class TestMainIntegration:
         _make_polya_tsv(in_path, polya_lines)
 
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gzip=False, min_length=0.0, min_asp=0.0,
-            min_ess=30.0, kde_prominence=0.05,
+            input=str(in_path),
+            output=str(out_path),
+            gzip=False,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         with pytest.raises(SystemExit):  # ESS=4 < 30
             main(args)
@@ -482,17 +561,32 @@ class TestMainIntegration:
         _make_polya_tsv(in_path, polya_lines)
 
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gzip=False, min_length=0.0, min_asp=0.0,
-            min_ess=30.0, kde_prominence=0.05,
+            input=str(in_path),
+            output=str(out_path),
+            gzip=False,
+            min_length=0.0,
+            min_asp=0.0,
+            min_ess=30.0,
+            kde_prominence=0.05,
         )
         main(args)
 
         lines = out_path.read_text().strip().split("\n")
         hdr = lines[0].split("\t")
         expected_header = [
-            "feature_id", "id_type", "n_reads_raw", "n_reads_filtered",
-            "ess", "delta_bic", "bic_k1", "bic_k2", "ll_k1", "ll_k2",
-            "n_kde_peaks", "bimodal_gmm", "bimodal_kde", "bimodal_call",
+            "feature_id",
+            "id_type",
+            "n_reads_raw",
+            "n_reads_filtered",
+            "ess",
+            "delta_bic",
+            "bic_k1",
+            "bic_k2",
+            "ll_k1",
+            "ll_k2",
+            "n_kde_peaks",
+            "bimodal_gmm",
+            "bimodal_kde",
+            "bimodal_call",
         ]
         assert hdr == expected_header

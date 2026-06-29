@@ -103,9 +103,7 @@ def parse_args() -> argparse.Namespace:
         help="Gene-level site summary for condition 2 "
         "(Parquet or TSV/TSV.GZ from mod_gene)",
     )
-    parser.add_argument(
-        "-o", "--output", required=True, help="Output file path"
-    )
+    parser.add_argument("-o", "--output", required=True, help="Output file path")
     parser.add_argument(
         "-f",
         "--format",
@@ -181,8 +179,10 @@ def _read_sites_tsv(path: str) -> dict[_SiteKey, dict[str, Any]]:
                 elif c in ("n_modified", "n_unmodified", "gpos"):
                     row[c] = int(val)
                 elif c in (
-                    "wt_modified", "wt_unmodified",
-                    "mod_level", "wt_mod_level",
+                    "wt_modified",
+                    "wt_unmodified",
+                    "mod_level",
+                    "wt_mod_level",
                 ):
                     row[c] = float(val)
                 else:
@@ -205,8 +205,10 @@ def read_gene_summary(path: str) -> dict[_SiteKey, dict[str, Any]]:
 
 
 def _fisher_test(
-    n1_mod: int, n1_unmod: int,
-    n2_mod: int, n2_unmod: int,
+    n1_mod: int,
+    n1_unmod: int,
+    n2_mod: int,
+    n2_unmod: int,
 ) -> dict[str, float]:
     """Run Fisher's exact test on a 2×2 contingency table.
 
@@ -223,9 +225,7 @@ def _fisher_test(
     col2 = n1_unmod + n2_unmod
     if row1 == 0 or row2 == 0 or col1 == 0 or col2 == 0:
         return {"log2_or": float("nan"), "p_value": float("nan")}
-    odds, p_val = fisher_exact(
-        [[n1_mod, n1_unmod], [n2_mod, n2_unmod]]
-    )
+    odds, p_val = fisher_exact([[n1_mod, n1_unmod], [n2_mod, n2_unmod]])
     log2_or = float(np.log2(odds)) if odds > 0 else float("-inf")
     return {"log2_or": log2_or, "p_value": float(p_val)}
 
@@ -275,8 +275,10 @@ def process_matched_sites(
 
         # Unweighted Fisher test
         unweighted = _fisher_test(
-            int(n_mod_1), int(n_unmod_1),
-            int(n_mod_2), int(n_unmod_2),
+            int(n_mod_1),
+            int(n_unmod_1),
+            int(n_mod_2),
+            int(n_unmod_2),
         )
 
         # Weighted Fisher test (round to nearest integer)
@@ -286,8 +288,10 @@ def process_matched_sites(
         r_unmod_2 = int(round(wt_unmod_2))
 
         weighted = _fisher_test(
-            r_mod_1, r_unmod_1,
-            r_mod_2, r_unmod_2,
+            r_mod_1,
+            r_unmod_1,
+            r_mod_2,
+            r_unmod_2,
         )
 
         # Effect sizes from site summary
@@ -296,41 +300,41 @@ def process_matched_sites(
         wml1 = s1.get("wt_mod_level")
         wml2 = s2.get("wt_mod_level")
 
-        rows.append({
-            "gene_id": key[0],
-            "chrom": key[1],
-            "strand": key[2],
-            "gpos": key[3],
-            "mod_type": key[4],
-            "n_modified_1": int(n_mod_1),
-            "n_unmodified_1": int(n_unmod_1),
-            "n_modified_2": int(n_mod_2),
-            "n_unmodified_2": int(n_unmod_2),
-            "wt_modified_1": wt_mod_1,
-            "wt_unmodified_1": wt_unmod_1,
-            "wt_modified_2": wt_mod_2,
-            "wt_unmodified_2": wt_unmod_2,
-            "mod_level_1": ml1,
-            "mod_level_2": ml2,
-            "wt_mod_level_1": wml1,
-            "wt_mod_level_2": wml2,
-            "delta_mod_level": (
-                round(ml2 - ml1, 6)
-                if ml1 is not None and ml2 is not None
-                else None
-            ),
-            "delta_wt_mod_level": (
-                round(wml2 - wml1, 6)
-                if wml1 is not None and wml2 is not None
-                else None
-            ),
-            "log2_or": unweighted["log2_or"],
-            "p_value": unweighted["p_value"],
-            "q_value": 0.0,  # filled after BH correction
-            "w_log2_or": weighted["log2_or"],
-            "w_p_value": weighted["p_value"],
-            "w_q_value": 0.0,  # filled after BH correction
-        })
+        rows.append(
+            {
+                "gene_id": key[0],
+                "chrom": key[1],
+                "strand": key[2],
+                "gpos": key[3],
+                "mod_type": key[4],
+                "n_modified_1": int(n_mod_1),
+                "n_unmodified_1": int(n_unmod_1),
+                "n_modified_2": int(n_mod_2),
+                "n_unmodified_2": int(n_unmod_2),
+                "wt_modified_1": wt_mod_1,
+                "wt_unmodified_1": wt_unmod_1,
+                "wt_modified_2": wt_mod_2,
+                "wt_unmodified_2": wt_unmod_2,
+                "mod_level_1": ml1,
+                "mod_level_2": ml2,
+                "wt_mod_level_1": wml1,
+                "wt_mod_level_2": wml2,
+                "delta_mod_level": (
+                    round(ml2 - ml1, 6) if ml1 is not None and ml2 is not None else None
+                ),
+                "delta_wt_mod_level": (
+                    round(wml2 - wml1, 6)
+                    if wml1 is not None and wml2 is not None
+                    else None
+                ),
+                "log2_or": unweighted["log2_or"],
+                "p_value": unweighted["p_value"],
+                "q_value": 0.0,  # filled after BH correction
+                "w_log2_or": weighted["log2_or"],
+                "w_p_value": weighted["p_value"],
+                "w_q_value": 0.0,  # filled after BH correction
+            }
+        )
 
     return rows
 
@@ -338,9 +342,7 @@ def process_matched_sites(
 # ---------- output writers ----------
 
 
-def _write_tsv(
-    all_rows: list[dict[str, Any]], path: str, use_gzip: bool
-) -> None:
+def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
     """Write rows as tab-separated values."""
     import gzip
 
@@ -350,10 +352,7 @@ def _write_tsv(
         fh.write(_TSV_HEADER + "\n")
         for row in all_rows:
             fh.write(
-                "\t".join(
-                    "NA" if row[c] is None else str(row[c])
-                    for c in _OUTPUT_COLS
-                )
+                "\t".join("NA" if row[c] is None else str(row[c]) for c in _OUTPUT_COLS)
                 + "\n"
             )
 
@@ -361,39 +360,40 @@ def _write_tsv(
 def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
     """Write rows as a Parquet file via pyarrow."""
     if not all_rows:
-        schema = pa.schema([
-            ("gene_id", pa.string()),
-            ("chrom", pa.string()),
-            ("strand", pa.string()),
-            ("gpos", pa.int32()),
-            ("mod_type", pa.string()),
-            ("n_modified_1", pa.int32()),
-            ("n_unmodified_1", pa.int32()),
-            ("n_modified_2", pa.int32()),
-            ("n_unmodified_2", pa.int32()),
-            ("wt_modified_1", pa.float64()),
-            ("wt_unmodified_1", pa.float64()),
-            ("wt_modified_2", pa.float64()),
-            ("wt_unmodified_2", pa.float64()),
-            ("mod_level_1", pa.float64()),
-            ("mod_level_2", pa.float64()),
-            ("wt_mod_level_1", pa.float64()),
-            ("wt_mod_level_2", pa.float64()),
-            ("delta_mod_level", pa.float64()),
-            ("delta_wt_mod_level", pa.float64()),
-            ("log2_or", pa.float64()),
-            ("p_value", pa.float64()),
-            ("q_value", pa.float64()),
-            ("w_log2_or", pa.float64()),
-            ("w_p_value", pa.float64()),
-            ("w_q_value", pa.float64()),
-        ])
+        schema = pa.schema(
+            [
+                ("gene_id", pa.string()),
+                ("chrom", pa.string()),
+                ("strand", pa.string()),
+                ("gpos", pa.int32()),
+                ("mod_type", pa.string()),
+                ("n_modified_1", pa.int32()),
+                ("n_unmodified_1", pa.int32()),
+                ("n_modified_2", pa.int32()),
+                ("n_unmodified_2", pa.int32()),
+                ("wt_modified_1", pa.float64()),
+                ("wt_unmodified_1", pa.float64()),
+                ("wt_modified_2", pa.float64()),
+                ("wt_unmodified_2", pa.float64()),
+                ("mod_level_1", pa.float64()),
+                ("mod_level_2", pa.float64()),
+                ("wt_mod_level_1", pa.float64()),
+                ("wt_mod_level_2", pa.float64()),
+                ("delta_mod_level", pa.float64()),
+                ("delta_wt_mod_level", pa.float64()),
+                ("log2_or", pa.float64()),
+                ("p_value", pa.float64()),
+                ("q_value", pa.float64()),
+                ("w_log2_or", pa.float64()),
+                ("w_p_value", pa.float64()),
+                ("w_q_value", pa.float64()),
+            ]
+        )
         with pq.ParquetWriter(path, schema) as w:
             w.write_table(
-                pa.table({
-                    k: pa.array([], type=schema.field(k).type)
-                    for k in schema.names
-                })
+                pa.table(
+                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
+                )
             )
         return
 
@@ -472,11 +472,11 @@ def main(args: argparse.Namespace | None = None) -> None:
     if args.verbose:
         n_tested = len(all_rows)
         n_sig_u = sum(
-            1 for r in all_rows
-            if not np.isnan(r["q_value"]) and r["q_value"] < 0.05
+            1 for r in all_rows if not np.isnan(r["q_value"]) and r["q_value"] < 0.05
         )
         n_sig_w = sum(
-            1 for r in all_rows
+            1
+            for r in all_rows
             if not np.isnan(r["w_q_value"]) and r["w_q_value"] < 0.05
         )
         print(

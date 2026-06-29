@@ -83,12 +83,29 @@ def _make_sites_parquet(path, sites_data):
     sites_data: list of dicts with keys matching mod_sites output columns.
     """
     cols = [
-        "transcript_id", "position", "mod_type",
-        "n_modified", "wt_modified", "n_unmodified", "wt_unmodified",
-        "n_canonical", "wt_canonical", "n_othermod", "wt_othermod",
-        "n_mismatch", "wt_mismatch", "n_deletion", "wt_deletion",
-        "n_failed", "wt_failed", "mod_level", "wt_mod_level",
-        "gene_id", "chrom", "strand", "gpos",
+        "transcript_id",
+        "position",
+        "mod_type",
+        "n_modified",
+        "wt_modified",
+        "n_unmodified",
+        "wt_unmodified",
+        "n_canonical",
+        "wt_canonical",
+        "n_othermod",
+        "wt_othermod",
+        "n_mismatch",
+        "wt_mismatch",
+        "n_deletion",
+        "wt_deletion",
+        "n_failed",
+        "wt_failed",
+        "mod_level",
+        "wt_mod_level",
+        "gene_id",
+        "chrom",
+        "strand",
+        "gpos",
     ]
     arrays = {}
     for c in cols:
@@ -108,21 +125,43 @@ def _make_sites_parquet(path, sites_data):
     pq.write_table(pa.table(arrays), path)
 
 
-def _make_site(tx, pos, mod, n_mod, n_unmod, mod_level,
-               gene_id="G1", chrom="2L", strand="+", gpos=100):
+def _make_site(
+    tx,
+    pos,
+    mod,
+    n_mod,
+    n_unmod,
+    mod_level,
+    gene_id="G1",
+    chrom="2L",
+    strand="+",
+    gpos=100,
+):
     """Create a site dict with all required fields."""
     return {
-        "transcript_id": tx, "position": pos, "mod_type": mod,
-        "n_modified": n_mod, "wt_modified": float(n_mod),
-        "n_unmodified": n_unmod, "wt_unmodified": float(n_unmod),
-        "n_canonical": n_unmod, "wt_canonical": float(n_unmod),
-        "n_othermod": 0, "wt_othermod": 0.0,
-        "n_mismatch": 0, "wt_mismatch": 0.0,
-        "n_deletion": 0, "wt_deletion": 0.0,
-        "n_failed": 0, "wt_failed": 0.0,
-        "mod_level": mod_level, "wt_mod_level": mod_level,
-        "gene_id": gene_id, "chrom": chrom,
-        "strand": strand, "gpos": gpos,
+        "transcript_id": tx,
+        "position": pos,
+        "mod_type": mod,
+        "n_modified": n_mod,
+        "wt_modified": float(n_mod),
+        "n_unmodified": n_unmod,
+        "wt_unmodified": float(n_unmod),
+        "n_canonical": n_unmod,
+        "wt_canonical": float(n_unmod),
+        "n_othermod": 0,
+        "wt_othermod": 0.0,
+        "n_mismatch": 0,
+        "wt_mismatch": 0.0,
+        "n_deletion": 0,
+        "wt_deletion": 0.0,
+        "n_failed": 0,
+        "wt_failed": 0.0,
+        "mod_level": mod_level,
+        "wt_mod_level": mod_level,
+        "gene_id": gene_id,
+        "chrom": chrom,
+        "strand": strand,
+        "gpos": gpos,
     }
 
 
@@ -135,10 +174,13 @@ class TestReadSitesGroupedByLocus:
     def test_groups_by_locus(self, tmp_path):
         """Sites at the same genomic locus are grouped together."""
         path = str(tmp_path / "sites.parquet")
-        _make_sites_parquet(path, [
-            _make_site("TX1", 10, "a", 5, 15, 0.25),
-            _make_site("TX2", 20, "a", 8, 12, 0.4),
-        ])
+        _make_sites_parquet(
+            path,
+            [
+                _make_site("TX1", 10, "a", 5, 15, 0.25),
+                _make_site("TX2", 20, "a", 8, 12, 0.4),
+            ],
+        )
         groups = read_sites_grouped_by_locus(path)
         assert len(groups) == 1
         key = ("G1", "2L", 100, "+", "a")
@@ -151,12 +193,15 @@ class TestReadSitesGroupedByLocus:
         Each genomic position needs ≥2 transcripts to form a group.
         """
         path = str(tmp_path / "sites.parquet")
-        _make_sites_parquet(path, [
-            _make_site("TX1", 1, "a", 5, 15, 0.25, gpos=100),
-            _make_site("TX2", 1, "a", 8, 12, 0.4, gpos=100),
-            _make_site("TX3", 1, "a", 3, 17, 0.15, gpos=200),
-            _make_site("TX4", 1, "a", 6, 14, 0.3, gpos=200),
-        ])
+        _make_sites_parquet(
+            path,
+            [
+                _make_site("TX1", 1, "a", 5, 15, 0.25, gpos=100),
+                _make_site("TX2", 1, "a", 8, 12, 0.4, gpos=100),
+                _make_site("TX3", 1, "a", 3, 17, 0.15, gpos=200),
+                _make_site("TX4", 1, "a", 6, 14, 0.3, gpos=200),
+            ],
+        )
         groups = read_sites_grouped_by_locus(path)
         assert len(groups) == 2
         keys = sorted(groups.keys(), key=lambda k: k[2])  # sort by gpos
@@ -169,12 +214,15 @@ class TestReadSitesGroupedByLocus:
         Each (genomic_pos, mod_type) needs ≥2 transcripts to form a group.
         """
         path = str(tmp_path / "sites.parquet")
-        _make_sites_parquet(path, [
-            _make_site("TX1", 1, "a", 5, 15, 0.25),
-            _make_site("TX2", 1, "a", 8, 12, 0.4),
-            _make_site("TX3", 1, "m", 3, 17, 0.15),
-            _make_site("TX4", 1, "m", 6, 14, 0.3),
-        ])
+        _make_sites_parquet(
+            path,
+            [
+                _make_site("TX1", 1, "a", 5, 15, 0.25),
+                _make_site("TX2", 1, "a", 8, 12, 0.4),
+                _make_site("TX3", 1, "m", 3, 17, 0.15),
+                _make_site("TX4", 1, "m", 6, 14, 0.3),
+            ],
+        )
         groups = read_sites_grouped_by_locus(path)
         assert len(groups) == 2
         mod_types = {k[4] for k in groups}
@@ -183,30 +231,39 @@ class TestReadSitesGroupedByLocus:
     def test_single_transcript_dropped(self, tmp_path):
         """Groups with only one transcript are excluded."""
         path = str(tmp_path / "sites.parquet")
-        _make_sites_parquet(path, [
-            _make_site("TX1", 10, "a", 5, 15, 0.25),
-        ])
+        _make_sites_parquet(
+            path,
+            [
+                _make_site("TX1", 10, "a", 5, 15, 0.25),
+            ],
+        )
         groups = read_sites_grouped_by_locus(path)
         assert len(groups) == 0
 
     def test_null_genomic_coords_dropped(self, tmp_path):
         """Rows with null gene_id or gpos are dropped."""
         path = str(tmp_path / "sites.parquet")
-        _make_sites_parquet(path, [
-            _make_site("TX1", 10, "a", 5, 15, 0.25, gene_id=None, gpos=None),
-            _make_site("TX2", 20, "a", 8, 12, 0.4, gene_id=None, gpos=None),
-        ])
+        _make_sites_parquet(
+            path,
+            [
+                _make_site("TX1", 10, "a", 5, 15, 0.25, gene_id=None, gpos=None),
+                _make_site("TX2", 20, "a", 8, 12, 0.4, gene_id=None, gpos=None),
+            ],
+        )
         groups = read_sites_grouped_by_locus(path)
         assert len(groups) == 0
 
     def test_three_transcripts_at_locus(self, tmp_path):
         """Three transcripts at the same locus → 3 pairs."""
         path = str(tmp_path / "sites.parquet")
-        _make_sites_parquet(path, [
-            _make_site("TX1", 10, "a", 5, 15, 0.25),
-            _make_site("TX2", 20, "a", 8, 12, 0.4),
-            _make_site("TX3", 30, "a", 3, 17, 0.15),
-        ])
+        _make_sites_parquet(
+            path,
+            [
+                _make_site("TX1", 10, "a", 5, 15, 0.25),
+                _make_site("TX2", 20, "a", 8, 12, 0.4),
+                _make_site("TX3", 30, "a", 3, 17, 0.15),
+            ],
+        )
         groups = read_sites_grouped_by_locus(path)
         assert len(groups) == 1
         key = ("G1", "2L", 100, "+", "a")
@@ -223,14 +280,8 @@ class TestReadSitesGroupedByLocus:
                 "mod_level\twt_mod_level\t"
                 "gene_id\tchrom\tstrand\tgpos\n"
             )
-            f.write(
-                "TX1\t10\ta\t5\t5.0\t15\t15.0\t0.25\t0.25\t"
-                "G1\t2L\t+\t100\n"
-            )
-            f.write(
-                "TX2\t20\ta\t8\t8.0\t12\t12.0\t0.4\t0.4\t"
-                "G1\t2L\t+\t100\n"
-            )
+            f.write("TX1\t10\ta\t5\t5.0\t15\t15.0\t0.25\t0.25\tG1\t2L\t+\t100\n")
+            f.write("TX2\t20\ta\t8\t8.0\t12\t12.0\t0.4\t0.4\tG1\t2L\t+\t100\n")
         groups = read_sites_grouped_by_locus(tsv_path)
         assert len(groups) == 1
         key = ("G1", "2L", 100, "+", "a")
@@ -258,8 +309,7 @@ class TestExtractSiteReads:
     """Tests for _extract_site_reads (same logic as mod_dmc)."""
 
     def test_simple_modified(self):
-        matrix = np.array([[4, CODE_CANONICAL], [4, CODE_CANONICAL]],
-                          dtype=np.uint8)
+        matrix = np.array([[4, CODE_CANONICAL], [4, CODE_CANONICAL]], dtype=np.uint8)
         weights = np.array([1.0, 0.5], dtype=np.float32)
         y, w = _extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 2
@@ -286,9 +336,7 @@ class TestProcessLocusGroup:
     def test_two_transcripts_different_mod(self):
         """Two transcripts with clearly different modification patterns."""
         # TX1 at pos 1: all unmodified
-        matrix_1 = np.array(
-            [[CODE_CANONICAL]] * 5, dtype=np.uint8
-        )
+        matrix_1 = np.array([[CODE_CANONICAL]] * 5, dtype=np.uint8)
         weights_1 = np.ones(5, dtype=np.float32)
 
         # TX2 at pos 1: all modified (code 4)
@@ -350,9 +398,7 @@ class TestProcessLocusGroup:
 
         assert len(rows) == 3
         # All pairs should have both transcripts' info
-        transcript_pairs = {
-            (r["transcript_id_1"], r["transcript_id_2"]) for r in rows
-        }
+        transcript_pairs = {(r["transcript_id_1"], r["transcript_id_2"]) for r in rows}
         assert ("TX1", "TX2") in transcript_pairs
         assert ("TX1", "TX3") in transcript_pairs
         assert ("TX2", "TX3") in transcript_pairs
@@ -460,17 +506,32 @@ class TestProcessLocusGroup:
 
         assert len(rows) == 1
         expected_cols = {
-            "gene_id", "chrom", "gpos", "strand", "mod_type",
-            "transcript_id_1", "transcript_id_2",
-            "position_1", "position_2",
-            "mod_level_1", "mod_level_2",
-            "wt_mod_level_1", "wt_mod_level_2",
-            "delta_mod_level", "delta_wt_mod_level",
-            "n_modified_1", "n_unmodified_1",
-            "n_modified_2", "n_unmodified_2",
-            "wt_modified_1", "wt_unmodified_1",
-            "wt_modified_2", "wt_unmodified_2",
-            "log2_or", "p_value", "q_value",
+            "gene_id",
+            "chrom",
+            "gpos",
+            "strand",
+            "mod_type",
+            "transcript_id_1",
+            "transcript_id_2",
+            "position_1",
+            "position_2",
+            "mod_level_1",
+            "mod_level_2",
+            "wt_mod_level_1",
+            "wt_mod_level_2",
+            "delta_mod_level",
+            "delta_wt_mod_level",
+            "n_modified_1",
+            "n_unmodified_1",
+            "n_modified_2",
+            "n_unmodified_2",
+            "wt_modified_1",
+            "wt_unmodified_1",
+            "wt_modified_2",
+            "wt_unmodified_2",
+            "log2_or",
+            "p_value",
+            "q_value",
         }
         assert set(rows[0].keys()) == expected_cols
 
@@ -548,8 +609,12 @@ class TestHDF5Helpers:
         path = str(tmp_path / "test.h5")
         _make_h5(
             path,
-            {"TX1": (np.array([[4]], dtype=np.uint8),
-                     np.array([1.0], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([1.0], dtype=np.float32),
+                )
+            },
             {"a": 4, "m": 5},
         )
         with h5py.File(path, "r") as h5:
@@ -572,11 +637,15 @@ class TestCLI:
 
     def test_required_args(self):
         argv = [
-            "-i", "a.h5",
-            "-s", "sites.parquet",
-            "-o", "out.parquet",
+            "-i",
+            "a.h5",
+            "-s",
+            "sites.parquet",
+            "-o",
+            "out.parquet",
         ]
         import sys as _sys
+
         _sys.argv = ["mod_dmt"] + argv
         args = parse_args()
         assert args.h5 == ["a.h5"]
@@ -585,27 +654,39 @@ class TestCLI:
 
     def test_multi_h5(self):
         argv = [
-            "-i", "a1.h5", "a2.h5",
-            "-s", "sites.parquet",
-            "-o", "out.parquet",
+            "-i",
+            "a1.h5",
+            "a2.h5",
+            "-s",
+            "sites.parquet",
+            "-o",
+            "out.parquet",
         ]
         import sys as _sys
+
         _sys.argv = ["mod_dmt"] + argv
         args = parse_args()
         assert args.h5 == ["a1.h5", "a2.h5"]
 
     def test_optional_args(self):
         argv = [
-            "-i", "a.h5",
-            "-s", "s.parquet",
-            "-o", "out.tsv",
-            "-f", "tsv",
+            "-i",
+            "a.h5",
+            "-s",
+            "s.parquet",
+            "-o",
+            "out.tsv",
+            "-f",
+            "tsv",
             "-z",
-            "-p", "0.5",
-            "-x", "TX1",
+            "-p",
+            "0.5",
+            "-x",
+            "TX1",
             "-v",
         ]
         import sys as _sys
+
         _sys.argv = ["mod_dmt"] + argv
         args = parse_args()
         assert args.format == "tsv"
@@ -632,9 +713,7 @@ class TestMainIntegration:
     def test_end_to_end_two_isoforms(self, tmp_path):
         """Two isoforms at the same locus with different modification."""
         # TX1: mostly unmodified
-        matrix_1 = np.array(
-            [[CODE_CANONICAL]] * 5, dtype=np.uint8
-        )
+        matrix_1 = np.array([[CODE_CANONICAL]] * 5, dtype=np.uint8)
         weights_1 = np.ones(5, dtype=np.float32)
 
         # TX2: mostly modified
@@ -650,10 +729,13 @@ class TestMainIntegration:
             {"TX1": (matrix_1, weights_1), "TX2": (matrix_2, weights_2)},
             {"a": 4},
         )
-        self._make_sites_file(sites_path, [
-            _make_site("TX1", 1, "a", 0, 5, 0.0),
-            _make_site("TX2", 1, "a", 5, 0, 1.0),
-        ])
+        self._make_sites_file(
+            sites_path,
+            [
+                _make_site("TX1", 1, "a", 0, 5, 0.0),
+                _make_site("TX2", 1, "a", 5, 0, 1.0),
+            ],
+        )
 
         args = argparse.Namespace(
             h5=[h5_path],
@@ -685,23 +767,32 @@ class TestMainIntegration:
 
         self._make_h5_file(
             h5_path,
-            {"TX1": (np.array([[4]], dtype=np.uint8),
-                     np.array([1.0], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([1.0], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         # Sites without gene_id/gpos
-        table = pa.table({
-            "transcript_id": ["TX1"],
-            "position": [10],
-            "mod_type": ["a"],
-            "n_modified": [5], "wt_modified": [5.0],
-            "n_unmodified": [15], "wt_unmodified": [15.0],
-            "mod_level": [0.25], "wt_mod_level": [0.25],
-            "gene_id": [None],
-            "chrom": [None],
-            "strand": [None],
-            "gpos": [None],
-        })
+        table = pa.table(
+            {
+                "transcript_id": ["TX1"],
+                "position": [10],
+                "mod_type": ["a"],
+                "n_modified": [5],
+                "wt_modified": [5.0],
+                "n_unmodified": [15],
+                "wt_unmodified": [15.0],
+                "mod_level": [0.25],
+                "wt_mod_level": [0.25],
+                "gene_id": [None],
+                "chrom": [None],
+                "strand": [None],
+                "gpos": [None],
+            }
+        )
         pq.write_table(table, sites_path)
 
         args = argparse.Namespace(
@@ -732,9 +823,13 @@ class TestMainIntegration:
 
         self._make_h5_file(
             h5_a_path,
-            {"TX1": (matrix_a, weights_a),
-             "TX2": (np.array([[CODE_CANONICAL]] * 2, dtype=np.uint8),
-                     np.array([1.0, 1.0], dtype=np.float32))},
+            {
+                "TX1": (matrix_a, weights_a),
+                "TX2": (
+                    np.array([[CODE_CANONICAL]] * 2, dtype=np.uint8),
+                    np.array([1.0, 1.0], dtype=np.float32),
+                ),
+            },
             {"a": 4},
         )
         self._make_h5_file(
@@ -742,10 +837,13 @@ class TestMainIntegration:
             {"TX1": (matrix_b, weights_b)},
             {"a": 4},
         )
-        self._make_sites_file(sites_path, [
-            _make_site("TX1", 1, "a", 1, 0, 1.0),
-            _make_site("TX2", 1, "a", 0, 2, 0.0),
-        ])
+        self._make_sites_file(
+            sites_path,
+            [
+                _make_site("TX1", 1, "a", 1, 0, 1.0),
+                _make_site("TX2", 1, "a", 0, 2, 0.0),
+            ],
+        )
 
         args = argparse.Namespace(
             h5=[h5_a_path, h5_b_path],
@@ -771,14 +869,21 @@ class TestMainIntegration:
         # HDF5 with transcripts that don't match the site summary
         self._make_h5_file(
             h5_path,
-            {"TX_OTHER": (np.array([[4]], dtype=np.uint8),
-                          np.array([1.0], dtype=np.float32))},
+            {
+                "TX_OTHER": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([1.0], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
-        self._make_sites_file(sites_path, [
-            _make_site("TX1", 1, "a", 5, 15, 0.25),
-            _make_site("TX2", 1, "a", 8, 12, 0.4),
-        ])
+        self._make_sites_file(
+            sites_path,
+            [
+                _make_site("TX1", 1, "a", 5, 15, 0.25),
+                _make_site("TX2", 1, "a", 8, 12, 0.4),
+            ],
+        )
 
         args = argparse.Namespace(
             h5=[h5_path],
@@ -811,10 +916,13 @@ class TestMainIntegration:
             {"TX1": (matrix_1, weights_1), "TX2": (matrix_2, weights_2)},
             {"a": 4},
         )
-        self._make_sites_file(sites_path, [
-            _make_site("TX1", 1, "a", 5, 0, 1.0),
-            _make_site("TX2", 1, "a", 0, 5, 0.0),
-        ])
+        self._make_sites_file(
+            sites_path,
+            [
+                _make_site("TX1", 1, "a", 5, 0, 1.0),
+                _make_site("TX2", 1, "a", 0, 5, 0.0),
+            ],
+        )
 
         args = argparse.Namespace(
             h5=[h5_path],
@@ -849,15 +957,20 @@ class TestMainIntegration:
             {
                 "TX1": (matrix_1, weights_1),
                 "TX2": (matrix_2, weights_2),
-                "TX_OTHER": (np.array([[4]], dtype=np.uint8),
-                             np.array([1.0], dtype=np.float32)),
+                "TX_OTHER": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([1.0], dtype=np.float32),
+                ),
             },
             {"a": 4},
         )
-        self._make_sites_file(sites_path, [
-            _make_site("TX1", 1, "a", 5, 0, 1.0),
-            _make_site("TX2", 1, "a", 0, 5, 0.0),
-        ])
+        self._make_sites_file(
+            sites_path,
+            [
+                _make_site("TX1", 1, "a", 5, 0, 1.0),
+                _make_site("TX2", 1, "a", 0, 5, 0.0),
+            ],
+        )
 
         # Only allow TX1 and TX2
         args = argparse.Namespace(

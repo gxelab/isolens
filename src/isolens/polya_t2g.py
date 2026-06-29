@@ -88,9 +88,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         # Determine mapping source
         if has_gene_id_col:
             # Use gene_id directly from input rows
-            print(
-                "Using gene_id column from input file.", file=sys.stderr
-            )
+            print("Using gene_id column from input file.", file=sys.stderr)
         elif args.gtf is not None:
             print(
                 "No gene_id column in input — using GTF annotation.",

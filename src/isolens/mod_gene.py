@@ -42,8 +42,7 @@ import pyarrow.parquet as pq
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for mod_gene."""
     parser = argparse.ArgumentParser(
-        description="mod_gene: Gene-level aggregation of modification "
-        "site summaries"
+        description="mod_gene: Gene-level aggregation of modification site summaries"
     )
     parser.add_argument(
         "-i",
@@ -292,11 +291,8 @@ def aggregate_to_gene(
         sorted by ``(gene_id, gpos, mod_type)``.
     """
     # Group key → accumulated counts
-    groups: dict[
-        tuple[str, str, str, int, str], dict[str, float]
-    ] = defaultdict(
-        lambda: {c: 0 for c in _COUNT_COLS}
-        | {c: 0.0 for c in _WT_COLS}
+    groups: dict[tuple[str, str, str, int, str], dict[str, float]] = defaultdict(
+        lambda: {c: 0 for c in _COUNT_COLS} | {c: 0.0 for c in _WT_COLS}
     )
 
     for row in rows:
@@ -318,9 +314,7 @@ def aggregate_to_gene(
 
     # Build output rows
     result: list[dict[str, Any]] = []
-    for (gene_id, chrom, strand, gpos, mod_type), acc in sorted(
-        groups.items()
-    ):
+    for (gene_id, chrom, strand, gpos, mod_type), acc in sorted(groups.items()):
         n_mod = acc["n_modified"]
         n_unmod = acc["n_unmodified"]
         wt_mod = acc["wt_modified"]
@@ -364,9 +358,7 @@ def aggregate_to_gene(
 # ---------- output writers ----------
 
 
-def _write_tsv(
-    all_rows: list[dict[str, Any]], path: str, use_gzip: bool
-) -> None:
+def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
     """Write rows as tab-separated values, optionally gzip-compressed."""
     import gzip
 
@@ -377,10 +369,7 @@ def _write_tsv(
         f.write(_OUTPUT_HEADER + "\n")
         for row in all_rows:
             f.write(
-                "\t".join(
-                    "NA" if row[c] is None else str(row[c])
-                    for c in _OUTPUT_COLS
-                )
+                "\t".join("NA" if row[c] is None else str(row[c]) for c in _OUTPUT_COLS)
                 + "\n"
             )
 
@@ -423,10 +412,7 @@ def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
         with pq.ParquetWriter(path, schema) as writer:
             writer.write_table(
                 pa.table(
-                    {
-                        k: pa.array([], type=schema.field(k).type)
-                        for k in schema.names
-                    }
+                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
                 )
             )
         return

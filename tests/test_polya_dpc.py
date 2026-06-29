@@ -41,15 +41,12 @@ class TestParsePolyaFile:
         assert "TX1" in data
         assert data["TX1"]["n_reads"] == 2
         assert len(data["TX1"]["probs"]) == 2
-        np.testing.assert_array_equal(
-            data["TX1"]["pa_lens"], np.array([100, 101])
-        )
+        np.testing.assert_array_equal(data["TX1"]["pa_lens"], np.array([100, 101]))
 
     def test_gene_level_tsv(self, tmp_path):
         path = tmp_path / "gene.tsv"
         path.write_text(
-            "gene_id\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
-            "GENE1\t1\t42.0\t1.0\t42\n"
+            "gene_id\tn_reads\tpa_wlen\tprobs\tpa_lens\nGENE1\t1\t42.0\t1.0\t42\n"
         )
         id_name, data = parse_polyA_file(str(path))
         assert id_name == "gene_id"
@@ -67,9 +64,7 @@ class TestParsePolyaFile:
 
     def test_empty_file_after_header(self, tmp_path):
         path = tmp_path / "empty.tsv"
-        path.write_text(
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
-        )
+        path.write_text("transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
         _, data = parse_polyA_file(str(path))
         assert data == {}
 
@@ -81,20 +76,29 @@ class TestMainIntegration:
         c1 = tmp_path / "c1.tsv"
         c2 = tmp_path / "c2.tsv"
         out = tmp_path / "out.tsv"
-        _make_polya_tsv(c1, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-            "TX2\t1\t2\t300.0\t1.0,0.5\t250,350\tGENE_B",
-        ])
-        _make_polya_tsv(c2, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
-            "TX2\t1\t2\t250.0\t1.0,1.0\t200,300\tGENE_B",
-        ])
+        _make_polya_tsv(
+            c1,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t1\t2\t300.0\t1.0,0.5\t250,350\tGENE_B",
+            ],
+        )
+        _make_polya_tsv(
+            c2,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
+                "TX2\t1\t2\t250.0\t1.0,1.0\t200,300\tGENE_B",
+            ],
+        )
         args = argparse.Namespace(
-            condition1=str(c1), condition2=str(c2),
-            output=str(out), gzip=False,
-            min_asp=0.0, min_pareads=1,
+            condition1=str(c1),
+            condition2=str(c2),
+            output=str(out),
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
 
@@ -117,18 +121,27 @@ class TestMainIntegration:
         c2 = tmp_path / "c2.tsv"
         out = tmp_path / "out.tsv"
         # All reads below threshold after filtering
-        _make_polya_tsv(c1, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t3\t150.0\t0.1,0.1,0.1\t100,150,200",
-        ])
-        _make_polya_tsv(c2, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t3\t120.0\t0.2,0.2,0.2\t80,120,160",
-        ])
+        _make_polya_tsv(
+            c1,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t3\t150.0\t0.1,0.1,0.1\t100,150,200",
+            ],
+        )
+        _make_polya_tsv(
+            c2,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t3\t120.0\t0.2,0.2,0.2\t80,120,160",
+            ],
+        )
         args = argparse.Namespace(
-            condition1=str(c1), condition2=str(c2),
-            output=str(out), gzip=False,
-            min_asp=0.5, min_pareads=1,
+            condition1=str(c1),
+            condition2=str(c2),
+            output=str(out),
+            gzip=False,
+            min_asp=0.5,
+            min_pareads=1,
         )
         main(args)
         lines = out.read_text().strip().split("\n")
@@ -141,18 +154,27 @@ class TestMainIntegration:
         c1 = tmp_path / "c1.tsv"
         c2 = tmp_path / "c2.tsv"
         out = tmp_path / "out.tsv"
-        _make_polya_tsv(c1, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
-        ])
-        _make_polya_tsv(c2, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t2\t120.0\t1.0,1.0\t80,160",
-        ])
+        _make_polya_tsv(
+            c1,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
+            ],
+        )
+        _make_polya_tsv(
+            c2,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t2\t120.0\t1.0,1.0\t80,160",
+            ],
+        )
         args = argparse.Namespace(
-            condition1=str(c1), condition2=str(c2),
-            output=str(out), gzip=False,
-            min_asp=0.0, min_pareads=10,  # threshold higher than actual
+            condition1=str(c1),
+            condition2=str(c2),
+            output=str(out),
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=10,  # threshold higher than actual
         )
         main(args)
         lines = out.read_text().strip().split("\n")
@@ -164,18 +186,27 @@ class TestMainIntegration:
         c1 = tmp_path / "c1.tsv"
         c2 = tmp_path / "c2.tsv"
         out = tmp_path / "out.tsv"
-        _make_polya_tsv(c1, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
-        ])
-        _make_polya_tsv(c2, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX2\t1\t1\t300.0\t1.0\t300",
-        ])
+        _make_polya_tsv(
+            c1,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
+            ],
+        )
+        _make_polya_tsv(
+            c2,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX2\t1\t1\t300.0\t1.0\t300",
+            ],
+        )
         args = argparse.Namespace(
-            condition1=str(c1), condition2=str(c2),
-            output=str(out), gzip=False,
-            min_asp=0.0, min_pareads=1,
+            condition1=str(c1),
+            condition2=str(c2),
+            output=str(out),
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
         lines = out.read_text().strip().split("\n")
@@ -185,18 +216,27 @@ class TestMainIntegration:
         c1 = tmp_path / "c1.tsv"
         c2 = tmp_path / "c2.tsv"
         out = tmp_path / "out.tsv"
-        _make_polya_tsv(c1, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200",
-        ])
-        _make_polya_tsv(c2, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,120,160",
-        ])
+        _make_polya_tsv(
+            c1,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200",
+            ],
+        )
+        _make_polya_tsv(
+            c2,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,120,160",
+            ],
+        )
         args = argparse.Namespace(
-            condition1=str(c1), condition2=str(c2),
-            output=str(out), gzip=True,
-            min_asp=0.0, min_pareads=1,
+            condition1=str(c1),
+            condition2=str(c2),
+            output=str(out),
+            gzip=True,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
         # gzip appends .gz if not present
@@ -232,9 +272,12 @@ class TestMainIntegration:
         _make_polya_tsv(c1, lines_c1)
         _make_polya_tsv(c2, lines_c2)
         args = argparse.Namespace(
-            condition1=str(c1), condition2=str(c2),
-            output=str(out), gzip=False,
-            min_asp=0.0, min_pareads=1,
+            condition1=str(c1),
+            condition2=str(c2),
+            output=str(out),
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
 
@@ -258,18 +301,27 @@ class TestMainIntegration:
         c2 = tmp_path / "c2.tsv"
         out = tmp_path / "out.tsv"
         # TX1: 3 reads, 1 effective (others negative)
-        _make_polya_tsv(c1, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,-1,-1",
-        ])
-        _make_polya_tsv(c2, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,-1,-1",
-        ])
+        _make_polya_tsv(
+            c1,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,-1,-1",
+            ],
+        )
+        _make_polya_tsv(
+            c2,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,-1,-1",
+            ],
+        )
         args = argparse.Namespace(
-            condition1=str(c1), condition2=str(c2),
-            output=str(out), gzip=False,
-            min_asp=0.0, min_pareads=1,
+            condition1=str(c1),
+            condition2=str(c2),
+            output=str(out),
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
         lines = out.read_text().strip().split("\n")

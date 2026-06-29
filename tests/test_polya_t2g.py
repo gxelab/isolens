@@ -47,20 +47,40 @@ class TestBuildTxToGene:
         path = tmp_path / "test.gtf"
         lines = [
             _GTF_HEADER,
-            _make_gtf_line("chr1", "gene", 1, 300, "+",
-                           'gene_id "GENE_A";'),
-            _make_gtf_line("chr1", "transcript", 1, 100, "+",
-                           'gene_id "GENE_A"; transcript_id "TX1";'),
-            _make_gtf_line("chr1", "exon", 1, 100, "+",
-                           'gene_id "GENE_A"; transcript_id "TX1";'),
-            _make_gtf_line("chr1", "transcript", 101, 200, "+",
-                           'gene_id "GENE_A"; transcript_id "TX2";'),
-            _make_gtf_line("chr1", "exon", 101, 200, "+",
-                           'gene_id "GENE_A"; transcript_id "TX2";'),
-            _make_gtf_line("chr1", "transcript", 201, 300, "+",
-                           'gene_id "GENE_B"; transcript_id "TX3";'),
-            _make_gtf_line("chr1", "exon", 201, 300, "+",
-                           'gene_id "GENE_B"; transcript_id "TX3";'),
+            _make_gtf_line("chr1", "gene", 1, 300, "+", 'gene_id "GENE_A";'),
+            _make_gtf_line(
+                "chr1",
+                "transcript",
+                1,
+                100,
+                "+",
+                'gene_id "GENE_A"; transcript_id "TX1";',
+            ),
+            _make_gtf_line(
+                "chr1", "exon", 1, 100, "+", 'gene_id "GENE_A"; transcript_id "TX1";'
+            ),
+            _make_gtf_line(
+                "chr1",
+                "transcript",
+                101,
+                200,
+                "+",
+                'gene_id "GENE_A"; transcript_id "TX2";',
+            ),
+            _make_gtf_line(
+                "chr1", "exon", 101, 200, "+", 'gene_id "GENE_A"; transcript_id "TX2";'
+            ),
+            _make_gtf_line(
+                "chr1",
+                "transcript",
+                201,
+                300,
+                "+",
+                'gene_id "GENE_B"; transcript_id "TX3";',
+            ),
+            _make_gtf_line(
+                "chr1", "exon", 201, 300, "+", 'gene_id "GENE_B"; transcript_id "TX3";'
+            ),
         ]
         path.write_text("".join(lines))
         mapping = build_tx_to_gene(str(path))
@@ -69,19 +89,44 @@ class TestBuildTxToGene:
     def test_gzipped_gtf(self, tmp_path):
         """GTF can be gzip-compressed."""
         path = tmp_path / "test.gtf.gz"
-        content = "".join([
-            _GTF_HEADER,
-            _make_gtf_line("chr1", "gene", 1, 200, "+",
-                           'gene_id "GENE_X";'),
-            _make_gtf_line("chr1", "transcript", 1, 100, "+",
-                           'gene_id "GENE_X"; transcript_id "TX_A";'),
-            _make_gtf_line("chr1", "exon", 1, 100, "+",
-                           'gene_id "GENE_X"; transcript_id "TX_A";'),
-            _make_gtf_line("chr1", "transcript", 101, 200, "+",
-                           'gene_id "GENE_X"; transcript_id "TX_B";'),
-            _make_gtf_line("chr1", "exon", 101, 200, "+",
-                           'gene_id "GENE_X"; transcript_id "TX_B";'),
-        ])
+        content = "".join(
+            [
+                _GTF_HEADER,
+                _make_gtf_line("chr1", "gene", 1, 200, "+", 'gene_id "GENE_X";'),
+                _make_gtf_line(
+                    "chr1",
+                    "transcript",
+                    1,
+                    100,
+                    "+",
+                    'gene_id "GENE_X"; transcript_id "TX_A";',
+                ),
+                _make_gtf_line(
+                    "chr1",
+                    "exon",
+                    1,
+                    100,
+                    "+",
+                    'gene_id "GENE_X"; transcript_id "TX_A";',
+                ),
+                _make_gtf_line(
+                    "chr1",
+                    "transcript",
+                    101,
+                    200,
+                    "+",
+                    'gene_id "GENE_X"; transcript_id "TX_B";',
+                ),
+                _make_gtf_line(
+                    "chr1",
+                    "exon",
+                    101,
+                    200,
+                    "+",
+                    'gene_id "GENE_X"; transcript_id "TX_B";',
+                ),
+            ]
+        )
         with gzip.open(path, "wt", encoding="utf-8") as f:
             f.write(content)
         mapping = build_tx_to_gene(str(path))
@@ -102,12 +147,24 @@ class TestBuildTxToGene:
             start = i * 100 + 1
             end = start + 99
             lines.append(
-                _make_gtf_line("chr1", "transcript", start, end, "+",
-                               f'gene_id "G1"; transcript_id "{tx}";')
+                _make_gtf_line(
+                    "chr1",
+                    "transcript",
+                    start,
+                    end,
+                    "+",
+                    f'gene_id "G1"; transcript_id "{tx}";',
+                )
             )
             lines.append(
-                _make_gtf_line("chr1", "exon", start, end, "+",
-                               f'gene_id "G1"; transcript_id "{tx}";')
+                _make_gtf_line(
+                    "chr1",
+                    "exon",
+                    start,
+                    end,
+                    "+",
+                    f'gene_id "G1"; transcript_id "{tx}";',
+                )
             )
         path.write_text("".join(lines))
         mapping = build_tx_to_gene(str(path))
@@ -121,12 +178,15 @@ class TestMainIntegration:
         """Input has gene_id column — use it directly, no --gtf needed."""
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
-            "TX2\t1\t1\t300.0\t1.0\t300\tGENE_A",
-            "TX3\t2\t1\t50.0\t1.0\t50\tGENE_B",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
+                "TX2\t1\t1\t300.0\t1.0\t300\tGENE_A",
+                "TX3\t2\t1\t50.0\t1.0\t50\tGENE_B",
+            ],
+        )
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
@@ -147,13 +207,16 @@ class TestMainIntegration:
         """gene_id values of '' / 'NA' / '.' are skipped with a warning."""
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
-            "TX2\t1\t1\t300.0\t1.0\t300\tNA",
-            "TX3\t2\t1\t50.0\t1.0\t50\t.",
-            "TX4\t3\t1\t60.0\t1.0\t60\t",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
+                "TX2\t1\t1\t300.0\t1.0\t300\tNA",
+                "TX3\t2\t1\t50.0\t1.0\t50\t.",
+                "TX4\t3\t1\t60.0\t1.0\t60\t",
+            ],
+        )
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
@@ -170,10 +233,13 @@ class TestMainIntegration:
         """No gene_id column and no --gtf → exits with error."""
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
+            ],
+        )
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
@@ -188,23 +254,39 @@ class TestMainIntegration:
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
         gtf_path = tmp_path / "test.gtf"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
-            "TX2\t1\t1\t300.0\t1.0\t300",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
+                "TX2\t1\t1\t300.0\t1.0\t300",
+            ],
+        )
         lines = [
             _GTF_HEADER,
-            _make_gtf_line("chr1", "gene", 1, 200, "+",
-                           'gene_id "GENE_A";'),
-            _make_gtf_line("chr1", "transcript", 1, 100, "+",
-                           'gene_id "GENE_A"; transcript_id "TX1";'),
-            _make_gtf_line("chr1", "exon", 1, 100, "+",
-                           'gene_id "GENE_A"; transcript_id "TX1";'),
-            _make_gtf_line("chr1", "transcript", 101, 200, "+",
-                           'gene_id "GENE_A"; transcript_id "TX2";'),
-            _make_gtf_line("chr1", "exon", 101, 200, "+",
-                           'gene_id "GENE_A"; transcript_id "TX2";'),
+            _make_gtf_line("chr1", "gene", 1, 200, "+", 'gene_id "GENE_A";'),
+            _make_gtf_line(
+                "chr1",
+                "transcript",
+                1,
+                100,
+                "+",
+                'gene_id "GENE_A"; transcript_id "TX1";',
+            ),
+            _make_gtf_line(
+                "chr1", "exon", 1, 100, "+", 'gene_id "GENE_A"; transcript_id "TX1";'
+            ),
+            _make_gtf_line(
+                "chr1",
+                "transcript",
+                101,
+                200,
+                "+",
+                'gene_id "GENE_A"; transcript_id "TX2";',
+            ),
+            _make_gtf_line(
+                "chr1", "exon", 101, 200, "+", 'gene_id "GENE_A"; transcript_id "TX2";'
+            ),
         ]
         gtf_path.write_text("".join(lines))
 

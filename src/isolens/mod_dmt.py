@@ -118,9 +118,7 @@ def parse_args() -> argparse.Namespace:
         help="Pooled site summary from mod_sites (Parquet or TSV/TSV.GZ).  "
         "Must include genomic coordinate columns (run mod_sites with --gtf).",
     )
-    parser.add_argument(
-        "-o", "--output", required=True, help="Output file path"
-    )
+    parser.add_argument("-o", "--output", required=True, help="Output file path")
     parser.add_argument(
         "-f",
         "--format",
@@ -201,8 +199,10 @@ def _read_sites_tsv(path: str) -> list[dict[str, Any]]:
                 elif c in ("n_modified", "n_unmodified", "position"):
                     row[c] = int(val)
                 elif c in (
-                    "wt_modified", "wt_unmodified",
-                    "mod_level", "wt_mod_level",
+                    "wt_modified",
+                    "wt_unmodified",
+                    "mod_level",
+                    "wt_mod_level",
                 ):
                     row[c] = float(val)
                 elif c == "gpos":
@@ -233,8 +233,7 @@ def read_sites_grouped_by_locus(
 
     # Drop rows without genomic coordinates
     rows = [
-        r for r in rows
-        if r.get("gene_id") is not None and r.get("gpos") is not None
+        r for r in rows if r.get("gene_id") is not None and r.get("gpos") is not None
     ]
 
     # Group by locus key
@@ -311,8 +310,7 @@ def _extract_site_reads(
 def _read_mod_codes(h5: h5py.File) -> dict[str, int]:
     """Read modification codes from an open HDF5 file."""
     return {
-        mod_str: int(code)
-        for mod_str, code in h5["modification_codes"].attrs.items()
+        mod_str: int(code) for mod_str, code in h5["modification_codes"].attrs.items()
     }
 
 
@@ -324,12 +322,8 @@ def _validate_mod_codes(
     reference = mod_maps[0]
     for i, code_map in enumerate(mod_maps[1:], start=1):
         if code_map != reference:
-            ref_str = "; ".join(
-                f"{k}={v}" for k, v in sorted(reference.items())
-            )
-            file_str = "; ".join(
-                f"{k}={v}" for k, v in sorted(code_map.items())
-            )
+            ref_str = "; ".join(f"{k}={v}" for k, v in sorted(reference.items()))
+            file_str = "; ".join(f"{k}={v}" for k, v in sorted(code_map.items()))
             raise ValueError(
                 f"Modification codes in {filenames[i]} do not match "
                 f"{filenames[0]}.\n"
@@ -416,7 +410,8 @@ def _load_all_transcripts(
             continue
 
         _validate_tx_lengths(
-            tx_name, tx_lengths_found,
+            tx_name,
+            tx_lengths_found,
             [f.filename for f in h5_files],
         )
 
@@ -480,10 +475,7 @@ def process_locus_group(
         return []
 
     # Filter to transcripts present in HDF5
-    available = [
-        s for s in tx_site_list
-        if s["transcript_id"] in h5_data
-    ]
+    available = [s for s in tx_site_list if s["transcript_id"] in h5_data]
     if len(available) < 2:
         return []
 
@@ -512,10 +504,12 @@ def process_locus_group(
 
         # Build design: transcript A = 0, transcript B = 1
         y = np.concatenate([y_a, y_b])
-        x = np.concatenate([
-            np.zeros(len(y_a), dtype=np.float64),
-            np.ones(len(y_b), dtype=np.float64),
-        ])
+        x = np.concatenate(
+            [
+                np.zeros(len(y_a), dtype=np.float64),
+                np.ones(len(y_b), dtype=np.float64),
+            ]
+        )
         w = np.concatenate([w_a, w_b])
 
         result = weighted_logistic_test(y, x, w)
@@ -525,42 +519,44 @@ def process_locus_group(
         wml_a = site_a.get("wt_mod_level")
         wml_b = site_b.get("wt_mod_level")
 
-        rows.append({
-            "gene_id": gene_id,
-            "chrom": chrom,
-            "gpos": gpos,
-            "strand": strand,
-            "mod_type": mod_type_str,
-            "transcript_id_1": tx_a,
-            "transcript_id_2": tx_b,
-            "position_1": pos_a,
-            "position_2": pos_b,
-            "mod_level_1": ml_a,
-            "mod_level_2": ml_b,
-            "wt_mod_level_1": wml_a,
-            "wt_mod_level_2": wml_b,
-            "delta_mod_level": (
-                round(ml_b - ml_a, 6)
-                if ml_a is not None and ml_b is not None
-                else None
-            ),
-            "delta_wt_mod_level": (
-                round(wml_b - wml_a, 6)
-                if wml_a is not None and wml_b is not None
-                else None
-            ),
-            "n_modified_1": site_a.get("n_modified"),
-            "n_unmodified_1": site_a.get("n_unmodified"),
-            "n_modified_2": site_b.get("n_modified"),
-            "n_unmodified_2": site_b.get("n_unmodified"),
-            "wt_modified_1": site_a.get("wt_modified"),
-            "wt_unmodified_1": site_a.get("wt_unmodified"),
-            "wt_modified_2": site_b.get("wt_modified"),
-            "wt_unmodified_2": site_b.get("wt_unmodified"),
-            "log2_or": result["log2_or"],
-            "p_value": result["p_value"],
-            "q_value": 0.0,  # filled after global BH correction
-        })
+        rows.append(
+            {
+                "gene_id": gene_id,
+                "chrom": chrom,
+                "gpos": gpos,
+                "strand": strand,
+                "mod_type": mod_type_str,
+                "transcript_id_1": tx_a,
+                "transcript_id_2": tx_b,
+                "position_1": pos_a,
+                "position_2": pos_b,
+                "mod_level_1": ml_a,
+                "mod_level_2": ml_b,
+                "wt_mod_level_1": wml_a,
+                "wt_mod_level_2": wml_b,
+                "delta_mod_level": (
+                    round(ml_b - ml_a, 6)
+                    if ml_a is not None and ml_b is not None
+                    else None
+                ),
+                "delta_wt_mod_level": (
+                    round(wml_b - wml_a, 6)
+                    if wml_a is not None and wml_b is not None
+                    else None
+                ),
+                "n_modified_1": site_a.get("n_modified"),
+                "n_unmodified_1": site_a.get("n_unmodified"),
+                "n_modified_2": site_b.get("n_modified"),
+                "n_unmodified_2": site_b.get("n_unmodified"),
+                "wt_modified_1": site_a.get("wt_modified"),
+                "wt_unmodified_1": site_a.get("wt_unmodified"),
+                "wt_modified_2": site_b.get("wt_modified"),
+                "wt_unmodified_2": site_b.get("wt_unmodified"),
+                "log2_or": result["log2_or"],
+                "p_value": result["p_value"],
+                "q_value": 0.0,  # filled after global BH correction
+            }
+        )
 
     return rows
 
@@ -568,9 +564,7 @@ def process_locus_group(
 # ---------- output writers ----------
 
 
-def _write_tsv(
-    all_rows: list[dict[str, Any]], path: str, use_gzip: bool
-) -> None:
+def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
     """Write rows as tab-separated values."""
     import gzip
 
@@ -580,10 +574,7 @@ def _write_tsv(
         fh.write(_TSV_HEADER + "\n")
         for row in all_rows:
             fh.write(
-                "\t".join(
-                    "NA" if row[c] is None else str(row[c])
-                    for c in _OUTPUT_COLS
-                )
+                "\t".join("NA" if row[c] is None else str(row[c]) for c in _OUTPUT_COLS)
                 + "\n"
             )
 
@@ -591,40 +582,41 @@ def _write_tsv(
 def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
     """Write rows as a Parquet file via pyarrow."""
     if not all_rows:
-        schema = pa.schema([
-            ("gene_id", pa.string()),
-            ("chrom", pa.string()),
-            ("gpos", pa.int32()),
-            ("strand", pa.string()),
-            ("mod_type", pa.string()),
-            ("transcript_id_1", pa.string()),
-            ("transcript_id_2", pa.string()),
-            ("position_1", pa.int32()),
-            ("position_2", pa.int32()),
-            ("mod_level_1", pa.float64()),
-            ("mod_level_2", pa.float64()),
-            ("wt_mod_level_1", pa.float64()),
-            ("wt_mod_level_2", pa.float64()),
-            ("delta_mod_level", pa.float64()),
-            ("delta_wt_mod_level", pa.float64()),
-            ("n_modified_1", pa.int32()),
-            ("n_unmodified_1", pa.int32()),
-            ("n_modified_2", pa.int32()),
-            ("n_unmodified_2", pa.int32()),
-            ("wt_modified_1", pa.float64()),
-            ("wt_unmodified_1", pa.float64()),
-            ("wt_modified_2", pa.float64()),
-            ("wt_unmodified_2", pa.float64()),
-            ("log2_or", pa.float64()),
-            ("p_value", pa.float64()),
-            ("q_value", pa.float64()),
-        ])
+        schema = pa.schema(
+            [
+                ("gene_id", pa.string()),
+                ("chrom", pa.string()),
+                ("gpos", pa.int32()),
+                ("strand", pa.string()),
+                ("mod_type", pa.string()),
+                ("transcript_id_1", pa.string()),
+                ("transcript_id_2", pa.string()),
+                ("position_1", pa.int32()),
+                ("position_2", pa.int32()),
+                ("mod_level_1", pa.float64()),
+                ("mod_level_2", pa.float64()),
+                ("wt_mod_level_1", pa.float64()),
+                ("wt_mod_level_2", pa.float64()),
+                ("delta_mod_level", pa.float64()),
+                ("delta_wt_mod_level", pa.float64()),
+                ("n_modified_1", pa.int32()),
+                ("n_unmodified_1", pa.int32()),
+                ("n_modified_2", pa.int32()),
+                ("n_unmodified_2", pa.int32()),
+                ("wt_modified_1", pa.float64()),
+                ("wt_unmodified_1", pa.float64()),
+                ("wt_modified_2", pa.float64()),
+                ("wt_unmodified_2", pa.float64()),
+                ("log2_or", pa.float64()),
+                ("p_value", pa.float64()),
+                ("q_value", pa.float64()),
+            ]
+        )
         with pq.ParquetWriter(path, schema) as w:
             w.write_table(
-                pa.table({
-                    k: pa.array([], type=schema.field(k).type)
-                    for k in schema.names
-                })
+                pa.table(
+                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
+                )
             )
         return
 
@@ -632,8 +624,12 @@ def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
     for col in _OUTPUT_COLS:
         values = [r[col] for r in all_rows]
         if col in (
-            "gene_id", "chrom", "strand", "mod_type",
-            "transcript_id_1", "transcript_id_2",
+            "gene_id",
+            "chrom",
+            "strand",
+            "mod_type",
+            "transcript_id_1",
+            "transcript_id_2",
         ):
             arrays[col] = pa.array(values)
         elif col in ("gpos", "position_1", "position_2"):
@@ -668,8 +664,7 @@ def main(args: argparse.Namespace | None = None) -> None:
     if args.verbose:
         n_sites = sum(len(v) for v in locus_groups.values())
         print(
-            f"[mod_dmt] {len(locus_groups)} locus groups, "
-            f"{n_sites} sites",
+            f"[mod_dmt] {len(locus_groups)} locus groups, {n_sites} sites",
             file=sys.stderr,
         )
 
@@ -681,9 +676,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     # ---- 3. Open HDF5 files ----
     with ExitStack() as stack:
-        h5_files = [
-            stack.enter_context(h5py.File(f, "r")) for f in args.h5
-        ]
+        h5_files = [stack.enter_context(h5py.File(f, "r")) for f in args.h5]
 
         if args.verbose:
             print(
@@ -694,9 +687,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         # ---- 4. Validate modification codes ----
         all_mod_maps = [_read_mod_codes(h5) for h5 in h5_files]
         try:
-            mod_code_map = _validate_mod_codes(
-                all_mod_maps, list(args.h5)
-            )
+            mod_code_map = _validate_mod_codes(all_mod_maps, list(args.h5))
         except ValueError as exc:
             print(f"[mod_dmt] Error: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -709,9 +700,7 @@ def main(args: argparse.Namespace | None = None) -> None:
             )
 
         # ---- 5. Determine transcript set ----
-        h5_tx_union = set.union(
-            *[set(h["transcripts"].keys()) for h in h5_files]
-        )
+        h5_tx_union = set.union(*[set(h["transcripts"].keys()) for h in h5_files])
         tx_to_load = h5_tx_union & site_tx_names
 
         if args.transcripts is not None:

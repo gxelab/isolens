@@ -71,12 +71,29 @@ def _write_sites_parquet(path, rows):
 
     columns = {}
     for col in [
-        "transcript_id", "position", "mod_type", "n_modified",
-        "wt_modified", "n_unmodified", "wt_unmodified", "n_canonical",
-        "wt_canonical", "n_othermod", "wt_othermod", "n_mismatch",
-        "wt_mismatch", "n_deletion", "wt_deletion", "n_failed",
-        "wt_failed", "mod_level", "wt_mod_level",
-        "gene_id", "chrom", "strand", "gpos",
+        "transcript_id",
+        "position",
+        "mod_type",
+        "n_modified",
+        "wt_modified",
+        "n_unmodified",
+        "wt_unmodified",
+        "n_canonical",
+        "wt_canonical",
+        "n_othermod",
+        "wt_othermod",
+        "n_mismatch",
+        "wt_mismatch",
+        "n_deletion",
+        "wt_deletion",
+        "n_failed",
+        "wt_failed",
+        "mod_level",
+        "wt_mod_level",
+        "gene_id",
+        "chrom",
+        "strand",
+        "gpos",
     ]:
         values = [r.get(col) for r in rows]
         if col in ("transcript_id", "mod_type", "gene_id", "chrom", "strand"):
@@ -101,21 +118,35 @@ def _write_sites_tsv(path, rows):
         "\tgene_id\tchrom\tstrand\tgpos"
     )
     cols = [
-        "transcript_id", "position", "mod_type", "n_modified",
-        "wt_modified", "n_unmodified", "wt_unmodified", "n_canonical",
-        "wt_canonical", "n_othermod", "wt_othermod", "n_mismatch",
-        "wt_mismatch", "n_deletion", "wt_deletion", "n_failed",
-        "wt_failed", "mod_level", "wt_mod_level",
-        "gene_id", "chrom", "strand", "gpos",
+        "transcript_id",
+        "position",
+        "mod_type",
+        "n_modified",
+        "wt_modified",
+        "n_unmodified",
+        "wt_unmodified",
+        "n_canonical",
+        "wt_canonical",
+        "n_othermod",
+        "wt_othermod",
+        "n_mismatch",
+        "wt_mismatch",
+        "n_deletion",
+        "wt_deletion",
+        "n_failed",
+        "wt_failed",
+        "mod_level",
+        "wt_mod_level",
+        "gene_id",
+        "chrom",
+        "strand",
+        "gpos",
     ]
     with open(path, "w") as f:
         f.write(header + "\n")
         for row in rows:
             f.write(
-                "\t".join(
-                    "NA" if row.get(c) is None else str(row[c])
-                    for c in cols
-                )
+                "\t".join("NA" if row.get(c) is None else str(row[c]) for c in cols)
                 + "\n"
             )
 
@@ -188,12 +219,8 @@ class TestAggregateToGene:
     def test_two_rows_same_gene_position_summed(self):
         """Two rows with same (gene, gpos, mod_type) are summed."""
         rows = [
-            _make_row(
-                transcript_id="TX1", position=42, n_modified=5, n_unmodified=45
-            ),
-            _make_row(
-                transcript_id="TX2", position=100, n_modified=5, n_unmodified=45
-            ),
+            _make_row(transcript_id="TX1", position=42, n_modified=5, n_unmodified=45),
+            _make_row(transcript_id="TX2", position=100, n_modified=5, n_unmodified=45),
         ]
         result = aggregate_to_gene(rows)
         assert len(result) == 1
@@ -263,8 +290,7 @@ class TestAggregateToGene:
     def test_zero_denominator(self):
         """When n_modified + n_unmodified = 0, mod_level is 0."""
         rows = [
-            _make_row(n_modified=0, n_unmodified=0,
-                      wt_modified=0.0, wt_unmodified=0.0),
+            _make_row(n_modified=0, n_unmodified=0, wt_modified=0.0, wt_unmodified=0.0),
         ]
         result = aggregate_to_gene(rows)
         assert result[0]["mod_level"] == 0.0
@@ -274,17 +300,35 @@ class TestAggregateToGene:
         """All count and weighted-count columns are summed."""
         rows = [
             _make_row(
-                n_modified=1, n_unmodified=2, n_canonical=3,
-                n_othermod=4, n_mismatch=5, n_deletion=6, n_failed=7,
-                wt_modified=0.1, wt_unmodified=0.2, wt_canonical=0.3,
-                wt_othermod=0.4, wt_mismatch=0.5, wt_deletion=0.6,
+                n_modified=1,
+                n_unmodified=2,
+                n_canonical=3,
+                n_othermod=4,
+                n_mismatch=5,
+                n_deletion=6,
+                n_failed=7,
+                wt_modified=0.1,
+                wt_unmodified=0.2,
+                wt_canonical=0.3,
+                wt_othermod=0.4,
+                wt_mismatch=0.5,
+                wt_deletion=0.6,
                 wt_failed=0.7,
             ),
             _make_row(
-                n_modified=1, n_unmodified=2, n_canonical=3,
-                n_othermod=4, n_mismatch=5, n_deletion=6, n_failed=7,
-                wt_modified=0.1, wt_unmodified=0.2, wt_canonical=0.3,
-                wt_othermod=0.4, wt_mismatch=0.5, wt_deletion=0.6,
+                n_modified=1,
+                n_unmodified=2,
+                n_canonical=3,
+                n_othermod=4,
+                n_mismatch=5,
+                n_deletion=6,
+                n_failed=7,
+                wt_modified=0.1,
+                wt_unmodified=0.2,
+                wt_canonical=0.3,
+                wt_othermod=0.4,
+                wt_mismatch=0.5,
+                wt_deletion=0.6,
                 wt_failed=0.7,
             ),
         ]
@@ -329,7 +373,9 @@ class TestReadInput:
         rows = [
             _make_row(),
             _make_row(
-                transcript_id="TX2", n_modified=5, n_unmodified=45,
+                transcript_id="TX2",
+                n_modified=5,
+                n_unmodified=45,
                 mod_level=0.1,
             ),
         ]
@@ -357,9 +403,14 @@ class TestReadInput:
         """TSV 'NA' values become None for gene_id/chrom/strand/gpos."""
         rows = [
             _make_row(
-                gene_id=None, chrom=None, strand=None, gpos=None,
-                n_modified=0, wt_modified=0.0,
-                n_unmodified=0, wt_unmodified=0.0,
+                gene_id=None,
+                chrom=None,
+                strand=None,
+                gpos=None,
+                n_modified=0,
+                wt_modified=0.0,
+                n_unmodified=0,
+                wt_unmodified=0.0,
             )
         ]
         in_path = str(tmp_path / "sites.tsv")
@@ -509,8 +560,7 @@ class TestMain:
             in_path,
             [
                 _make_row(gene_id="G1", gpos=100),
-                _make_row(gene_id="G1", gpos=None, position=99,
-                          n_modified=99),
+                _make_row(gene_id="G1", gpos=None, position=99, n_modified=99),
             ],
         )
 
@@ -535,9 +585,7 @@ class TestOutputCols:
     """Verify _OUTPUT_COLS structure."""
 
     def test_first_five_are_key_columns(self):
-        assert _OUTPUT_COLS[:5] == [
-            "gene_id", "chrom", "strand", "gpos", "mod_type"
-        ]
+        assert _OUTPUT_COLS[:5] == ["gene_id", "chrom", "strand", "gpos", "mod_type"]
 
     def test_last_two_are_mod_levels(self):
         assert _OUTPUT_COLS[-2:] == ["mod_level", "wt_mod_level"]

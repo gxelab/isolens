@@ -181,16 +181,14 @@ def parse_args() -> argparse.Namespace:
         "--min-mod-level",
         type=float,
         default=0.05,
-        help="Minimum modification level for a site to be "
-        "considered [default: 0.05]",
+        help="Minimum modification level for a site to be considered [default: 0.05]",
     )
     parser.add_argument(
         "-c",
         "--min-coverage",
         type=int,
         default=10,
-        help="Minimum total depth for a site to be "
-        "considered [default: 10]",
+        help="Minimum total depth for a site to be considered [default: 10]",
     )
     parser.add_argument(
         "-p",
@@ -226,8 +224,7 @@ def parse_args() -> argparse.Namespace:
         "--metric",
         choices=["corr", "wcorr", "mi", "wmi", "or", "wor"],
         default="wcorr",
-        help="Association statistic to visualize in heatmaps "
-        "[default: wcorr]",
+        help="Association statistic to visualize in heatmaps [default: wcorr]",
     )
     parser.add_argument(
         "-x",
@@ -320,8 +317,15 @@ def _read_sites_tsv(
         for line in f:
             parts = line.strip().split("\t")
             if len(parts) <= max(
-                tx_col, pos_col, mod_col, nmod_col, nunmod_col,
-                nmis_col, ndel_col, nfail_col, ml_col,
+                tx_col,
+                pos_col,
+                mod_col,
+                nmod_col,
+                nunmod_col,
+                nmis_col,
+                ndel_col,
+                nfail_col,
+                ml_col,
             ):
                 continue
             tx = parts[tx_col]
@@ -346,9 +350,7 @@ def _read_sites_tsv(
 # ---------- statistics ----------
 
 
-def _pearson_r_from_counts(
-    n11: float, n10: float, n01: float, n00: float
-) -> float:
+def _pearson_r_from_counts(n11: float, n10: float, n01: float, n00: float) -> float:
     """Compute Pearson correlation from a 2×2 contingency table.
 
     For binary (0/1) variables, Pearson's r is mathematically equivalent
@@ -989,8 +991,9 @@ def _read_mod_codes(h5: h5py.File) -> dict[str, int]:
 
     Returns ``{mod_type_str: code}`` dict.
     """
-    return {mod_str: int(code) for mod_str, code in
-            h5["modification_codes"].attrs.items()}
+    return {
+        mod_str: int(code) for mod_str, code in h5["modification_codes"].attrs.items()
+    }
 
 
 def _validate_mod_codes(
@@ -1151,8 +1154,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
         if args.verbose:
             file_counts = ", ".join(
-                f"{f}: {len(s)} tx"
-                for f, s in zip(args.h5, all_h5_tx_sets)
+                f"{f}: {len(s)} tx" for f, s in zip(args.h5, all_h5_tx_sets)
             )
             print(
                 f"[mod_corr] {len(common_tx)} transcripts in common "
@@ -1185,9 +1187,7 @@ def main(args: argparse.Namespace | None = None) -> None:
                 continue
 
             try:
-                _validate_tx_lengths(
-                    tx_name, tx_lengths_found, list(args.h5)
-                )
+                _validate_tx_lengths(tx_name, tx_lengths_found, list(args.h5))
             except ValueError as exc:
                 print(
                     f"[mod_corr] Warning: {exc} — skipping transcript",
@@ -1226,8 +1226,7 @@ def main(args: argparse.Namespace | None = None) -> None:
             processed += 1
             if args.verbose and processed % 1000 == 0:
                 print(
-                    f"[mod_corr] Processed {processed}/{len(common_tx)} "
-                    f"transcripts...",
+                    f"[mod_corr] Processed {processed}/{len(common_tx)} transcripts...",
                     file=sys.stderr,
                 )
 
@@ -1245,9 +1244,7 @@ def main(args: argparse.Namespace | None = None) -> None:
                 "[mod_corr] Generating rotated triangular heatmap PDFs...",
                 file=sys.stderr,
             )
-        _generate_plots(
-            all_rows, list(args.h5), args.plot_dir, all_sites, args.metric
-        )
+        _generate_plots(all_rows, list(args.h5), args.plot_dir, all_sites, args.metric)
         if args.verbose:
             print(f"[mod_corr] Plots written to {args.plot_dir}/", file=sys.stderr)
 

@@ -39,9 +39,17 @@ except ImportError:
 
 
 def _make_site(
-    gene_id="G1", chrom="2L", strand="+", gpos=100, mod_type="a",
-    n_modified=10, n_unmodified=90, wt_modified=8.5, wt_unmodified=85.0,
-    mod_level=0.1, wt_mod_level=0.091,
+    gene_id="G1",
+    chrom="2L",
+    strand="+",
+    gpos=100,
+    mod_type="a",
+    n_modified=10,
+    n_unmodified=90,
+    wt_modified=8.5,
+    wt_unmodified=85.0,
+    mod_level=0.1,
+    wt_mod_level=0.091,
 ):
     """Create a gene-level site dict matching mod_gene output columns."""
     return {
@@ -62,9 +70,17 @@ def _make_site(
 def _write_gene_parquet(path, rows):
     """Write a list of gene-level site dicts as a Parquet file."""
     cols = [
-        "gene_id", "chrom", "strand", "gpos", "mod_type",
-        "n_modified", "wt_modified", "n_unmodified", "wt_unmodified",
-        "mod_level", "wt_mod_level",
+        "gene_id",
+        "chrom",
+        "strand",
+        "gpos",
+        "mod_type",
+        "n_modified",
+        "wt_modified",
+        "n_unmodified",
+        "wt_unmodified",
+        "mod_level",
+        "wt_mod_level",
     ]
     arrays = {}
     for c in cols:
@@ -133,10 +149,13 @@ class TestReadGeneSummary:
 
     def test_parquet(self, tmp_path):
         path = str(tmp_path / "genes.parquet")
-        _write_gene_parquet(path, [
-            _make_site(gene_id="G1", gpos=100, mod_type="a"),
-            _make_site(gene_id="G1", gpos=200, mod_type="m"),
-        ])
+        _write_gene_parquet(
+            path,
+            [
+                _make_site(gene_id="G1", gpos=100, mod_type="a"),
+                _make_site(gene_id="G1", gpos=200, mod_type="m"),
+            ],
+        )
         sites = read_gene_summary(path)
         assert len(sites) == 2
         assert ("G1", "2L", "+", 100, "a") in sites
@@ -150,9 +169,7 @@ class TestReadGeneSummary:
                 "n_modified\twt_modified\tn_unmodified\twt_unmodified\t"
                 "mod_level\twt_mod_level\n"
             )
-            f.write(
-                "G1\t2L\t+\t100\ta\t10\t8.5\t90\t85.0\t0.1\t0.091\n"
-            )
+            f.write("G1\t2L\t+\t100\ta\t10\t8.5\t90\t85.0\t0.1\t0.091\n")
         sites = read_gene_summary(path)
         assert len(sites) == 1
         s = sites[("G1", "2L", "+", 100, "a")]
@@ -168,9 +185,7 @@ class TestReadGeneSummary:
                 "n_modified\twt_modified\tn_unmodified\twt_unmodified\t"
                 "mod_level\twt_mod_level\n"
             )
-            f.write(
-                "G1\t2L\t+\t100\ta\t0\t0.0\t0\t0.0\tNA\tNA\n"
-            )
+            f.write("G1\t2L\t+\t100\ta\t0\t0.0\t0\t0.0\tNA\tNA\n")
         sites = read_gene_summary(path)
         s = sites[("G1", "2L", "+", 100, "a")]
         assert s["mod_level"] is None
@@ -187,16 +202,22 @@ class TestProcessMatchedSites:
         """One matched gene-site with strong difference."""
         sites_1 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=0, n_unmodified=100,
-                wt_modified=0.0, wt_unmodified=100.0,
-                mod_level=0.0, wt_mod_level=0.0,
+                n_modified=0,
+                n_unmodified=100,
+                wt_modified=0.0,
+                wt_unmodified=100.0,
+                mod_level=0.0,
+                wt_mod_level=0.0,
             ),
         }
         sites_2 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=100, n_unmodified=0,
-                wt_modified=100.0, wt_unmodified=0.0,
-                mod_level=1.0, wt_mod_level=1.0,
+                n_modified=100,
+                n_unmodified=0,
+                wt_modified=100.0,
+                wt_unmodified=0.0,
+                mod_level=1.0,
+                wt_mod_level=1.0,
             ),
         }
         rows = process_matched_sites(sites_1, sites_2)
@@ -213,9 +234,12 @@ class TestProcessMatchedSites:
     def test_no_difference(self):
         """Equal modification levels → large p-value, log2OR ≈ 0."""
         site = _make_site(
-            n_modified=50, n_unmodified=50,
-            wt_modified=50.0, wt_unmodified=50.0,
-            mod_level=0.5, wt_mod_level=0.5,
+            n_modified=50,
+            n_unmodified=50,
+            wt_modified=50.0,
+            wt_unmodified=50.0,
+            mod_level=0.5,
+            wt_mod_level=0.5,
         )
         sites_1 = {("G1", "2L", "+", 100, "a"): site}
         sites_2 = {("G1", "2L", "+", 100, "a"): site}
@@ -238,12 +262,14 @@ class TestProcessMatchedSites:
         """Zero total counts in one condition → skipped."""
         sites_1 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=0, n_unmodified=0,
+                n_modified=0,
+                n_unmodified=0,
             ),
         }
         sites_2 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=10, n_unmodified=10,
+                n_modified=10,
+                n_unmodified=10,
             ),
         }
         rows = process_matched_sites(sites_1, sites_2)
@@ -253,14 +279,18 @@ class TestProcessMatchedSites:
         """Weighted counts are correctly rounded."""
         sites_1 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=10, n_unmodified=90,
-                wt_modified=10.4, wt_unmodified=89.6,
+                n_modified=10,
+                n_unmodified=90,
+                wt_modified=10.4,
+                wt_unmodified=89.6,
             ),
         }
         sites_2 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=90, n_unmodified=10,
-                wt_modified=89.6, wt_unmodified=10.4,
+                n_modified=90,
+                n_unmodified=10,
+                wt_modified=89.6,
+                wt_unmodified=10.4,
             ),
         }
         rows = process_matched_sites(sites_1, sites_2)
@@ -277,17 +307,23 @@ class TestProcessMatchedSites:
             ("G1", "2L", "+", 100, "a"): _make_site(),
             ("G1", "2L", "+", 200, "m"): _make_site(mod_type="m"),
             ("G2", "3R", "-", 500, "a"): _make_site(
-                gene_id="G2", chrom="3R", strand="-", gpos=500,
+                gene_id="G2",
+                chrom="3R",
+                strand="-",
+                gpos=500,
             ),
         }
         sites_2 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=20, n_unmodified=80,
-                wt_modified=18.0, wt_unmodified=75.0,
+                n_modified=20,
+                n_unmodified=80,
+                wt_modified=18.0,
+                wt_unmodified=75.0,
             ),
             ("G1", "2L", "+", 200, "m"): _make_site(
                 mod_type="m",
-                n_modified=5, n_unmodified=95,
+                n_modified=5,
+                n_unmodified=95,
             ),
             # G2 only in cond1 → not matched
         }
@@ -301,22 +337,38 @@ class TestProcessMatchedSites:
         }
         sites_2 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=20, n_unmodified=80,
+                n_modified=20,
+                n_unmodified=80,
             ),
         }
         rows = process_matched_sites(sites_1, sites_2)
         assert len(rows) == 1
         expected = {
-            "gene_id", "chrom", "strand", "gpos", "mod_type",
-            "n_modified_1", "n_unmodified_1",
-            "n_modified_2", "n_unmodified_2",
-            "wt_modified_1", "wt_unmodified_1",
-            "wt_modified_2", "wt_unmodified_2",
-            "mod_level_1", "mod_level_2",
-            "wt_mod_level_1", "wt_mod_level_2",
-            "delta_mod_level", "delta_wt_mod_level",
-            "log2_or", "p_value", "q_value",
-            "w_log2_or", "w_p_value", "w_q_value",
+            "gene_id",
+            "chrom",
+            "strand",
+            "gpos",
+            "mod_type",
+            "n_modified_1",
+            "n_unmodified_1",
+            "n_modified_2",
+            "n_unmodified_2",
+            "wt_modified_1",
+            "wt_unmodified_1",
+            "wt_modified_2",
+            "wt_unmodified_2",
+            "mod_level_1",
+            "mod_level_2",
+            "wt_mod_level_1",
+            "wt_mod_level_2",
+            "delta_mod_level",
+            "delta_wt_mod_level",
+            "log2_or",
+            "p_value",
+            "q_value",
+            "w_log2_or",
+            "w_p_value",
+            "w_q_value",
         }
         assert set(rows[0].keys()) == expected
 
@@ -327,7 +379,8 @@ class TestProcessMatchedSites:
         }
         sites_2 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                n_modified=20, n_unmodified=80,
+                n_modified=20,
+                n_unmodified=80,
             ),
         }
         rows = process_matched_sites(sites_1, sites_2)
@@ -338,12 +391,14 @@ class TestProcessMatchedSites:
         """delta_mod_level = mod_level_2 - mod_level_1."""
         sites_1 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                mod_level=0.2, wt_mod_level=0.19,
+                mod_level=0.2,
+                wt_mod_level=0.19,
             ),
         }
         sites_2 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                mod_level=0.8, wt_mod_level=0.81,
+                mod_level=0.8,
+                wt_mod_level=0.81,
             ),
         }
         rows = process_matched_sites(sites_1, sites_2)
@@ -354,12 +409,14 @@ class TestProcessMatchedSites:
         """NULL mod_levels produce NULL deltas."""
         sites_1 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                mod_level=None, wt_mod_level=None,
+                mod_level=None,
+                wt_mod_level=None,
             ),
         }
         sites_2 = {
             ("G1", "2L", "+", 100, "a"): _make_site(
-                mod_level=None, wt_mod_level=None,
+                mod_level=None,
+                wt_mod_level=None,
             ),
         }
         rows = process_matched_sites(sites_1, sites_2)
@@ -450,11 +507,15 @@ class TestCLI:
 
     def test_required_args(self):
         argv = [
-            "--sites-1", "a.parquet",
-            "--sites-2", "b.parquet",
-            "-o", "out.parquet",
+            "--sites-1",
+            "a.parquet",
+            "--sites-2",
+            "b.parquet",
+            "-o",
+            "out.parquet",
         ]
         import sys as _sys
+
         _sys.argv = ["mod_dmcg"] + argv
         args = parse_args()
         assert args.sites_1 == "a.parquet"
@@ -463,14 +524,19 @@ class TestCLI:
 
     def test_optional_args(self):
         argv = [
-            "--sites-1", "a.parquet",
-            "--sites-2", "b.parquet",
-            "-o", "out.tsv",
-            "-f", "tsv",
+            "--sites-1",
+            "a.parquet",
+            "--sites-2",
+            "b.parquet",
+            "-o",
+            "out.tsv",
+            "-f",
+            "tsv",
             "-z",
             "-v",
         ]
         import sys as _sys
+
         _sys.argv = ["mod_dmcg"] + argv
         args = parse_args()
         assert args.format == "tsv"
@@ -491,23 +557,39 @@ class TestMainIntegration:
         out_path = str(tmp_path / "out.parquet")
 
         # Condition 1: low modification
-        _write_gene_parquet(sites_1_path, [
-            _make_site(
-                gene_id="G1", gpos=100, mod_type="a",
-                n_modified=5, n_unmodified=95,
-                wt_modified=4.5, wt_unmodified=90.0,
-                mod_level=0.05, wt_mod_level=0.048,
-            ),
-        ])
+        _write_gene_parquet(
+            sites_1_path,
+            [
+                _make_site(
+                    gene_id="G1",
+                    gpos=100,
+                    mod_type="a",
+                    n_modified=5,
+                    n_unmodified=95,
+                    wt_modified=4.5,
+                    wt_unmodified=90.0,
+                    mod_level=0.05,
+                    wt_mod_level=0.048,
+                ),
+            ],
+        )
         # Condition 2: high modification
-        _write_gene_parquet(sites_2_path, [
-            _make_site(
-                gene_id="G1", gpos=100, mod_type="a",
-                n_modified=80, n_unmodified=20,
-                wt_modified=75.0, wt_unmodified=18.0,
-                mod_level=0.8, wt_mod_level=0.806,
-            ),
-        ])
+        _write_gene_parquet(
+            sites_2_path,
+            [
+                _make_site(
+                    gene_id="G1",
+                    gpos=100,
+                    mod_type="a",
+                    n_modified=80,
+                    n_unmodified=20,
+                    wt_modified=75.0,
+                    wt_unmodified=18.0,
+                    mod_level=0.8,
+                    wt_mod_level=0.806,
+                ),
+            ],
+        )
 
         args = argparse.Namespace(
             sites_1=sites_1_path,
@@ -534,12 +616,18 @@ class TestMainIntegration:
         sites_2_path = str(tmp_path / "g2.parquet")
         out_path = str(tmp_path / "out.parquet")
 
-        _write_gene_parquet(sites_1_path, [
-            _make_site(gene_id="G1", gpos=100),
-        ])
-        _write_gene_parquet(sites_2_path, [
-            _make_site(gene_id="G2", gpos=200),  # different gene
-        ])
+        _write_gene_parquet(
+            sites_1_path,
+            [
+                _make_site(gene_id="G1", gpos=100),
+            ],
+        )
+        _write_gene_parquet(
+            sites_2_path,
+            [
+                _make_site(gene_id="G2", gpos=200),  # different gene
+            ],
+        )
 
         args = argparse.Namespace(
             sites_1=sites_1_path,
@@ -560,9 +648,12 @@ class TestMainIntegration:
         sites_path = str(tmp_path / "g.parquet")
         out_path = str(tmp_path / "out.tsv")
 
-        _write_gene_parquet(sites_path, [
-            _make_site(n_modified=10, n_unmodified=90),
-        ])
+        _write_gene_parquet(
+            sites_path,
+            [
+                _make_site(n_modified=10, n_unmodified=90),
+            ],
+        )
 
         args = argparse.Namespace(
             sites_1=sites_path,
@@ -586,22 +677,34 @@ class TestMainIntegration:
         out_path = str(tmp_path / "out.parquet")
 
         # Three gene-sites with varying effect sizes
-        _write_gene_parquet(sites_1_path, [
-            _make_site(gene_id="G1", gpos=100, mod_type="a",
-                       n_modified=0, n_unmodified=100),
-            _make_site(gene_id="G2", gpos=200, mod_type="a",
-                       n_modified=30, n_unmodified=70),
-            _make_site(gene_id="G3", gpos=300, mod_type="a",
-                       n_modified=45, n_unmodified=55),
-        ])
-        _write_gene_parquet(sites_2_path, [
-            _make_site(gene_id="G1", gpos=100, mod_type="a",
-                       n_modified=100, n_unmodified=0),
-            _make_site(gene_id="G2", gpos=200, mod_type="a",
-                       n_modified=70, n_unmodified=30),
-            _make_site(gene_id="G3", gpos=300, mod_type="a",
-                       n_modified=55, n_unmodified=45),
-        ])
+        _write_gene_parquet(
+            sites_1_path,
+            [
+                _make_site(
+                    gene_id="G1", gpos=100, mod_type="a", n_modified=0, n_unmodified=100
+                ),
+                _make_site(
+                    gene_id="G2", gpos=200, mod_type="a", n_modified=30, n_unmodified=70
+                ),
+                _make_site(
+                    gene_id="G3", gpos=300, mod_type="a", n_modified=45, n_unmodified=55
+                ),
+            ],
+        )
+        _write_gene_parquet(
+            sites_2_path,
+            [
+                _make_site(
+                    gene_id="G1", gpos=100, mod_type="a", n_modified=100, n_unmodified=0
+                ),
+                _make_site(
+                    gene_id="G2", gpos=200, mod_type="a", n_modified=70, n_unmodified=30
+                ),
+                _make_site(
+                    gene_id="G3", gpos=300, mod_type="a", n_modified=55, n_unmodified=45
+                ),
+            ],
+        )
 
         args = argparse.Namespace(
             sites_1=sites_1_path,
@@ -623,6 +726,4 @@ class TestMainIntegration:
         for q in w_q_vals:
             assert 0.0 <= q <= 1.0
         # At least one should be significant (G1: 0 vs 100)
-        assert any(
-            q < 0.05 for q in q_vals if not np.isnan(q)
-        )
+        assert any(q < 0.05 for q in q_vals if not np.isnan(q))

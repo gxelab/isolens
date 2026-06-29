@@ -30,10 +30,7 @@ _GTF_HEADER = "##gtf-version 2.2\n"
 
 def _make_gtf_line(chrom, feature, start, end, strand, attrs):
     """Build a minimal GTF line with the given attributes string."""
-    return (
-        f"{chrom}\t.\t{feature}\t{start}\t{end}\t.\t"
-        f"{strand}\t.\t{attrs}\n"
-    )
+    return f"{chrom}\t.\t{feature}\t{start}\t{end}\t.\t{strand}\t.\t{attrs}\n"
 
 
 class TestMainIntegration:
@@ -42,15 +39,21 @@ class TestMainIntegration:
     def test_single_gene_two_transcripts(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
 
@@ -67,16 +70,22 @@ class TestMainIntegration:
     def test_single_gene_three_transcripts(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-            "TX2\t1\t3\t140.0\t1.0,1.0,1.0\t90,140,190\tGENE_A",
-            "TX3\t2\t3\t130.0\t1.0,1.0,1.0\t80,130,180\tGENE_A",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t1\t3\t140.0\t1.0,1.0,1.0\t90,140,190\tGENE_A",
+                "TX3\t2\t3\t130.0\t1.0,1.0,1.0\t80,130,180\tGENE_A",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
 
@@ -87,17 +96,23 @@ class TestMainIntegration:
     def test_two_genes(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
-            "TX2\t1\t2\t120.0\t1.0,1.0\t80,160\tGENE_A",
-            "TX3\t2\t2\t300.0\t1.0,1.0\t250,350\tGENE_B",
-            "TX4\t3\t2\t280.0\t1.0,1.0\t230,330\tGENE_B",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
+                "TX2\t1\t2\t120.0\t1.0,1.0\t80,160\tGENE_A",
+                "TX3\t2\t2\t300.0\t1.0,1.0\t250,350\tGENE_B",
+                "TX4\t3\t2\t280.0\t1.0,1.0\t230,330\tGENE_B",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
 
@@ -108,30 +123,49 @@ class TestMainIntegration:
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
         gtf_path = tmp_path / "test.gtf"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160",
+            ],
+        )
         gtf_lines = [
             _GTF_HEADER,
-            _make_gtf_line("chr1", "gene", 1, 200, "+",
-                           'gene_id "GENE_A";'),
-            _make_gtf_line("chr1", "transcript", 1, 100, "+",
-                           'gene_id "GENE_A"; transcript_id "TX1";'),
-            _make_gtf_line("chr1", "exon", 1, 100, "+",
-                           'gene_id "GENE_A"; transcript_id "TX1";'),
-            _make_gtf_line("chr1", "transcript", 101, 200, "+",
-                           'gene_id "GENE_A"; transcript_id "TX2";'),
-            _make_gtf_line("chr1", "exon", 101, 200, "+",
-                           'gene_id "GENE_A"; transcript_id "TX2";'),
+            _make_gtf_line("chr1", "gene", 1, 200, "+", 'gene_id "GENE_A";'),
+            _make_gtf_line(
+                "chr1",
+                "transcript",
+                1,
+                100,
+                "+",
+                'gene_id "GENE_A"; transcript_id "TX1";',
+            ),
+            _make_gtf_line(
+                "chr1", "exon", 1, 100, "+", 'gene_id "GENE_A"; transcript_id "TX1";'
+            ),
+            _make_gtf_line(
+                "chr1",
+                "transcript",
+                101,
+                200,
+                "+",
+                'gene_id "GENE_A"; transcript_id "TX2";',
+            ),
+            _make_gtf_line(
+                "chr1", "exon", 101, 200, "+", 'gene_id "GENE_A"; transcript_id "TX2";'
+            ),
         ]
         gtf_path.write_text("".join(gtf_lines))
 
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=str(gtf_path), gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=str(gtf_path),
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
 
@@ -142,15 +176,21 @@ class TestMainIntegration:
     def test_gene_id_column_present(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
 
@@ -161,15 +201,21 @@ class TestMainIntegration:
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
         # TX1: all probs < 0.5 → filtered out entirely
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t0.1,0.1,0.1\t100,150,200\tGENE_A",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t0.1,0.1,0.1\t100,150,200\tGENE_A",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.5, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.5,
+            min_pareads=1,
         )
         with pytest.raises(SystemExit):
             main(args)
@@ -177,15 +223,21 @@ class TestMainIntegration:
     def test_min_pareads_threshold(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-            "TX2\t1\t2\t120.0\t1.0,1.0\t80,160\tGENE_A",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t1\t2\t120.0\t1.0,1.0\t80,160\tGENE_A",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=5,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=5,
         )
         main(args)
 
@@ -198,15 +250,21 @@ class TestMainIntegration:
     def test_single_transcript_gene_skipped(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_B",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_B",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         with pytest.raises(SystemExit):
             main(args)
@@ -214,15 +272,21 @@ class TestMainIntegration:
     def test_missing_gene_id_no_gtf(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         with pytest.raises(SystemExit):
             main(args)
@@ -230,15 +294,21 @@ class TestMainIntegration:
     def test_gzipped_output(self, tmp_path):
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=True,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=True,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
         gz_path = tmp_path / "out.tsv.gz"
@@ -265,9 +335,12 @@ class TestMainIntegration:
                 )
         _make_polya_tsv(in_path, polya_lines)
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
 
@@ -288,16 +361,22 @@ class TestMainIntegration:
         """Transcripts with gene_id='NA' are skipped."""
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
-            "TX3\t2\t3\t100.0\t1.0,1.0,1.0\t60,100,140\tNA",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
+                "TX3\t2\t3\t100.0\t1.0,1.0,1.0\t60,100,140\tNA",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
         lines = out_path.read_text().strip().split("\n")
@@ -307,16 +386,22 @@ class TestMainIntegration:
         """Reads with negative pa_lens (-1) are excluded from effective count."""
         in_path = tmp_path / "in.tsv"
         out_path = tmp_path / "out.tsv"
-        _make_polya_tsv(in_path, [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-            # TX1: 3 reads, only 1 effective (non-negative length)
-            "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,-1,-1\tGENE_A",
-            "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
-        ])
+        _make_polya_tsv(
+            in_path,
+            [
+                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
+                # TX1: 3 reads, only 1 effective (non-negative length)
+                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,-1,-1\tGENE_A",
+                "TX2\t1\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
+            ],
+        )
         args = argparse.Namespace(
-            input=str(in_path), output=str(out_path),
-            gtf=None, gzip=False,
-            min_asp=0.0, min_pareads=1,
+            input=str(in_path),
+            output=str(out_path),
+            gtf=None,
+            gzip=False,
+            min_asp=0.0,
+            min_pareads=1,
         )
         main(args)
         lines = out_path.read_text().strip().split("\n")
