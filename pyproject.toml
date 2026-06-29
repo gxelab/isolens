@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "isolens"
-version = "0.3.0"
+version = "0.4.0"
 description = "Long-Read Kit"
 readme = "README.md"
 license = { file = "LICENSE" }

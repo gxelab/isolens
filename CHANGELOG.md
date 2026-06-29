@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-29
+
 ### Added
 
 - `mod_gene` module — gene-level aggregation of transcript-level modification site
@@ -26,27 +28,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   conditions. Takes gene-level site summaries from `mod_gene` as input and
   applies Fisher's exact test (both unweighted on integer counts and weighted on
   rounded `wt_modified` / `wt_unmodified`). No HDF5 or read-level data required.
+- `polya_bimodal` module — bimodal poly(A) tail length detection via Gaussian
+  mixture modeling and KDE peak-finding. Identifies transcripts with two
+  distinct poly(A) length populations and reports per-mode statistics.
+- `polya_dpc` module — compare poly(A) length distributions between two
+  conditions using weighted mean difference and weighted two-sample KS test
+  with Kish's effective sample size correction.
+- `polya_dpt` module — differential poly(A) tail length testing with weighted
+  t-test, Mann-Whitney U test, and Kolmogorov-Smirnov test backed by shared
+  `stats.py`. Reports test statistics, p-values, and BH FDR q-values.
+- `stats.py` — shared statistics backend for poly(A) differential analysis
+  providing `WeightedTTest`, `WeightedMannWhitney`, and `WeightedKS` functions.
 - `_stats` module — shared statistics backend providing `weighted_logistic_test`
   (closed-form weighted MLE for logistic regression with a single binary
   predictor, using Haldane-Anscombe correction and Wald test) and `bh_fdr`
   (Benjamini-Hochberg FDR correction). Used by `mod_dmc`, `mod_dmt`, and
   `mod_dmcg`.
+- `_gtf.py` — shared GTF parsing utilities (`load_gtf`, `build_tx_to_gene`)
+  with import guarding and progress logging.
 - `--gtf` (`-g`) option to `mod_sites` for mapping transcript coordinates to
   genomic coordinates, adding `gene_id`, `chrom`, `strand`, and `gpos` columns
   to the output.
+- `--gtf` / `--tx2gene` options to `polya_calc` and `polya_t2g` for direct
+  GTF-to-gene mapping.
 - Multi-file HDF5 pooling support in `mod_sites` and `mod_corr`: `--h5` (`-i`)
   now accepts multiple files and pools reads for the same transcript across all
   files before computing statistics. Validates consistent modification codes
   and transcript lengths across files.
+- `-k` short flag for `--kde-prominence` in `polya_bimodal`.
 
 ### Changed
 
+- Replaced `polya_diff` with `polya_dpc` + `polya_dpt` backed by shared
+  `stats.py`, providing richer statistical tests and shared infrastructure.
+- Renamed TSV column `tx_name` to `transcript_id` in all poly(A) modules
+  for consistency with the modification modules.
+- Refactored GTF parsing from `polya_t2g`, `polya_calc`, and `mod_sites` into
+  shared `_gtf.py` module.
 - `mod_corr` plot flag renamed from `-P`/`--plot` to `-d`/`--plot-dir` with
   added `-t`/`--metric` option to select the association statistic visualized
   in heatmaps (default: `wcorr`).
 - `mod_corr` now computes both unweighted and weighted variants of all
   association metrics (Pearson r, p-value, q-value, mutual information, odds
   ratio).
+- Updated README with comprehensive module documentation.
+
+### Removed
+
+- `polya_diff` module (replaced by `polya_dpc` + `polya_dpt`).
+- Rust implementation draft (`rust/` directory).
+
+### Fixed
+
+- CI and lint issues.
+
+## [0.3.0] - 2026-06-25
+
+### Added
+
+- Flexible LZ4 probability file and BAM file extractors in `_parsing.py`.
+
+### Changed
+
+- Revised alignment state classification to align with `modkit` conventions
+  (canonical match, mismatch, deletion, modification).
+- Improved efficiency and memory use in `mod_scan` and `mod_sites`.
+- Improved code quality, test coverage, and cleanup across all modules.
 
 ## [0.2.0] - 2026-06-21
 
@@ -151,6 +198,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` with `hatchling` build backend.
 - CI workflow for testing and publishing to PyPI.
 
-[Unreleased]: https://github.com/gxelab/isolens/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/gxelab/isolens/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/gxelab/isolens/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/gxelab/isolens/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gxelab/isolens/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gxelab/isolens/releases/tag/v0.1.0
