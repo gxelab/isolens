@@ -11,8 +11,8 @@ import numpy as np
 try:
     from isolens._io import ensure_gz_suffix, format_float
     from isolens._parsing import open_by_suffix, parse_polyA_file
-    from isolens._stats import bh_fdr
-    from isolens.stats import (
+    from isolens._stats import (
+        bh_fdr,
         weighted_ks_test,
         weighted_rank_sum_test,
         weighted_t_test,
@@ -24,8 +24,8 @@ except ImportError:
         open_by_suffix,
         parse_polyA_file,
     )
-    from _stats import bh_fdr  # type: ignore[no-redef]
-    from stats import (  # type: ignore[no-redef]
+    from _stats import (  # type: ignore[no-redef]
+        bh_fdr,
         weighted_ks_test,
         weighted_rank_sum_test,
         weighted_t_test,

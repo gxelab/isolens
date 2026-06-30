@@ -1,4 +1,4 @@
-"""Tests for the shared stats.py statistical testing backend."""
+"""Tests for the shared _stats.py statistical testing backend."""
 
 import os
 import sys
@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 try:
-    from isolens.stats import (
+    from isolens._stats import (
         weighted_ecdf,
         weighted_ks_test,
         weighted_rank_sum_test,
@@ -15,7 +15,7 @@ try:
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-    from stats import (  # type: ignore[no-redef]
+    from _stats import (  # type: ignore[no-redef]
         weighted_ecdf,
         weighted_ks_test,
         weighted_rank_sum_test,

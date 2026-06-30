@@ -13,8 +13,8 @@ try:
     from isolens._gtf import build_tx_to_gene
     from isolens._io import ensure_gz_suffix, format_float
     from isolens._parsing import open_by_suffix
-    from isolens._stats import bh_fdr
-    from isolens.stats import (
+    from isolens._stats import (
+        bh_fdr,
         weighted_ks_test,
         weighted_rank_sum_test,
         weighted_t_test,
@@ -24,8 +24,8 @@ except ImportError:
 
     from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _parsing import open_by_suffix  # type: ignore[no-redef]
-    from _stats import bh_fdr  # type: ignore[no-redef]
-    from stats import (  # type: ignore[no-redef]
+    from _stats import (  # type: ignore[no-redef]
+        bh_fdr,
         weighted_ks_test,
         weighted_rank_sum_test,
         weighted_t_test,
