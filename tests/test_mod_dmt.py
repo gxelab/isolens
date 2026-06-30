@@ -11,12 +11,16 @@ import pyarrow.parquet as pq
 import pytest
 
 try:
+    from isolens._hdf5_helpers import (
+        extract_site_reads,
+        read_mod_codes,
+        validate_mod_codes,
+    )
+    from isolens._io import write_parquet, write_tsv
     from isolens.mod_dmt import (
-        _extract_site_reads,
-        _read_mod_codes,
-        _validate_mod_codes,
-        _write_parquet,
-        _write_tsv,
+        _DMT_SCHEMA,
+        _OUTPUT_COLS,
+        _TSV_HEADER,
         main,
         parse_args,
         process_locus_group,
@@ -29,12 +33,19 @@ try:
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from isolens._hdf5_helpers import (  # type: ignore[no-redef]
+        extract_site_reads,
+        read_mod_codes,
+        validate_mod_codes,
+    )
+    from isolens._io import (  # type: ignore[no-redef]
+        write_parquet,
+        write_tsv,
+    )
     from isolens.mod_dmt import (  # type: ignore[no-redef]
-        _extract_site_reads,
-        _read_mod_codes,
-        _validate_mod_codes,
-        _write_parquet,
-        _write_tsv,
+        _DMT_SCHEMA,
+        _OUTPUT_COLS,
+        _TSV_HEADER,
         main,
         parse_args,
         process_locus_group,
@@ -311,20 +322,20 @@ class TestExtractSiteReads:
     def test_simple_modified(self):
         matrix = np.array([[4, CODE_CANONICAL], [4, CODE_CANONICAL]], dtype=np.uint8)
         weights = np.array([1.0, 0.5], dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 2
         assert np.all(y == 1.0)
 
     def test_mixed(self):
         matrix = np.array([[4], [CODE_CANONICAL], [4]], dtype=np.uint8)
         weights = np.ones(3, dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         assert y.tolist() == [1.0, 0.0, 1.0]
 
     def test_all_invalid(self):
         matrix = np.array([[CODE_FAIL], [CODE_FAIL]], dtype=np.uint8)
         weights = np.ones(2, dtype=np.float32)
-        assert _extract_site_reads(matrix, weights, 1, 4) is None
+        assert extract_site_reads(matrix, weights, 1, 4) is None
 
 
 # ---------- process_locus_group ----------
@@ -574,24 +585,24 @@ class TestWriteOutput:
         defaults.update(overrides)
         return defaults
 
-    def test_write_parquet(self, tmp_path):
+    def testwrite_parquet(self, tmp_path):
         path = str(tmp_path / "out.parquet")
         rows = [self._make_row()]
-        _write_parquet(rows, path)
+        write_parquet(rows, path, _DMT_SCHEMA, _OUTPUT_COLS)
         table = pq.read_table(path)
         assert len(table) == 1
         assert table.column("log2_or")[0].as_py() == pytest.approx(2.5)
 
     def test_write_empty_parquet(self, tmp_path):
         path = str(tmp_path / "out.parquet")
-        _write_parquet([], path)
+        write_parquet([], path, _DMT_SCHEMA, _OUTPUT_COLS)
         table = pq.read_table(path)
         assert len(table) == 0
 
-    def test_write_tsv(self, tmp_path):
+    def testwrite_tsv(self, tmp_path):
         path = str(tmp_path / "out.tsv")
         rows = [self._make_row()]
-        _write_tsv(rows, path, use_gzip=False)
+        write_tsv(rows, path, _TSV_HEADER, _OUTPUT_COLS, use_gzip=False)
         with open(path) as f:
             header = f.readline()
             data = f.readline()
@@ -605,7 +616,7 @@ class TestWriteOutput:
 class TestHDF5Helpers:
     """Tests for HDF5 utility functions."""
 
-    def test_read_mod_codes(self, tmp_path):
+    def testread_mod_codes(self, tmp_path):
         path = str(tmp_path / "test.h5")
         _make_h5(
             path,
@@ -618,12 +629,12 @@ class TestHDF5Helpers:
             {"a": 4, "m": 5},
         )
         with h5py.File(path, "r") as h5:
-            codes = _read_mod_codes(h5)
+            codes = read_mod_codes(h5)
         assert codes == {"a": 4, "m": 5}
 
     def test_validate_mod_codes_mismatch(self):
         with pytest.raises(ValueError):
-            _validate_mod_codes(
+            validate_mod_codes(
                 [{"a": 4}, {"a": 5}],
                 ["f1.h5", "f2.h5"],
             )

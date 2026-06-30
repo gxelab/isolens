@@ -6,8 +6,11 @@ import sys
 from typing import Any
 
 try:
+    from isolens._io import ensure_gz_suffix
     from isolens._parsing import calc_weighted_pa_len, open_by_suffix
 except ImportError:
+    from _io import ensure_gz_suffix  # type: ignore[no-redef]
+
     from _parsing import (  # type: ignore[no-redef]
         calc_weighted_pa_len,
         open_by_suffix,
@@ -98,10 +101,7 @@ def main() -> None:
         file=sys.stderr,
     )
 
-    output_filename = args.output
-    if args.gzip:
-        if not output_filename.endswith(".gz"):
-            output_filename += ".gz"
+    output_filename = ensure_gz_suffix(args.output, args.gzip)
 
     print(f"Writing re-estimated results to {output_filename}...", file=sys.stderr)
 

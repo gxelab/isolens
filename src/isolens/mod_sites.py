@@ -24,10 +24,16 @@ from contextlib import ExitStack
 import h5py
 import numpy as np
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 try:
     from isolens._gtf import load_gtf
+    from isolens._hdf5_helpers import (
+        load_transcript_data,
+        read_mod_codes,
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
+    from isolens._io import write_parquet, write_tsv
     from isolens.mod_scan import (
         CODE_CANONICAL,
         CODE_DELETION,
@@ -35,7 +41,15 @@ try:
         CODE_MISMATCH,
     )
 except ImportError:
+    from _io import write_parquet, write_tsv  # type: ignore[no-redef]
+
     from _gtf import load_gtf  # type: ignore[no-redef]
+    from _hdf5_helpers import (  # type: ignore[no-redef]
+        load_transcript_data,
+        read_mod_codes,
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
     from mod_scan import (  # type: ignore[no-redef]
         CODE_CANONICAL,
         CODE_DELETION,
@@ -325,115 +339,6 @@ def compute_transcript_stats(
     return rows
 
 
-# ---------- HDF5 helpers ----------
-
-
-def _read_mod_codes(h5: h5py.File) -> list[tuple[str, int]]:
-    """Read modification codes from an open HDF5 file.
-
-    Returns sorted list of ``(mod_type_str, code)`` tuples.
-    """
-    codes_grp = h5["modification_codes"]
-    return sorted(
-        [(mod_str, int(code)) for mod_str, code in codes_grp.attrs.items()],
-        key=lambda x: x[1],
-    )
-
-
-def _validate_mod_codes(
-    mod_codes_list: list[list[tuple[str, int]]],
-    filenames: list[str],
-) -> list[tuple[str, int]]:
-    """Verify all HDF5 files have identical modification codes.
-
-    Args:
-        mod_codes_list: One sorted code list per input file.
-        filenames: Corresponding file paths (for error messages).
-
-    Returns:
-        Canonical modification codes from the first file.
-
-    Raises:
-        ValueError: If any file's codes differ from the first file.
-    """
-    reference = mod_codes_list[0]
-    for i, codes in enumerate(mod_codes_list[1:], start=1):
-        if codes != reference:
-            ref_str = "; ".join(f"{k}={v}" for k, v in reference)
-            file_str = "; ".join(f"{k}={v}" for k, v in codes)
-            raise ValueError(
-                f"Modification codes in {filenames[i]} do not match "
-                f"{filenames[0]}.\n"
-                f"  {filenames[0]}: {ref_str}\n"
-                f"  {filenames[i]}: {file_str}"
-            )
-    return reference
-
-
-def _load_transcript_data(
-    h5: h5py.File,
-    tx_name: str,
-    min_asp: float,
-) -> tuple[np.ndarray, np.ndarray] | None:
-    """Load matrix and weights for one transcript from one HDF5 file.
-
-    Args:
-        h5: Open HDF5 file handle.
-        tx_name: Transcript name.
-        min_asp: Minimum assignment probability filter.
-
-    Returns:
-        ``(matrix, weights)`` tuple, or ``None`` if the transcript is
-        absent from this file or has zero reads after filtering.
-    """
-    if tx_name not in h5["transcripts"]:
-        return None
-
-    grp = h5[f"transcripts/{tx_name}"]
-    matrix = grp["matrix"][:]  # (n_reads, tx_length) uint8
-    weights = grp["read_weights"][:]  # (n_reads,) float32
-
-    if min_asp > 0.0:
-        mask = weights >= min_asp
-        if mask.sum() == 0:
-            return None
-        matrix = matrix[mask]
-        weights = weights[mask]
-
-    return matrix, weights
-
-
-def _validate_tx_lengths(
-    tx_name: str,
-    lengths: list[int | None],
-    filenames: list[str],
-) -> int:
-    """Validate that a transcript has consistent length across files.
-
-    Args:
-        tx_name: Transcript name (for error messages).
-        lengths: Length from each file (``None`` if absent).
-        filenames: Corresponding file paths.
-
-    Returns:
-        Canonical length from the first file that contains the transcript.
-
-    Raises:
-        ValueError: If lengths differ across files.
-    """
-    ref_length = next(ln for ln in lengths if ln is not None)
-
-    for i, (length, fname) in enumerate(zip(lengths, filenames)):
-        if length is not None and length != ref_length:
-            raise ValueError(
-                f"Transcript '{tx_name}' has inconsistent lengths across "
-                f"input files: {ref_length} in first file vs {length} in "
-                f"{fname}. All files must use the same transcriptome "
-                f"reference."
-            )
-    return ref_length
-
-
 # ---------- main ----------
 
 
@@ -486,12 +391,13 @@ def main(args: argparse.Namespace | None = None) -> None:
             )
 
         # Read and validate modification codes
-        all_mod_codes = [_read_mod_codes(h5) for h5 in h5_files]
+        all_mod_maps = [read_mod_codes(h5) for h5 in h5_files]
         try:
-            mod_codes = _validate_mod_codes(all_mod_codes, list(args.h5))
+            mod_code_map = validate_mod_codes(all_mod_maps, list(args.h5))
         except ValueError as exc:
             print(f"[mod_sites] Error: {exc}", file=sys.stderr)
             sys.exit(1)
+        mod_codes = sorted(mod_code_map.items(), key=lambda x: x[1])
 
         if args.verbose:
             print(
@@ -538,7 +444,7 @@ def main(args: argparse.Namespace | None = None) -> None:
             tx_lengths_found: list[int | None] = []
 
             for h5 in h5_files:
-                result = _load_transcript_data(h5, tx_name, args.min_asp)
+                result = load_transcript_data(h5, tx_name, args.min_asp)
                 if result is not None:
                     matrix_f, weights_f = result
                     matrices.append(matrix_f)
@@ -554,7 +460,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
             # Validate transcript length consistency
             try:
-                _validate_tx_lengths(tx_name, tx_lengths_found, list(args.h5))
+                validate_tx_lengths(tx_name, tx_lengths_found, list(args.h5))
             except ValueError as exc:
                 print(
                     f"[mod_sites] Warning: {exc} — skipping transcript",
@@ -635,12 +541,18 @@ def main(args: argparse.Namespace | None = None) -> None:
     if args.verbose:
         print(f"[mod_sites] Total rows to write: {len(all_rows)}", file=sys.stderr)
 
+    if not all_rows:
+        print(
+            "[mod_sites] No modification sites found — writing empty file.",
+            file=sys.stderr,
+        )
+
     # ---- 4. Write output ----
 
     if args.format == "tsv":
-        _write_tsv(all_rows, args.output, args.gzip)
+        write_tsv(all_rows, args.output, _TSV_HEADER, _TSV_COLS, args.gzip)
     else:
-        _write_parquet(all_rows, args.output)
+        write_parquet(all_rows, args.output, _SITES_SCHEMA, _TSV_COLS)
 
     if args.verbose:
         print(f"[mod_sites] Done. Output written to {args.output}", file=sys.stderr)
@@ -684,85 +596,33 @@ _TSV_COLS = [
 ]
 
 
-def _write_tsv(all_rows: list[dict], path: str, use_gzip: bool) -> None:
-    """Write rows as tab-separated values, optionally gzip-compressed."""
-    import gzip
-
-    open_func = gzip.open if use_gzip else open
-    mode = "wt" if use_gzip else "w"
-
-    with open_func(path, mode, encoding="utf-8") as f:
-        f.write(_TSV_HEADER + "\n")
-        for row in all_rows:
-            f.write(
-                "\t".join("NA" if row[c] is None else str(row[c]) for c in _TSV_COLS)
-                + "\n"
-            )
-
-
-def _write_parquet(all_rows: list[dict], path: str) -> None:
-    """Write rows as a Parquet file via pyarrow.
-
-    When *all_rows* is empty, writes a schema-only file so downstream
-    tools can still open it without errors.
-    """
-    if not all_rows:
-        print(
-            "[mod_sites] No modification sites found — writing empty file.",
-            file=sys.stderr,
-        )
-        schema = pa.schema(
-            [
-                ("transcript_id", pa.string()),
-                ("position", pa.int32()),
-                ("mod_type", pa.string()),
-                ("n_modified", pa.int32()),
-                ("wt_modified", pa.float64()),
-                ("n_unmodified", pa.int32()),
-                ("wt_unmodified", pa.float64()),
-                ("n_canonical", pa.int32()),
-                ("wt_canonical", pa.float64()),
-                ("n_othermod", pa.int32()),
-                ("wt_othermod", pa.float64()),
-                ("n_mismatch", pa.int32()),
-                ("wt_mismatch", pa.float64()),
-                ("n_deletion", pa.int32()),
-                ("wt_deletion", pa.float64()),
-                ("n_failed", pa.int32()),
-                ("wt_failed", pa.float64()),
-                ("mod_level", pa.float64()),
-                ("wt_mod_level", pa.float64()),
-                ("gene_id", pa.string()),
-                ("chrom", pa.string()),
-                ("strand", pa.string()),
-                ("gpos", pa.int32()),
-            ]
-        )
-        with pq.ParquetWriter(path, schema) as writer:
-            writer.write_table(
-                pa.table(
-                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
-                )
-            )
-        return
-
-    columns = {}
-    for col in _TSV_COLS:
-        values = [r[col] for r in all_rows]
-        if col in ("transcript_id", "mod_type", "gene_id"):
-            columns[col] = pa.array(values)
-        elif col in ("chrom", "strand"):
-            columns[col] = pa.array(values, type=pa.string())
-        elif col == "position":
-            columns[col] = pa.array(values, type=pa.int32())
-        elif col == "gpos":
-            columns[col] = pa.array(values, type=pa.int32())
-        elif col.startswith("n_"):
-            columns[col] = pa.array(values, type=pa.int32())
-        else:
-            columns[col] = pa.array(values, type=pa.float64())
-
-    pq.write_table(pa.table(columns), path)
+_SITES_SCHEMA = pa.schema(
+    [
+        ("transcript_id", pa.string()),
+        ("position", pa.int32()),
+        ("mod_type", pa.string()),
+        ("n_modified", pa.int32()),
+        ("wt_modified", pa.float64()),
+        ("n_unmodified", pa.int32()),
+        ("wt_unmodified", pa.float64()),
+        ("n_canonical", pa.int32()),
+        ("wt_canonical", pa.float64()),
+        ("n_othermod", pa.int32()),
+        ("wt_othermod", pa.float64()),
+        ("n_mismatch", pa.int32()),
+        ("wt_mismatch", pa.float64()),
+        ("n_deletion", pa.int32()),
+        ("wt_deletion", pa.float64()),
+        ("n_failed", pa.int32()),
+        ("wt_failed", pa.float64()),
+        ("mod_level", pa.float64()),
+        ("wt_mod_level", pa.float64()),
+        ("gene_id", pa.string()),
+        ("chrom", pa.string()),
+        ("strand", pa.string()),
+        ("gpos", pa.int32()),
+    ]
+)
 
 
 if __name__ == "__main__":

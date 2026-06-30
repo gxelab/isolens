@@ -15,8 +15,11 @@ from scipy.special import logsumexp
 from scipy.stats import gaussian_kde
 
 try:
+    from isolens._io import ensure_gz_suffix
     from isolens._parsing import open_by_suffix, parse_polyA_file
 except ImportError:
+    from _io import ensure_gz_suffix  # type: ignore[no-redef]
+
     from _parsing import (  # type: ignore[no-redef]
         open_by_suffix,
         parse_polyA_file,
@@ -407,10 +410,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         sys.exit(0)
 
     # Write output
-    output_filename = args.output
-    if args.gzip:
-        if not output_filename.endswith(".gz"):
-            output_filename += ".gz"
+    output_filename = ensure_gz_suffix(args.output, args.gzip)
 
     print(
         f"Writing bimodality results to {output_filename}...",

@@ -11,14 +11,18 @@ import pyarrow.parquet as pq
 import pytest
 
 try:
+    from isolens._hdf5_helpers import (
+        extract_site_reads,
+        read_mod_codes,
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
+    from isolens._io import write_parquet, write_tsv
     from isolens.mod_dmc import (
+        _DMC_SCHEMA,
+        _OUTPUT_COLS,
+        _TSV_HEADER,
         TxSiteData,
-        _extract_site_reads,
-        _read_mod_codes,
-        _validate_mod_codes,
-        _validate_tx_lengths,
-        _write_parquet,
-        _write_tsv,
         main,
         parse_args,
         process_transcript,
@@ -33,14 +37,21 @@ try:
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from isolens._hdf5_helpers import (  # type: ignore[no-redef]
+        extract_site_reads,
+        read_mod_codes,
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
+    from isolens._io import (  # type: ignore[no-redef]
+        write_parquet,
+        write_tsv,
+    )
     from isolens.mod_dmc import (  # type: ignore[no-redef]
+        _DMC_SCHEMA,
+        _OUTPUT_COLS,
+        _TSV_HEADER,
         TxSiteData,
-        _extract_site_reads,
-        _read_mod_codes,
-        _validate_mod_codes,
-        _validate_tx_lengths,
-        _write_parquet,
-        _write_tsv,
         main,
         parse_args,
         process_transcript,
@@ -68,9 +79,7 @@ def _make_tx_site_data(sites_list: list[dict]) -> TxSiteData:
         mod_types=np.array([s["mod_type"] for s in sites_list], dtype=object),
         n_modified=np.array([s["n_modified"] for s in sites_list], dtype=np.int32),
         wt_modified=np.array([s["wt_modified"] for s in sites_list], dtype=np.float64),
-        n_unmodified=np.array(
-            [s["n_unmodified"] for s in sites_list], dtype=np.int32
-        ),
+        n_unmodified=np.array([s["n_unmodified"] for s in sites_list], dtype=np.int32),
         wt_unmodified=np.array(
             [s["wt_unmodified"] for s in sites_list], dtype=np.float64
         ),
@@ -82,10 +91,7 @@ def _make_tx_site_data(sites_list: list[dict]) -> TxSiteData:
         chrom=np.array([s.get("chrom") for s in sites_list], dtype=object),
         strand=np.array([s.get("strand") for s in sites_list], dtype=object),
         gpos=np.array(
-            [
-                np.nan if s.get("gpos") is None else float(s["gpos"])
-                for s in sites_list
-            ],
+            [np.nan if s.get("gpos") is None else float(s["gpos"]) for s in sites_list],
             dtype=np.float64,
         ),
     )
@@ -174,13 +180,13 @@ def _make_sites_parquet(path, sites_data):
 
 
 class TestExtractSiteReads:
-    """Tests for _extract_site_reads()."""
+    """Tests for extract_site_reads()."""
 
     def test_simple_modified(self):
         """All reads have the modification at position 1."""
         matrix = np.array([[4, CODE_CANONICAL], [4, CODE_CANONICAL]], dtype=np.uint8)
         weights = np.array([1.0, 0.5], dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 2
         assert np.all(y == 1.0)
         assert w[0] == pytest.approx(1.0)
@@ -190,7 +196,7 @@ class TestExtractSiteReads:
         """Mix of modified and canonical reads."""
         matrix = np.array([[4], [CODE_CANONICAL], [4]], dtype=np.uint8)
         weights = np.array([1.0, 1.0, 1.0], dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 3
         assert y.tolist() == [1.0, 0.0, 1.0]
 
@@ -198,7 +204,7 @@ class TestExtractSiteReads:
         """Failed reads are excluded."""
         matrix = np.array([[4], [CODE_FAIL], [CODE_CANONICAL]], dtype=np.uint8)
         weights = np.ones(3, dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 2
         assert y.tolist() == [1.0, 0.0]
 
@@ -206,7 +212,7 @@ class TestExtractSiteReads:
         """Mismatch reads are excluded."""
         matrix = np.array([[4], [CODE_MISMATCH]], dtype=np.uint8)
         weights = np.ones(2, dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 1
         assert y[0] == 1.0
 
@@ -214,7 +220,7 @@ class TestExtractSiteReads:
         """Deletion reads are excluded."""
         matrix = np.array([[4], [CODE_DELETION]], dtype=np.uint8)
         weights = np.ones(2, dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 1
         assert y[0] == 1.0
 
@@ -222,7 +228,7 @@ class TestExtractSiteReads:
         """Reads with a different modification are excluded."""
         matrix = np.array([[4], [5], [CODE_CANONICAL]], dtype=np.uint8)
         weights = np.ones(3, dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         # Read with mod_code=5 is excluded (othermod for code 4)
         assert len(y) == 2
         assert y.tolist() == [1.0, 0.0]
@@ -231,14 +237,14 @@ class TestExtractSiteReads:
         """All reads are invalid → None."""
         matrix = np.array([[CODE_FAIL], [CODE_FAIL]], dtype=np.uint8)
         weights = np.ones(2, dtype=np.float32)
-        result = _extract_site_reads(matrix, weights, 1, 4)
+        result = extract_site_reads(matrix, weights, 1, 4)
         assert result is None
 
     def test_uncovered(self):
         """Uncovered positions are excluded."""
         matrix = np.array([[CODE_UNCOVERED], [4]], dtype=np.uint8)
         weights = np.ones(2, dtype=np.float32)
-        y, w = _extract_site_reads(matrix, weights, 1, 4)
+        y, w = extract_site_reads(matrix, weights, 1, 4)
         assert len(y) == 1
         assert y[0] == 1.0
 
@@ -554,8 +560,13 @@ class TestProcessTranscript:
             "gpos": None,
         }
         data_1 = _make_tx_site_data([site])
-        site2 = {**site, "n_modified": 2, "wt_modified": 2.0, "mod_level": 1.0,
-                  "wt_mod_level": 1.0}
+        site2 = {
+            **site,
+            "n_modified": 2,
+            "wt_modified": 2.0,
+            "mod_level": 1.0,
+            "wt_mod_level": 1.0,
+        }
         data_2 = _make_tx_site_data([site2])
 
         rows = process_transcript(
@@ -751,24 +762,24 @@ class TestWriteOutput:
         defaults.update(overrides)
         return defaults
 
-    def test_write_parquet(self, tmp_path):
+    def testwrite_parquet(self, tmp_path):
         path = str(tmp_path / "out.parquet")
         rows = [self._make_row()]
-        _write_parquet(rows, path)
+        write_parquet(rows, path, _DMC_SCHEMA, _OUTPUT_COLS)
         table = pq.read_table(path)
         assert len(table) == 1
         assert table.column("log2_or")[0].as_py() == pytest.approx(1.5)
 
     def test_write_empty_parquet(self, tmp_path):
         path = str(tmp_path / "out.parquet")
-        _write_parquet([], path)
+        write_parquet([], path, _DMC_SCHEMA, _OUTPUT_COLS)
         table = pq.read_table(path)
         assert len(table) == 0
 
-    def test_write_tsv(self, tmp_path):
+    def testwrite_tsv(self, tmp_path):
         path = str(tmp_path / "out.tsv")
         rows = [self._make_row()]
-        _write_tsv(rows, path, use_gzip=False)
+        write_tsv(rows, path, _TSV_HEADER, _OUTPUT_COLS, use_gzip=False)
         with open(path) as f:
             header = f.readline()
             data = f.readline()
@@ -778,7 +789,7 @@ class TestWriteOutput:
     def test_write_tsv_null_values(self, tmp_path):
         path = str(tmp_path / "out.tsv")
         row = self._make_row(gene_id=None, gpos=None)
-        _write_tsv([row], path, use_gzip=False)
+        write_tsv([row], path, _TSV_HEADER, _OUTPUT_COLS, use_gzip=False)
         with open(path) as f:
             f.readline()  # header
             data = f.readline()
@@ -791,7 +802,7 @@ class TestWriteOutput:
 class TestHDF5Helpers:
     """Tests for HDF5 utility functions."""
 
-    def test_read_mod_codes(self, tmp_path):
+    def testread_mod_codes(self, tmp_path):
         path = str(tmp_path / "test.h5")
         _make_h5(
             path,
@@ -804,11 +815,11 @@ class TestHDF5Helpers:
             {"a": 4, "m": 5},
         )
         with h5py.File(path, "r") as h5:
-            codes = _read_mod_codes(h5)
+            codes = read_mod_codes(h5)
         assert codes == {"a": 4, "m": 5}
 
     def test_validate_mod_codes_match(self):
-        codes = _validate_mod_codes(
+        codes = validate_mod_codes(
             [{"a": 4, "m": 5}, {"a": 4, "m": 5}],
             ["f1.h5", "f2.h5"],
         )
@@ -816,20 +827,20 @@ class TestHDF5Helpers:
 
     def test_validate_mod_codes_mismatch(self):
         with pytest.raises(ValueError):
-            _validate_mod_codes(
+            validate_mod_codes(
                 [{"a": 4}, {"a": 5}],
                 ["f1.h5", "f2.h5"],
             )
 
     def test_validate_tx_lengths_consistent(self):
-        length = _validate_tx_lengths(
+        length = validate_tx_lengths(
             "TX1", [100, 100, None], ["f1.h5", "f2.h5", "f3.h5"]
         )
         assert length == 100
 
     def test_validate_tx_lengths_inconsistent(self):
         with pytest.raises(ValueError):
-            _validate_tx_lengths("TX1", [100, 200], ["f1.h5", "f2.h5"])
+            validate_tx_lengths("TX1", [100, 200], ["f1.h5", "f2.h5"])
 
 
 # ---------- CLI ----------

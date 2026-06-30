@@ -9,6 +9,7 @@ import sys
 import numpy as np
 
 try:
+    from isolens._io import ensure_gz_suffix, format_float
     from isolens._parsing import open_by_suffix, parse_polyA_file
     from isolens._stats import bh_fdr
     from isolens.stats import (
@@ -17,6 +18,8 @@ try:
         weighted_t_test,
     )
 except ImportError:
+    from _io import ensure_gz_suffix, format_float  # type: ignore[no-redef]
+
     from _parsing import (  # type: ignore[no-redef]
         open_by_suffix,
         parse_polyA_file,
@@ -174,10 +177,7 @@ def main(args: argparse.Namespace | None = None) -> None:
                 results[i][q_key] = round(qv, 6)
 
     # Write output
-    output_filename = args.output
-    if args.gzip:
-        if not output_filename.endswith(".gz"):
-            output_filename += ".gz"
+    output_filename = ensure_gz_suffix(args.output, args.gzip)
 
     print(
         f"Writing statistical test matrix to {output_filename}...",
@@ -200,23 +200,20 @@ def main(args: argparse.Namespace | None = None) -> None:
             n2 = row["n_reads_2"]
 
             # Format numeric columns
-            def _fmt(v, fmt):
-                return f"{v:{fmt}}" if not np.isnan(v) else "NA"
+            wlen1 = format_float(row["pa_wlen_1"], ".2f")
+            wlen2 = format_float(row["pa_wlen_2"], ".2f")
 
-            wlen1 = _fmt(row["pa_wlen_1"], ".2f")
-            wlen2 = _fmt(row["pa_wlen_2"], ".2f")
+            ks_s = format_float(row["ks_stat"], ".5f")
+            ks_p = format_float(row["ks_p_value"], ".5e")
+            ks_q = format_float(row["ks_q_value"], ".6f")
 
-            ks_s = _fmt(row["ks_stat"], ".5f")
-            ks_p = _fmt(row["ks_p_value"], ".5e")
-            ks_q = _fmt(row["ks_q_value"], ".6f")
+            t_s = format_float(row["t_stat"], ".5f")
+            t_p = format_float(row["t_p_value"], ".5e")
+            t_q = format_float(row["t_q_value"], ".6f")
 
-            t_s = _fmt(row["t_stat"], ".5f")
-            t_p = _fmt(row["t_p_value"], ".5e")
-            t_q = _fmt(row["t_q_value"], ".6f")
-
-            u_s = _fmt(row["u_stat"], ".5f")
-            u_p = _fmt(row["u_p_value"], ".5e")
-            u_q = _fmt(row["u_q_value"], ".6f")
+            u_s = format_float(row["u_stat"], ".5f")
+            u_p = format_float(row["u_p_value"], ".5e")
+            u_q = format_float(row["u_q_value"], ".6f")
 
             out_f.write(
                 f"{feat}\t{n1}\t{wlen1}\t{n2}\t{wlen2}\t"

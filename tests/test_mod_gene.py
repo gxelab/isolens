@@ -9,10 +9,11 @@ import pyarrow.parquet as pq
 import pytest
 
 try:
+    from isolens._io import write_parquet, write_tsv
     from isolens.mod_gene import (
+        _GENE_SCHEMA,
         _OUTPUT_COLS,
-        _write_parquet,
-        _write_tsv,
+        _OUTPUT_HEADER,
         aggregate_to_gene,
         main,
         read_input,
@@ -20,10 +21,14 @@ try:
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from isolens._io import (  # type: ignore[no-redef]
+        write_parquet,
+        write_tsv,
+    )
     from isolens.mod_gene import (  # type: ignore[no-redef]
+        _GENE_SCHEMA,
         _OUTPUT_COLS,
-        _write_parquet,
-        _write_tsv,
+        _OUTPUT_HEADER,
         aggregate_to_gene,
         main,
         read_input,
@@ -427,13 +432,13 @@ class TestReadInput:
 
 
 class TestWriteParquet:
-    """Tests for _write_parquet()."""
+    """Tests for write_parquet()."""
 
     def test_empty_rows(self):
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet([], tmp_path)
+            write_parquet([], tmp_path, _GENE_SCHEMA, _OUTPUT_COLS)
             table = pq.read_table(tmp_path)
             assert len(table) == 0
             for col in _OUTPUT_COLS:
@@ -446,7 +451,7 @@ class TestWriteParquet:
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet(gene_rows, tmp_path)
+            write_parquet(gene_rows, tmp_path, _GENE_SCHEMA, _OUTPUT_COLS)
             table = pq.read_table(tmp_path)
             assert len(table) == 1
             assert table.column("gene_id")[0].as_py() == "G1"
@@ -457,11 +462,11 @@ class TestWriteParquet:
 
 
 class TestWriteTsv:
-    """Tests for _write_tsv()."""
+    """Tests for write_tsv()."""
 
     def test_empty_rows(self, tmp_path):
         path = tmp_path / "out.tsv"
-        _write_tsv([], str(path), use_gzip=False)
+        write_tsv([], str(path), _OUTPUT_HEADER, _OUTPUT_COLS, use_gzip=False)
         content = path.read_text()
         lines = content.strip().split("\n")
         assert len(lines) == 1  # header only
@@ -470,7 +475,7 @@ class TestWriteTsv:
     def test_non_empty_rows(self, tmp_path):
         gene_rows = aggregate_to_gene([_make_row()])
         path = tmp_path / "out.tsv"
-        _write_tsv(gene_rows, str(path), use_gzip=False)
+        write_tsv(gene_rows, str(path), _OUTPUT_HEADER, _OUTPUT_COLS, use_gzip=False)
         content = path.read_text()
         lines = content.strip().split("\n")
         assert len(lines) == 2  # header + 1 data
@@ -481,7 +486,7 @@ class TestWriteTsv:
 
         gene_rows = aggregate_to_gene([_make_row()])
         path = tmp_path / "out.tsv.gz"
-        _write_tsv(gene_rows, str(path), use_gzip=True)
+        write_tsv(gene_rows, str(path), _OUTPUT_HEADER, _OUTPUT_COLS, use_gzip=True)
         with gzip.open(path, "rt", encoding="utf-8") as f:
             content = f.read()
         assert "gene_id" in content

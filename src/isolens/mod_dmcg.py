@@ -25,8 +25,11 @@ import pyarrow.parquet as pq
 from scipy.stats import fisher_exact
 
 try:
+    from isolens._io import write_parquet, write_tsv
     from isolens._stats import bh_fdr
 except ImportError:
+    from _io import write_parquet, write_tsv  # type: ignore[no-redef]
+
     from _stats import bh_fdr  # type: ignore[no-redef]
 
 # ---------- constants ----------
@@ -342,73 +345,35 @@ def process_matched_sites(
 # ---------- output writers ----------
 
 
-def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
-    """Write rows as tab-separated values."""
-    import gzip
-
-    open_func = gzip.open if use_gzip else open
-    mode = "wt" if use_gzip else "w"
-    with open_func(path, mode, encoding="utf-8") as fh:
-        fh.write(_TSV_HEADER + "\n")
-        for row in all_rows:
-            fh.write(
-                "\t".join("NA" if row[c] is None else str(row[c]) for c in _OUTPUT_COLS)
-                + "\n"
-            )
-
-
-def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
-    """Write rows as a Parquet file via pyarrow."""
-    if not all_rows:
-        schema = pa.schema(
-            [
-                ("gene_id", pa.string()),
-                ("chrom", pa.string()),
-                ("strand", pa.string()),
-                ("gpos", pa.int32()),
-                ("mod_type", pa.string()),
-                ("n_modified_1", pa.int32()),
-                ("n_unmodified_1", pa.int32()),
-                ("n_modified_2", pa.int32()),
-                ("n_unmodified_2", pa.int32()),
-                ("wt_modified_1", pa.float64()),
-                ("wt_unmodified_1", pa.float64()),
-                ("wt_modified_2", pa.float64()),
-                ("wt_unmodified_2", pa.float64()),
-                ("mod_level_1", pa.float64()),
-                ("mod_level_2", pa.float64()),
-                ("wt_mod_level_1", pa.float64()),
-                ("wt_mod_level_2", pa.float64()),
-                ("delta_mod_level", pa.float64()),
-                ("delta_wt_mod_level", pa.float64()),
-                ("log2_or", pa.float64()),
-                ("p_value", pa.float64()),
-                ("q_value", pa.float64()),
-                ("w_log2_or", pa.float64()),
-                ("w_p_value", pa.float64()),
-                ("w_q_value", pa.float64()),
-            ]
-        )
-        with pq.ParquetWriter(path, schema) as w:
-            w.write_table(
-                pa.table(
-                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
-                )
-            )
-        return
-
-    arrays: dict[str, pa.Array] = {}
-    for col in _OUTPUT_COLS:
-        values = [r[col] for r in all_rows]
-        if col in ("gene_id", "chrom", "strand", "mod_type"):
-            arrays[col] = pa.array(values)
-        elif col == "gpos":
-            arrays[col] = pa.array(values, type=pa.int32())
-        elif col.startswith("n_"):
-            arrays[col] = pa.array(values, type=pa.int32())
-        else:
-            arrays[col] = pa.array(values, type=pa.float64())
-    pq.write_table(pa.table(arrays), path)
+_DMCG_SCHEMA = pa.schema(
+    [
+        ("gene_id", pa.string()),
+        ("chrom", pa.string()),
+        ("strand", pa.string()),
+        ("gpos", pa.int32()),
+        ("mod_type", pa.string()),
+        ("n_modified_1", pa.int32()),
+        ("n_unmodified_1", pa.int32()),
+        ("n_modified_2", pa.int32()),
+        ("n_unmodified_2", pa.int32()),
+        ("wt_modified_1", pa.float64()),
+        ("wt_unmodified_1", pa.float64()),
+        ("wt_modified_2", pa.float64()),
+        ("wt_unmodified_2", pa.float64()),
+        ("mod_level_1", pa.float64()),
+        ("mod_level_2", pa.float64()),
+        ("wt_mod_level_1", pa.float64()),
+        ("wt_mod_level_2", pa.float64()),
+        ("delta_mod_level", pa.float64()),
+        ("delta_wt_mod_level", pa.float64()),
+        ("log2_or", pa.float64()),
+        ("p_value", pa.float64()),
+        ("q_value", pa.float64()),
+        ("w_log2_or", pa.float64()),
+        ("w_p_value", pa.float64()),
+        ("w_q_value", pa.float64()),
+    ]
+)
 
 
 # ---------- main ----------
@@ -488,9 +453,9 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     # ---- 4. Write output ----
     if args.format == "tsv":
-        _write_tsv(all_rows, args.output, args.gzip)
+        write_tsv(all_rows, args.output, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
     else:
-        _write_parquet(all_rows, args.output)
+        write_parquet(all_rows, args.output, _DMCG_SCHEMA, _OUTPUT_COLS)
 
     if args.verbose:
         print(

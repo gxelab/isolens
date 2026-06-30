@@ -46,6 +46,14 @@ from matplotlib.patches import Polygon
 from scipy.stats import t as t_dist
 
 try:
+    from isolens._hdf5_helpers import (
+        load_transcript_data,
+        read_mod_codes,
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
+    from isolens._io import write_parquet, write_tsv
+    from isolens._stats import bh_fdr
     from isolens.mod_scan import (
         CODE_DELETION,
         CODE_FAIL,
@@ -53,6 +61,15 @@ try:
         CODE_UNCOVERED,
     )
 except ImportError:
+    from _io import write_parquet, write_tsv  # type: ignore[no-redef]
+
+    from _hdf5_helpers import (  # type: ignore[no-redef]
+        load_transcript_data,
+        read_mod_codes,
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
+    from _stats import bh_fdr  # type: ignore[no-redef]
     from mod_scan import (  # type: ignore[no-redef]
         CODE_DELETION,
         CODE_FAIL,
@@ -465,27 +482,6 @@ def _mutual_information(n11: float, n10: float, n01: float, n00: float) -> float
     return mi
 
 
-def _bh_fdr(p_values: list[float]) -> list[float]:
-    """Apply Benjamini-Hochberg FDR correction to a list of p-values.
-
-    Args:
-        p_values: List of raw p-values.
-
-    Returns:
-        List of q-values (FDR-adjusted) in the same order as *p_values*.
-    """
-    n = len(p_values)
-    if n == 0:
-        return []
-    idx = np.argsort(p_values)
-    q = np.zeros(n, dtype=np.float64)
-    for rank, i in enumerate(idx):
-        q[i] = min(1.0, p_values[i] * n / (rank + 1))
-    for k in range(n - 2, -1, -1):
-        q[idx[k]] = min(q[idx[k]], q[idx[k + 1]])
-    return q.tolist()
-
-
 # ---------- per-transcript processing ----------
 
 
@@ -642,82 +638,44 @@ def process_transcript(
 
     # BH FDR correction — all pairs within this transcript
     if pair_p_values:
-        q_values = _bh_fdr(pair_p_values)
+        q_values = bh_fdr(pair_p_values)
         for r, qv in zip(pair_rows, q_values):
             r["qvalue"] = round(qv, 6)
     if pair_wp_values:
-        wq_values = _bh_fdr(pair_wp_values)
+        wq_values = bh_fdr(pair_wp_values)
         for r, qv in zip(pair_rows, wq_values):
             r["wqvalue"] = round(qv, 6)
 
     return pair_rows
 
 
-# ---------- output writers ----------
-
-
-def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
-    """Write correlation rows as tab-separated values."""
-    import gzip
-
-    open_func = gzip.open if use_gzip else open
-    mode = "wt" if use_gzip else "w"
-    with open_func(path, mode, encoding="utf-8") as f:
-        f.write(_TSV_HEADER + "\n")
-        for row in all_rows:
-            f.write("\t".join(str(row[c]) for c in _OUTPUT_COLS) + "\n")
-
-
-def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
-    """Write correlation rows as a Parquet file via pyarrow.
-
-    When *all_rows* is empty, writes a schema-only file.
-    """
-    if not all_rows:
-        schema = pa.schema(
-            [
-                ("transcript_id", pa.string()),
-                ("site1", pa.int32()),
-                ("site2", pa.int32()),
-                ("mod_type1", pa.string()),
-                ("mod_type2", pa.string()),
-                ("n11", pa.int32()),
-                ("n10", pa.int32()),
-                ("n01", pa.int32()),
-                ("n00", pa.int32()),
-                ("w11", pa.float64()),
-                ("w10", pa.float64()),
-                ("w01", pa.float64()),
-                ("w00", pa.float64()),
-                ("corr", pa.float64()),
-                ("pvalue", pa.float64()),
-                ("qvalue", pa.float64()),
-                ("wcorr", pa.float64()),
-                ("wpvalue", pa.float64()),
-                ("wqvalue", pa.float64()),
-                ("mi", pa.float64()),
-                ("wmi", pa.float64()),
-                ("or", pa.float64()),
-                ("wor", pa.float64()),
-            ]
-        )
-        with pq.ParquetWriter(path, schema) as w:
-            w.write_table(
-                pa.table(
-                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
-                )
-            )
-        return
-    arrays = {}
-    for col in _OUTPUT_COLS:
-        values = [r[col] for r in all_rows]
-        if col in ("transcript_id", "mod_type1", "mod_type2"):
-            arrays[col] = pa.array(values)
-        elif col in ("site1", "site2", "n11", "n10", "n01", "n00"):
-            arrays[col] = pa.array(values, type=pa.int32())
-        else:
-            arrays[col] = pa.array(values, type=pa.float64())
-    pq.write_table(pa.table(arrays), path)
+_CORR_SCHEMA = pa.schema(
+    [
+        ("transcript_id", pa.string()),
+        ("site1", pa.int32()),
+        ("site2", pa.int32()),
+        ("mod_type1", pa.string()),
+        ("mod_type2", pa.string()),
+        ("n11", pa.int32()),
+        ("n10", pa.int32()),
+        ("n01", pa.int32()),
+        ("n00", pa.int32()),
+        ("w11", pa.float64()),
+        ("w10", pa.float64()),
+        ("w01", pa.float64()),
+        ("w00", pa.float64()),
+        ("corr", pa.float64()),
+        ("pvalue", pa.float64()),
+        ("qvalue", pa.float64()),
+        ("wcorr", pa.float64()),
+        ("wpvalue", pa.float64()),
+        ("wqvalue", pa.float64()),
+        ("mi", pa.float64()),
+        ("wmi", pa.float64()),
+        ("or", pa.float64()),
+        ("wor", pa.float64()),
+    ]
+)
 
 
 # ---------- visualization ----------
@@ -983,113 +941,6 @@ def _generate_plots(
         plt.close(fig)
 
 
-# ---------- HDF5 helpers ----------
-
-
-def _read_mod_codes(h5: h5py.File) -> dict[str, int]:
-    """Read modification codes from an open HDF5 file.
-
-    Returns ``{mod_type_str: code}`` dict.
-    """
-    return {
-        mod_str: int(code) for mod_str, code in h5["modification_codes"].attrs.items()
-    }
-
-
-def _validate_mod_codes(
-    mod_maps: list[dict[str, int]],
-    filenames: list[str],
-) -> dict[str, int]:
-    """Verify all HDF5 files have identical modification codes.
-
-    Args:
-        mod_maps: One ``{mod_str: code}`` dict per input file.
-        filenames: Corresponding file paths (for error messages).
-
-    Returns:
-        Canonical modification code map from the first file.
-
-    Raises:
-        ValueError: If any file's codes differ from the first file.
-    """
-    reference = mod_maps[0]
-    for i, code_map in enumerate(mod_maps[1:], start=1):
-        if code_map != reference:
-            ref_str = "; ".join(f"{k}={v}" for k, v in sorted(reference.items()))
-            file_str = "; ".join(f"{k}={v}" for k, v in sorted(code_map.items()))
-            raise ValueError(
-                f"Modification codes in {filenames[i]} do not match "
-                f"{filenames[0]}.\n"
-                f"  {filenames[0]}: {ref_str}\n"
-                f"  {filenames[i]}: {file_str}"
-            )
-    return reference
-
-
-def _load_transcript_data(
-    h5: h5py.File,
-    tx_name: str,
-    min_asp: float,
-) -> tuple[np.ndarray, np.ndarray] | None:
-    """Load matrix and weights for one transcript from one HDF5 file.
-
-    Args:
-        h5: Open HDF5 file handle.
-        tx_name: Transcript name.
-        min_asp: Minimum assignment probability filter.
-
-    Returns:
-        ``(matrix, weights)`` tuple, or ``None`` if the transcript is
-        absent from this file or has zero reads after filtering.
-    """
-    if tx_name not in h5["transcripts"]:
-        return None
-
-    grp = h5[f"transcripts/{tx_name}"]
-    matrix = grp["matrix"][:]  # (n_reads, tx_length) uint8
-    weights = grp["read_weights"][:]  # (n_reads,) float32
-
-    if min_asp > 0.0:
-        mask = weights >= min_asp
-        if mask.sum() == 0:
-            return None
-        matrix = matrix[mask]
-        weights = weights[mask]
-
-    return matrix, weights
-
-
-def _validate_tx_lengths(
-    tx_name: str,
-    lengths: list[int | None],
-    filenames: list[str],
-) -> int:
-    """Validate that a transcript has consistent length across files.
-
-    Args:
-        tx_name: Transcript name (for error messages).
-        lengths: Length from each file (``None`` if absent).
-        filenames: Corresponding file paths.
-
-    Returns:
-        Canonical length from the first file that contains the transcript.
-
-    Raises:
-        ValueError: If lengths differ across files.
-    """
-    ref_length = next(ln for ln in lengths if ln is not None)
-
-    for i, (length, fname) in enumerate(zip(lengths, filenames)):
-        if length is not None and length != ref_length:
-            raise ValueError(
-                f"Transcript '{tx_name}' has inconsistent lengths across "
-                f"input files: {ref_length} in first file vs {length} in "
-                f"{fname}. All files must use the same transcriptome "
-                f"reference."
-            )
-    return ref_length
-
-
 # ---------- main ----------
 
 
@@ -1128,9 +979,9 @@ def main(args: argparse.Namespace | None = None) -> None:
             )
 
         # Read and validate modification codes
-        all_mod_maps = [_read_mod_codes(h5) for h5 in h5_files]
+        all_mod_maps = [read_mod_codes(h5) for h5 in h5_files]
         try:
-            mod_code_map = _validate_mod_codes(all_mod_maps, list(args.h5))
+            mod_code_map = validate_mod_codes(all_mod_maps, list(args.h5))
         except ValueError as exc:
             print(f"[mod_corr] Error: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -1173,7 +1024,7 @@ def main(args: argparse.Namespace | None = None) -> None:
             tx_lengths_found: list[int | None] = []
 
             for h5 in h5_files:
-                result = _load_transcript_data(h5, tx_name, args.min_asp)
+                result = load_transcript_data(h5, tx_name, args.min_asp)
                 if result is not None:
                     matrix_f, weights_f = result
                     matrices.append(matrix_f)
@@ -1187,7 +1038,7 @@ def main(args: argparse.Namespace | None = None) -> None:
                 continue
 
             try:
-                _validate_tx_lengths(tx_name, tx_lengths_found, list(args.h5))
+                validate_tx_lengths(tx_name, tx_lengths_found, list(args.h5))
             except ValueError as exc:
                 print(
                     f"[mod_corr] Warning: {exc} — skipping transcript",
@@ -1234,9 +1085,9 @@ def main(args: argparse.Namespace | None = None) -> None:
         print(f"[mod_corr] Total pairs: {len(all_rows)}", file=sys.stderr)
 
     if args.format == "tsv":
-        _write_tsv(all_rows, args.output, args.gzip)
+        write_tsv(all_rows, args.output, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
     else:
-        _write_parquet(all_rows, args.output)
+        write_parquet(all_rows, args.output, _CORR_SCHEMA, _OUTPUT_COLS)
 
     if args.plot_dir:
         if args.verbose:

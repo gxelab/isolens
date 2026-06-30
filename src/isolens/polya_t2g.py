@@ -7,8 +7,11 @@ from collections import defaultdict
 
 try:
     from isolens._gtf import build_tx_to_gene
+    from isolens._io import ensure_gz_suffix
     from isolens._parsing import calc_weighted_pa_len, open_by_suffix
 except ImportError:
+    from _io import ensure_gz_suffix  # type: ignore[no-redef]
+
     from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _parsing import (  # type: ignore[no-redef]
         calc_weighted_pa_len,
@@ -151,10 +154,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         )
 
     # Compute gene-level statistics and write output
-    output_filename = args.output
-    if args.gzip:
-        if not output_filename.endswith(".gz"):
-            output_filename += ".gz"
+    output_filename = ensure_gz_suffix(args.output, args.gzip)
 
     print(f"Writing gene-level metrics to {output_filename}...", file=sys.stderr)
 

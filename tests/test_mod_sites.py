@@ -11,6 +11,8 @@ import pyarrow.parquet as pq
 import pytest
 
 try:
+    from isolens._hdf5_helpers import validate_mod_codes, validate_tx_lengths
+    from isolens._io import write_parquet, write_tsv
     from isolens.mod_scan import (
         CODE_CANONICAL,
         CODE_DELETION,
@@ -18,17 +20,23 @@ try:
         CODE_MISMATCH,
     )
     from isolens.mod_sites import (
+        _SITES_SCHEMA,
         _TSV_COLS,
-        _validate_mod_codes,
-        _validate_tx_lengths,
-        _write_parquet,
-        _write_tsv,
+        _TSV_HEADER,
         compute_transcript_stats,
         main,
         read_predefined_sites,
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from isolens._hdf5_helpers import (  # type: ignore[no-redef]
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
+    from isolens._io import (  # type: ignore[no-redef]
+        write_parquet,
+        write_tsv,
+    )
     from isolens.mod_scan import (  # type: ignore[no-redef]
         CODE_CANONICAL,
         CODE_DELETION,
@@ -36,11 +44,9 @@ except ImportError:
         CODE_MISMATCH,
     )
     from isolens.mod_sites import (  # type: ignore[no-redef]
+        _SITES_SCHEMA,
         _TSV_COLS,
-        _validate_mod_codes,
-        _validate_tx_lengths,
-        _write_parquet,
-        _write_tsv,
+        _TSV_HEADER,
         compute_transcript_stats,
         main,
         read_predefined_sites,
@@ -255,17 +261,17 @@ class TestReadPredefinedSites:
         assert sites == {}
 
 
-# ---------- _write_parquet ----------
+# ---------- write_parquet ----------
 
 
 class TestWriteParquet:
-    """Tests for _write_parquet()."""
+    """Tests for write_parquet()."""
 
     def test_empty_rows(self):
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet([], tmp_path)
+            write_parquet([], tmp_path, _SITES_SCHEMA, _TSV_COLS)
             table = pq.read_table(tmp_path)
             assert len(table) == 0
             expected_cols = {
@@ -328,7 +334,7 @@ class TestWriteParquet:
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet(rows, tmp_path)
+            write_parquet(rows, tmp_path, _SITES_SCHEMA, _TSV_COLS)
             table = pq.read_table(tmp_path)
             assert len(table) == 1
             assert table.column("position")[0].as_py() == 42
@@ -336,15 +342,15 @@ class TestWriteParquet:
             os.unlink(tmp_path)
 
 
-# ---------- _write_tsv ----------
+# ---------- write_tsv ----------
 
 
 class TestWriteTsv:
-    """Tests for _write_tsv()."""
+    """Tests for write_tsv()."""
 
     def test_empty_rows(self, tmp_path):
         path = tmp_path / "out.tsv"
-        _write_tsv([], str(path), use_gzip=False)
+        write_tsv([], str(path), _TSV_HEADER, _TSV_COLS, use_gzip=False)
         content = path.read_text()
         lines = content.strip().split("\n")
         assert len(lines) == 1  # header only
@@ -379,7 +385,7 @@ class TestWriteTsv:
             }
         ]
         path = tmp_path / "out.tsv"
-        _write_tsv(rows, str(path), use_gzip=False)
+        write_tsv(rows, str(path), _TSV_HEADER, _TSV_COLS, use_gzip=False)
         content = path.read_text()
         lines = content.strip().split("\n")
         assert len(lines) == 2  # header + 1 data row
@@ -416,7 +422,7 @@ class TestWriteTsv:
             }
         ]
         path = tmp_path / "out.tsv.gz"
-        _write_tsv(rows, str(path), use_gzip=True)
+        write_tsv(rows, str(path), _TSV_HEADER, _TSV_COLS, use_gzip=True)
 
         with gzip.open(path, "rt", encoding="utf-8") as f:
             content = f.read()
@@ -590,7 +596,7 @@ class TestWriteWithGtfColumns:
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet(rows, tmp_path)
+            write_parquet(rows, tmp_path, _SITES_SCHEMA, _TSV_COLS)
             table = pq.read_table(tmp_path)
             assert "gene_id" in table.column_names
             assert "chrom" in table.column_names
@@ -609,7 +615,7 @@ class TestWriteWithGtfColumns:
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet(rows, tmp_path)
+            write_parquet(rows, tmp_path, _SITES_SCHEMA, _TSV_COLS)
             table = pq.read_table(tmp_path)
             assert table.column("gene_id")[0].as_py() is None
             assert table.column("chrom")[0].as_py() is None
@@ -622,7 +628,7 @@ class TestWriteWithGtfColumns:
         """TSV output includes gene_id, chrom, strand, gpos."""
         rows = [self._make_row()]
         path = tmp_path / "out.tsv"
-        _write_tsv(rows, str(path), use_gzip=False)
+        write_tsv(rows, str(path), _TSV_HEADER, _TSV_COLS, use_gzip=False)
         content = path.read_text()
         lines = content.strip().split("\n")
         assert len(lines) == 2  # header + 1 data
@@ -641,7 +647,7 @@ class TestWriteWithGtfColumns:
         """TSV writes 'NA' for None GTF values."""
         rows = [self._make_row(gene_id=None, chrom=None, strand=None, gpos=None)]
         path = tmp_path / "out.tsv"
-        _write_tsv(rows, str(path), use_gzip=False)
+        write_tsv(rows, str(path), _TSV_HEADER, _TSV_COLS, use_gzip=False)
         content = path.read_text()
         data = content.strip().split("\n")[1].split("\t")
         assert data[-4:] == ["NA", "NA", "NA", "NA"]
@@ -651,7 +657,7 @@ class TestWriteWithGtfColumns:
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet([], tmp_path)
+            write_parquet([], tmp_path, _SITES_SCHEMA, _TSV_COLS)
             table = pq.read_table(tmp_path)
             assert "gene_id" in table.column_names
             assert "chrom" in table.column_names
@@ -665,56 +671,56 @@ class TestWriteWithGtfColumns:
         assert _TSV_COLS[-4:] == ["gene_id", "chrom", "strand", "gpos"]
 
 
-# ---------- _validate_mod_codes ----------
+# ---------- validate_mod_codes ----------
 
 
 class TestValidateModCodes:
-    """Tests for _validate_mod_codes()."""
+    """Tests for validate_mod_codes()."""
 
     def test_identical_codes(self):
-        codes = [("a", 4), ("m", 5)]
-        result = _validate_mod_codes([codes, codes], ["f1.h5", "f2.h5"])
+        codes = {"a": 4, "m": 5}
+        result = validate_mod_codes([codes, codes], ["f1.h5", "f2.h5"])
         assert result == codes
 
     def test_mismatched_codes_raises(self):
-        codes1 = [("a", 4)]
-        codes2 = [("a", 5)]
+        codes1 = {"a": 4}
+        codes2 = {"a": 5}
         with pytest.raises(ValueError, match="do not match"):
-            _validate_mod_codes([codes1, codes2], ["f1.h5", "f2.h5"])
+            validate_mod_codes([codes1, codes2], ["f1.h5", "f2.h5"])
 
     def test_extra_code_raises(self):
-        codes1 = [("a", 4)]
-        codes2 = [("a", 4), ("m", 5)]
+        codes1 = {"a": 4}
+        codes2 = {"a": 4, "m": 5}
         with pytest.raises(ValueError, match="do not match"):
-            _validate_mod_codes([codes1, codes2], ["f1.h5", "f2.h5"])
+            validate_mod_codes([codes1, codes2], ["f1.h5", "f2.h5"])
 
     def test_single_file_no_validation(self):
-        codes = [("a", 4)]
-        result = _validate_mod_codes([codes], ["f1.h5"])
+        codes = {"a": 4}
+        result = validate_mod_codes([codes], ["f1.h5"])
         assert result == codes
 
 
-# ---------- _validate_tx_lengths ----------
+# ---------- validate_tx_lengths ----------
 
 
 class TestValidateTxLengths:
-    """Tests for _validate_tx_lengths()."""
+    """Tests for validate_tx_lengths()."""
 
     def test_identical_lengths(self):
-        result = _validate_tx_lengths(
+        result = validate_tx_lengths(
             "TX1", [100, 100, 100], ["f1.h5", "f2.h5", "f3.h5"]
         )
         assert result == 100
 
     def test_with_none_absent(self):
-        result = _validate_tx_lengths(
+        result = validate_tx_lengths(
             "TX1", [100, None, 100], ["f1.h5", "f2.h5", "f3.h5"]
         )
         assert result == 100
 
     def test_mismatch_raises(self):
         with pytest.raises(ValueError, match="inconsistent lengths"):
-            _validate_tx_lengths("TX1", [100, 200], ["f1.h5", "f2.h5"])
+            validate_tx_lengths("TX1", [100, 200], ["f1.h5", "f2.h5"])
 
 
 # ---------- multi-file integration ----------

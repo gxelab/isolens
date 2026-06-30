@@ -38,6 +38,11 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+try:
+    from isolens._io import write_parquet, write_tsv
+except ImportError:
+    from _io import write_parquet, write_tsv  # type: ignore[no-redef]
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for mod_gene."""
@@ -355,81 +360,31 @@ def aggregate_to_gene(
     return result
 
 
-# ---------- output writers ----------
-
-
-def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
-    """Write rows as tab-separated values, optionally gzip-compressed."""
-    import gzip
-
-    open_func = gzip.open if use_gzip else open
-    mode = "wt" if use_gzip else "w"
-
-    with open_func(path, mode, encoding="utf-8") as f:
-        f.write(_OUTPUT_HEADER + "\n")
-        for row in all_rows:
-            f.write(
-                "\t".join("NA" if row[c] is None else str(row[c]) for c in _OUTPUT_COLS)
-                + "\n"
-            )
-
-
-def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
-    """Write rows as a Parquet file via pyarrow.
-
-    When *all_rows* is empty, writes a schema-only file.
-    """
-    if not all_rows:
-        print(
-            "[mod_gene] No gene-level sites found — writing empty file.",
-            file=sys.stderr,
-        )
-        schema = pa.schema(
-            [
-                ("gene_id", pa.string()),
-                ("chrom", pa.string()),
-                ("strand", pa.string()),
-                ("gpos", pa.int32()),
-                ("mod_type", pa.string()),
-                ("n_modified", pa.int32()),
-                ("wt_modified", pa.float64()),
-                ("n_unmodified", pa.int32()),
-                ("wt_unmodified", pa.float64()),
-                ("n_canonical", pa.int32()),
-                ("wt_canonical", pa.float64()),
-                ("n_othermod", pa.int32()),
-                ("wt_othermod", pa.float64()),
-                ("n_mismatch", pa.int32()),
-                ("wt_mismatch", pa.float64()),
-                ("n_deletion", pa.int32()),
-                ("wt_deletion", pa.float64()),
-                ("n_failed", pa.int32()),
-                ("wt_failed", pa.float64()),
-                ("mod_level", pa.float64()),
-                ("wt_mod_level", pa.float64()),
-            ]
-        )
-        with pq.ParquetWriter(path, schema) as writer:
-            writer.write_table(
-                pa.table(
-                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
-                )
-            )
-        return
-
-    columns: dict[str, pa.Array] = {}
-    for col in _OUTPUT_COLS:
-        values = [r[col] for r in all_rows]
-        if col in ("gene_id", "chrom", "strand", "mod_type"):
-            columns[col] = pa.array(values)
-        elif col in ("gpos",):
-            columns[col] = pa.array(values, type=pa.int32())
-        elif col.startswith("n_"):
-            columns[col] = pa.array(values, type=pa.int32())
-        else:
-            columns[col] = pa.array(values, type=pa.float64())
-
-    pq.write_table(pa.table(columns), path)
+_GENE_SCHEMA = pa.schema(
+    [
+        ("gene_id", pa.string()),
+        ("chrom", pa.string()),
+        ("strand", pa.string()),
+        ("gpos", pa.int32()),
+        ("mod_type", pa.string()),
+        ("n_modified", pa.int32()),
+        ("wt_modified", pa.float64()),
+        ("n_unmodified", pa.int32()),
+        ("wt_unmodified", pa.float64()),
+        ("n_canonical", pa.int32()),
+        ("wt_canonical", pa.float64()),
+        ("n_othermod", pa.int32()),
+        ("wt_othermod", pa.float64()),
+        ("n_mismatch", pa.int32()),
+        ("wt_mismatch", pa.float64()),
+        ("n_deletion", pa.int32()),
+        ("wt_deletion", pa.float64()),
+        ("n_failed", pa.int32()),
+        ("wt_failed", pa.float64()),
+        ("mod_level", pa.float64()),
+        ("wt_mod_level", pa.float64()),
+    ]
+)
 
 
 # ---------- main ----------
@@ -474,10 +429,16 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     # ---- 4. Write output ----
 
+    if not gene_rows:
+        print(
+            "[mod_gene] No gene-level sites found — writing empty file.",
+            file=sys.stderr,
+        )
+
     if args.format == "tsv":
-        _write_tsv(gene_rows, args.output, args.gzip)
+        write_tsv(gene_rows, args.output, _OUTPUT_HEADER, _OUTPUT_COLS, args.gzip)
     else:
-        _write_parquet(gene_rows, args.output)
+        write_parquet(gene_rows, args.output, _GENE_SCHEMA, _OUTPUT_COLS)
 
     if args.verbose:
         print(

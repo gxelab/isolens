@@ -11,11 +11,12 @@ import pytest
 from scipy.stats import fisher_exact
 
 try:
+    from isolens._io import write_parquet, write_tsv
     from isolens.mod_dmcg import (
+        _DMCG_SCHEMA,
         _OUTPUT_COLS,
+        _TSV_HEADER,
         _fisher_test,
-        _write_parquet,
-        _write_tsv,
         main,
         parse_args,
         process_matched_sites,
@@ -23,11 +24,15 @@ try:
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from isolens._io import (  # type: ignore[no-redef]
+        write_parquet,
+        write_tsv,
+    )
     from isolens.mod_dmcg import (  # type: ignore[no-redef]
+        _DMCG_SCHEMA,
         _OUTPUT_COLS,
+        _TSV_HEADER,
         _fisher_test,
-        _write_parquet,
-        _write_tsv,
         main,
         parse_args,
         process_matched_sites,
@@ -428,7 +433,7 @@ class TestProcessMatchedSites:
 
 
 class TestWriteOutput:
-    """Tests for _write_parquet and _write_tsv."""
+    """Tests for _write_parquet and write_tsv."""
 
     def _make_row(self, **overrides):
         defaults = {
@@ -464,7 +469,7 @@ class TestWriteOutput:
     def test_write_parquet(self, tmp_path):
         path = str(tmp_path / "out.parquet")
         rows = [self._make_row()]
-        _write_parquet(rows, path)
+        write_parquet(rows, path, _DMCG_SCHEMA, _OUTPUT_COLS)
         table = pq.read_table(path)
         assert len(table) == 1
         assert table.column("log2_or")[0].as_py() == pytest.approx(-2.5)
@@ -472,16 +477,16 @@ class TestWriteOutput:
 
     def test_write_empty_parquet(self, tmp_path):
         path = str(tmp_path / "out.parquet")
-        _write_parquet([], path)
+        write_parquet([], path, _DMCG_SCHEMA, _OUTPUT_COLS)
         table = pq.read_table(path)
         assert len(table) == 0
         # Check schema has all expected columns
         assert set(table.column_names) == set(_OUTPUT_COLS)
 
-    def test_write_tsv(self, tmp_path):
+    def testwrite_tsv(self, tmp_path):
         path = str(tmp_path / "out.tsv")
         rows = [self._make_row()]
-        _write_tsv(rows, path, use_gzip=False)
+        write_tsv(rows, path, _TSV_HEADER, _OUTPUT_COLS, use_gzip=False)
         with open(path) as f:
             header = f.readline()
             data = f.readline()
@@ -489,10 +494,10 @@ class TestWriteOutput:
         assert "G1" in data
         assert "w_log2_or" in header
 
-    def test_write_tsv_null_values(self, tmp_path):
+    def testwrite_tsv_null_values(self, tmp_path):
         path = str(tmp_path / "out.tsv")
         row = self._make_row(delta_mod_level=None, delta_wt_mod_level=None)
-        _write_tsv([row], path, use_gzip=False)
+        write_tsv([row], path, _TSV_HEADER, _OUTPUT_COLS, use_gzip=False)
         with open(path) as f:
             f.readline()  # header
             data = f.readline()

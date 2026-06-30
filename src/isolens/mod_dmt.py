@@ -18,26 +18,34 @@ from typing import Any
 import h5py
 import numpy as np
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 try:
+    from isolens._hdf5_helpers import (
+        extract_site_reads,
+        load_transcript_data,
+        nullable_float,
+        nullable_str,
+        read_mod_codes,
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
+    from isolens._io import write_parquet, write_tsv
     from isolens._stats import bh_fdr, weighted_logistic_test
     from isolens.mod_dmc import read_site_summary_full
-    from isolens.mod_scan import (
-        CODE_DELETION,
-        CODE_FAIL,
-        CODE_MISMATCH,
-        CODE_UNCOVERED,
-    )
 except ImportError:
+    from _io import write_parquet, write_tsv  # type: ignore[no-redef]
+
+    from _hdf5_helpers import (  # type: ignore[no-redef]
+        extract_site_reads,
+        load_transcript_data,
+        nullable_float,
+        nullable_str,
+        read_mod_codes,
+        validate_mod_codes,
+        validate_tx_lengths,
+    )
     from _stats import bh_fdr, weighted_logistic_test  # type: ignore[no-redef]
     from mod_dmc import read_site_summary_full  # type: ignore[no-redef]
-    from mod_scan import (  # type: ignore[no-redef]
-        CODE_DELETION,
-        CODE_FAIL,
-        CODE_MISMATCH,
-        CODE_UNCOVERED,
-    )
 
 # ---------- constants ----------
 
@@ -184,9 +192,9 @@ def read_sites_grouped_by_locus(
     groups: dict[_LocusKey, list[dict[str, Any]]] = {}
     for tx_name, data in tx_sites.items():
         for i in range(data.n_sites):
-            gene_id = _nullable_str(data.gene_id[i])
-            chrom = _nullable_str(data.chrom[i])
-            strand = _nullable_str(data.strand[i])
+            gene_id = nullable_str(data.gene_id[i])
+            chrom = nullable_str(data.chrom[i])
+            strand = nullable_str(data.strand[i])
             gpos_val = data.gpos[i]
 
             if gene_id is None or np.isnan(gpos_val):
@@ -207,8 +215,8 @@ def read_sites_grouped_by_locus(
                 "wt_modified": float(data.wt_modified[i]),
                 "n_unmodified": int(data.n_unmodified[i]),
                 "wt_unmodified": float(data.wt_unmodified[i]),
-                "mod_level": _nullable_float(data.mod_level[i]),
-                "wt_mod_level": _nullable_float(data.wt_mod_level[i]),
+                "mod_level": nullable_float(data.mod_level[i]),
+                "wt_mod_level": nullable_float(data.wt_mod_level[i]),
                 "gene_id": gene_id,
                 "chrom": chrom,
                 "strand": strand,
@@ -226,18 +234,6 @@ def read_sites_grouped_by_locus(
     return filtered
 
 
-def _nullable_float(val: float) -> float | None:
-    """Return None if *val* is NaN, otherwise the float value."""
-    return None if np.isnan(val) else float(val)
-
-
-def _nullable_str(val: str | None) -> str | None:
-    """Return None for a None or empty string value."""
-    if val is None:
-        return None
-    return str(val) if val else None
-
-
 def validate_input(groups: dict[_LocusKey, list[dict[str, Any]]]) -> None:
     """Exit with an error if the input contains no usable locus groups.
 
@@ -251,104 +247,6 @@ def validate_input(groups: dict[_LocusKey, list[dict[str, Any]]]) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-
-
-# ---------- per-site read extraction ----------
-
-
-def _extract_site_reads(
-    matrix: np.ndarray,
-    weights: np.ndarray,
-    position_1b: int,
-    mod_code: int,
-) -> tuple[np.ndarray, np.ndarray] | None:
-    """Extract binary modified/unmodified vector and weights for a site.
-
-    Filters out uncovered, mismatch, deletion, failed, and other-mod
-    reads so that only *modified* (this mod type) and *unmodified*
-    (canonical) reads remain.
-    """
-    col = matrix[:, position_1b - 1]
-    valid = (
-        (col != CODE_UNCOVERED)
-        & (col != CODE_MISMATCH)
-        & (col != CODE_DELETION)
-        & (col != CODE_FAIL)
-    )
-    other_mod = (col >= 4) & (col != mod_code) & (col != CODE_FAIL)
-    valid = valid & (~other_mod)
-    if valid.sum() == 0:
-        return None
-    y = (col[valid] == mod_code).astype(np.float64)
-    w = weights[valid].astype(np.float64)
-    return y, w
-
-
-# ---------- HDF5 helpers ----------
-
-
-def _read_mod_codes(h5: h5py.File) -> dict[str, int]:
-    """Read modification codes from an open HDF5 file."""
-    return {
-        mod_str: int(code) for mod_str, code in h5["modification_codes"].attrs.items()
-    }
-
-
-def _validate_mod_codes(
-    mod_maps: list[dict[str, int]],
-    filenames: list[str],
-) -> dict[str, int]:
-    """Verify all HDF5 files have identical modification codes."""
-    reference = mod_maps[0]
-    for i, code_map in enumerate(mod_maps[1:], start=1):
-        if code_map != reference:
-            ref_str = "; ".join(f"{k}={v}" for k, v in sorted(reference.items()))
-            file_str = "; ".join(f"{k}={v}" for k, v in sorted(code_map.items()))
-            raise ValueError(
-                f"Modification codes in {filenames[i]} do not match "
-                f"{filenames[0]}.\n"
-                f"  {filenames[0]}: {ref_str}\n"
-                f"  {filenames[i]}: {file_str}"
-            )
-    return reference
-
-
-def _load_transcript_data(
-    h5: h5py.File,
-    tx_name: str,
-    min_asp: float,
-) -> tuple[np.ndarray, np.ndarray] | None:
-    """Load matrix and weights for one transcript from one HDF5 file."""
-    if tx_name not in h5["transcripts"]:
-        return None
-    grp = h5[f"transcripts/{tx_name}"]
-    matrix = grp["matrix"][:]
-    weights = grp["read_weights"][:]
-    if min_asp > 0.0:
-        mask = weights >= min_asp
-        if mask.sum() == 0:
-            return None
-        matrix = matrix[mask]
-        weights = weights[mask]
-    return matrix, weights
-
-
-def _validate_tx_lengths(
-    tx_name: str,
-    lengths: list[int | None],
-    filenames: list[str],
-) -> int:
-    """Validate a transcript has consistent length across files."""
-    ref_length = next(ln for ln in lengths if ln is not None)
-    for i, (length, fname) in enumerate(zip(lengths, filenames)):
-        if length is not None and length != ref_length:
-            raise ValueError(
-                f"Transcript '{tx_name}' has inconsistent lengths across "
-                f"input files: {ref_length} in first file vs {length} in "
-                f"{fname}. All files must use the same transcriptome "
-                f"reference."
-            )
-    return ref_length
 
 
 def _load_all_transcripts(
@@ -377,7 +275,7 @@ def _load_all_transcripts(
         tx_lengths_found: list[int | None] = []
 
         for h5 in h5_files:
-            result = _load_transcript_data(h5, tx_name, min_asp)
+            result = load_transcript_data(h5, tx_name, min_asp)
             if result is not None:
                 m, w = result
                 matrices.append(m)
@@ -389,7 +287,7 @@ def _load_all_transcripts(
         if not matrices:
             continue
 
-        _validate_tx_lengths(
+        validate_tx_lengths(
             tx_name,
             tx_lengths_found,
             [f.filename for f in h5_files],
@@ -470,8 +368,8 @@ def process_locus_group(
         matrix_a, weights_a, _len_a = h5_data[tx_a]
         matrix_b, weights_b, _len_b = h5_data[tx_b]
 
-        reads_a = _extract_site_reads(matrix_a, weights_a, pos_a, mod_code)
-        reads_b = _extract_site_reads(matrix_b, weights_b, pos_b, mod_code)
+        reads_a = extract_site_reads(matrix_a, weights_a, pos_a, mod_code)
+        reads_b = extract_site_reads(matrix_b, weights_b, pos_b, mod_code)
 
         if reads_a is None or reads_b is None:
             continue
@@ -541,84 +439,36 @@ def process_locus_group(
     return rows
 
 
-# ---------- output writers ----------
-
-
-def _write_tsv(all_rows: list[dict[str, Any]], path: str, use_gzip: bool) -> None:
-    """Write rows as tab-separated values."""
-    import gzip
-
-    open_func = gzip.open if use_gzip else open
-    mode = "wt" if use_gzip else "w"
-    with open_func(path, mode, encoding="utf-8") as fh:
-        fh.write(_TSV_HEADER + "\n")
-        for row in all_rows:
-            fh.write(
-                "\t".join("NA" if row[c] is None else str(row[c]) for c in _OUTPUT_COLS)
-                + "\n"
-            )
-
-
-def _write_parquet(all_rows: list[dict[str, Any]], path: str) -> None:
-    """Write rows as a Parquet file via pyarrow."""
-    if not all_rows:
-        schema = pa.schema(
-            [
-                ("gene_id", pa.string()),
-                ("chrom", pa.string()),
-                ("gpos", pa.int32()),
-                ("strand", pa.string()),
-                ("mod_type", pa.string()),
-                ("transcript_id_1", pa.string()),
-                ("transcript_id_2", pa.string()),
-                ("position_1", pa.int32()),
-                ("position_2", pa.int32()),
-                ("mod_level_1", pa.float64()),
-                ("mod_level_2", pa.float64()),
-                ("wt_mod_level_1", pa.float64()),
-                ("wt_mod_level_2", pa.float64()),
-                ("delta_mod_level", pa.float64()),
-                ("delta_wt_mod_level", pa.float64()),
-                ("n_modified_1", pa.int32()),
-                ("n_unmodified_1", pa.int32()),
-                ("n_modified_2", pa.int32()),
-                ("n_unmodified_2", pa.int32()),
-                ("wt_modified_1", pa.float64()),
-                ("wt_unmodified_1", pa.float64()),
-                ("wt_modified_2", pa.float64()),
-                ("wt_unmodified_2", pa.float64()),
-                ("log2_or", pa.float64()),
-                ("p_value", pa.float64()),
-                ("q_value", pa.float64()),
-            ]
-        )
-        with pq.ParquetWriter(path, schema) as w:
-            w.write_table(
-                pa.table(
-                    {k: pa.array([], type=schema.field(k).type) for k in schema.names}
-                )
-            )
-        return
-
-    arrays: dict[str, pa.Array] = {}
-    for col in _OUTPUT_COLS:
-        values = [r[col] for r in all_rows]
-        if col in (
-            "gene_id",
-            "chrom",
-            "strand",
-            "mod_type",
-            "transcript_id_1",
-            "transcript_id_2",
-        ):
-            arrays[col] = pa.array(values)
-        elif col in ("gpos", "position_1", "position_2"):
-            arrays[col] = pa.array(values, type=pa.int32())
-        elif col.startswith("n_"):
-            arrays[col] = pa.array(values, type=pa.int32())
-        else:
-            arrays[col] = pa.array(values, type=pa.float64())
-    pq.write_table(pa.table(arrays), path)
+_DMT_SCHEMA = pa.schema(
+    [
+        ("gene_id", pa.string()),
+        ("chrom", pa.string()),
+        ("gpos", pa.int32()),
+        ("strand", pa.string()),
+        ("mod_type", pa.string()),
+        ("transcript_id_1", pa.string()),
+        ("transcript_id_2", pa.string()),
+        ("position_1", pa.int32()),
+        ("position_2", pa.int32()),
+        ("mod_level_1", pa.float64()),
+        ("mod_level_2", pa.float64()),
+        ("wt_mod_level_1", pa.float64()),
+        ("wt_mod_level_2", pa.float64()),
+        ("delta_mod_level", pa.float64()),
+        ("delta_wt_mod_level", pa.float64()),
+        ("n_modified_1", pa.int32()),
+        ("n_unmodified_1", pa.int32()),
+        ("n_modified_2", pa.int32()),
+        ("n_unmodified_2", pa.int32()),
+        ("wt_modified_1", pa.float64()),
+        ("wt_unmodified_1", pa.float64()),
+        ("wt_modified_2", pa.float64()),
+        ("wt_unmodified_2", pa.float64()),
+        ("log2_or", pa.float64()),
+        ("p_value", pa.float64()),
+        ("q_value", pa.float64()),
+    ]
+)
 
 
 # ---------- main ----------
@@ -665,9 +515,9 @@ def main(args: argparse.Namespace | None = None) -> None:
             )
 
         # ---- 4. Validate modification codes ----
-        all_mod_maps = [_read_mod_codes(h5) for h5 in h5_files]
+        all_mod_maps = [read_mod_codes(h5) for h5 in h5_files]
         try:
-            mod_code_map = _validate_mod_codes(all_mod_maps, list(args.h5))
+            mod_code_map = validate_mod_codes(all_mod_maps, list(args.h5))
         except ValueError as exc:
             print(f"[mod_dmt] Error: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -731,9 +581,9 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     # ---- 9. Write output ----
     if args.format == "tsv":
-        _write_tsv(all_rows, args.output, args.gzip)
+        write_tsv(all_rows, args.output, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
     else:
-        _write_parquet(all_rows, args.output)
+        write_parquet(all_rows, args.output, _DMT_SCHEMA, _OUTPUT_COLS)
 
     if args.verbose:
         print(

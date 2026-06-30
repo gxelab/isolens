@@ -11,17 +11,19 @@ import pyarrow.parquet as pq
 import pytest
 
 try:
+    from isolens._hdf5_helpers import validate_mod_codes
+    from isolens._io import write_parquet, write_tsv
+    from isolens._stats import bh_fdr
     from isolens.mod_corr import (
-        _bh_fdr,
+        _CORR_SCHEMA,
+        _OUTPUT_COLS,
+        _TSV_HEADER,
         _effective_sample_size,
         _mutual_information,
         _odds_ratio,
         _pearson_pvalue,
         _pearson_r_from_counts,
-        _validate_mod_codes,
         _weighted_pearson_r,
-        _write_parquet,
-        _write_tsv,
         main,
         parse_args,
         process_transcript,
@@ -34,17 +36,24 @@ try:
     )
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from isolens._hdf5_helpers import (  # type: ignore[no-redef]
+        validate_mod_codes,
+    )
+    from isolens._io import (  # type: ignore[no-redef]
+        write_parquet,
+        write_tsv,
+    )
+    from isolens._stats import bh_fdr  # type: ignore[no-redef]
     from isolens.mod_corr import (  # type: ignore[no-redef]
-        _bh_fdr,
+        _CORR_SCHEMA,
+        _OUTPUT_COLS,
+        _TSV_HEADER,
         _effective_sample_size,
         _mutual_information,
         _odds_ratio,
         _pearson_pvalue,
         _pearson_r_from_counts,
-        _validate_mod_codes,
         _weighted_pearson_r,
-        _write_parquet,
-        _write_tsv,
         main,
         parse_args,
         process_transcript,
@@ -219,29 +228,29 @@ class TestMutualInformation:
         assert _mutual_information(0, 0, 0, 0) == 0.0
 
 
-# ---------- _bh_fdr ----------
+# ---------- bh_fdr ----------
 
 
 class TestBhFdr:
     """Tests for Benjamini-Hochberg FDR correction."""
 
     def test_single_p_value(self):
-        q = _bh_fdr([0.01])
+        q = bh_fdr([0.01])
         assert q == pytest.approx([0.01])
 
     def test_multiple_sorted(self):
         p = [0.01, 0.02, 0.03]
-        q = _bh_fdr(p)
+        q = bh_fdr(p)
         assert q[0] == pytest.approx(0.03)
         assert q[1] == pytest.approx(0.03)
         assert q[2] == pytest.approx(0.03)
 
     def test_empty_list(self):
-        assert _bh_fdr([]) == []
+        assert bh_fdr([]) == []
 
     def test_high_p_values(self):
         """High p-values → q-values may still be <1 after FDR correction."""
-        q = _bh_fdr([0.5, 0.8, 0.9])
+        q = bh_fdr([0.5, 0.8, 0.9])
         for v in q:
             assert v == pytest.approx(0.9)
 
@@ -609,17 +618,17 @@ class TestReadSiteSummary:
         ]
 
 
-# ---------- _write_parquet ----------
+# ---------- write_parquet ----------
 
 
 class TestWriteParquet:
-    """Tests for _write_parquet()."""
+    """Tests for write_parquet()."""
 
     def test_empty_rows(self):
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet([], tmp_path)
+            write_parquet([], tmp_path, _CORR_SCHEMA, _OUTPUT_COLS)
             table = pq.read_table(tmp_path)
             assert len(table) == 0
             # Verify schema has the new columns
@@ -661,22 +670,22 @@ class TestWriteParquet:
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tf:
             tmp_path = tf.name
         try:
-            _write_parquet(rows, tmp_path)
+            write_parquet(rows, tmp_path, _CORR_SCHEMA, _OUTPUT_COLS)
             table = pq.read_table(tmp_path)
             assert len(table) == 1
         finally:
             os.unlink(tmp_path)
 
 
-# ---------- _write_tsv ----------
+# ---------- write_tsv ----------
 
 
 class TestWriteTsv:
-    """Tests for _write_tsv()."""
+    """Tests for write_tsv()."""
 
     def test_empty_rows(self, tmp_path):
         path = tmp_path / "out.tsv"
-        _write_tsv([], str(path), use_gzip=False)
+        write_tsv([], str(path), _TSV_HEADER, _OUTPUT_COLS, use_gzip=False)
         content = path.read_text()
         assert "transcript_id" in content
         assert "mod_type1" in content
@@ -711,7 +720,7 @@ class TestWriteTsv:
             }
         ]
         path = tmp_path / "out.tsv"
-        _write_tsv(rows, str(path), use_gzip=False)
+        write_tsv(rows, str(path), _TSV_HEADER, _OUTPUT_COLS, use_gzip=False)
         content = path.read_text()
         lines = content.strip().split("\n")
         assert len(lines) == 2  # header + data
@@ -797,33 +806,33 @@ class TestParseArgs:
             parse_args()
 
 
-# ---------- _validate_mod_codes ----------
+# ---------- validate_mod_codes ----------
 
 
 class TestValidateModCodes:
-    """Tests for _validate_mod_codes() (dict variant for mod_corr)."""
+    """Tests for validate_mod_codes() (dict variant for mod_corr)."""
 
     def test_identical_maps(self):
         m1 = {"a": 4, "m": 5}
         m2 = {"a": 4, "m": 5}
-        result = _validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
+        result = validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
         assert result == m1
 
     def test_mismatched_codes_raises(self):
         m1 = {"a": 4}
         m2 = {"a": 5}
         with pytest.raises(ValueError, match="do not match"):
-            _validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
+            validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
 
     def test_extra_code_raises(self):
         m1 = {"a": 4}
         m2 = {"a": 4, "m": 5}
         with pytest.raises(ValueError, match="do not match"):
-            _validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
+            validate_mod_codes([m1, m2], ["f1.h5", "f2.h5"])
 
     def test_single_file_no_validation(self):
         m1 = {"a": 4}
-        result = _validate_mod_codes([m1], ["f1.h5"])
+        result = validate_mod_codes([m1], ["f1.h5"])
         assert result == m1
 
 
