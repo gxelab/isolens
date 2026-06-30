@@ -22,6 +22,7 @@ import pyarrow.parquet as pq
 
 try:
     from isolens._stats import bh_fdr, weighted_logistic_test
+    from isolens.mod_dmc import read_site_summary_full
     from isolens.mod_scan import (
         CODE_DELETION,
         CODE_FAIL,
@@ -30,6 +31,7 @@ try:
     )
 except ImportError:
     from _stats import bh_fdr, weighted_logistic_test  # type: ignore[no-redef]
+    from mod_dmc import read_site_summary_full  # type: ignore[no-redef]
     from mod_scan import (  # type: ignore[no-redef]
         CODE_DELETION,
         CODE_FAIL,
@@ -161,92 +163,58 @@ def parse_args() -> argparse.Namespace:
 # ---------- site-summary reader ----------
 
 
-def _read_sites_parquet(path: str) -> list[dict[str, Any]]:
-    """Read a Parquet site summary into a list of row dicts."""
-    table = pq.read_table(path, columns=_SITE_COLS)
-    rows: list[dict[str, Any]] = []
-    col_data = {c: table.column(c) for c in _SITE_COLS}
-    for i in range(len(table)):
-        row: dict[str, Any] = {}
-        for c in _SITE_COLS:
-            row[c] = col_data[c][i].as_py()
-        rows.append(row)
-    return rows
-
-
-def _read_sites_tsv(path: str) -> list[dict[str, Any]]:
-    """Read a TSV/TSV.GZ site summary into a list of row dicts."""
-    import gzip
-
-    open_func = gzip.open if path.endswith(".gz") else open
-    mode = "rt" if path.endswith(".gz") else "r"
-    rows: list[dict[str, Any]] = []
-    with open_func(path, mode, encoding="utf-8") as fh:
-        header = fh.readline().strip().split("\t")
-        col_idx = {c: header.index(c) for c in _SITE_COLS if c in header}
-        for line in fh:
-            parts = line.strip().split("\t")
-            if not parts:
-                continue
-            row: dict[str, Any] = {}
-            for c in _SITE_COLS:
-                if c not in col_idx:
-                    row[c] = None
-                    continue
-                val = parts[col_idx[c]]
-                if val == "NA":
-                    row[c] = None
-                elif c in ("n_modified", "n_unmodified", "position"):
-                    row[c] = int(val)
-                elif c in (
-                    "wt_modified",
-                    "wt_unmodified",
-                    "mod_level",
-                    "wt_mod_level",
-                ):
-                    row[c] = float(val)
-                elif c == "gpos":
-                    row[c] = int(val) if val != "NA" else None
-                else:
-                    row[c] = val
-            rows.append(row)
-    return rows
-
-
 def read_sites_grouped_by_locus(
     path: str,
 ) -> dict[_LocusKey, list[dict[str, Any]]]:
     """Read a site summary and group rows by genomic locus.
 
-    Rows with a null ``gene_id`` or ``gpos`` are dropped (no GTF data).
-    Only groups with at least two distinct transcripts are kept.
+    Reads the site summary into compact ``TxSiteData`` per transcript,
+    then reorganises by genomic locus.  Rows with a null ``gene_id``
+    or ``gpos`` are dropped.  Only groups with at least two distinct
+    transcripts are kept.
 
     Returns
     -------
     dict
         ``{(gene_id, chrom, gpos, strand, mod_type): [row_dict, ...]}``
     """
-    if path.endswith(".parquet"):
-        rows = _read_sites_parquet(path)
-    else:
-        rows = _read_sites_tsv(path)
+    tx_sites = read_site_summary_full(path)
 
-    # Drop rows without genomic coordinates
-    rows = [
-        r for r in rows if r.get("gene_id") is not None and r.get("gpos") is not None
-    ]
-
-    # Group by locus key
+    # Build locus groups from TxSiteData
     groups: dict[_LocusKey, list[dict[str, Any]]] = {}
-    for row in rows:
-        key: _LocusKey = (
-            row["gene_id"],
-            row["chrom"],
-            row["gpos"],
-            row["strand"],
-            row["mod_type"],
-        )
-        groups.setdefault(key, []).append(row)
+    for tx_name, data in tx_sites.items():
+        for i in range(data.n_sites):
+            gene_id = _nullable_str(data.gene_id[i])
+            chrom = _nullable_str(data.chrom[i])
+            strand = _nullable_str(data.strand[i])
+            gpos_val = data.gpos[i]
+
+            if gene_id is None or np.isnan(gpos_val):
+                continue
+
+            key: _LocusKey = (
+                gene_id,
+                chrom or "",
+                int(gpos_val),
+                strand or "",
+                str(data.mod_types[i]),
+            )
+            row: dict[str, Any] = {
+                "transcript_id": tx_name,
+                "position": int(data.positions[i]),
+                "mod_type": str(data.mod_types[i]),
+                "n_modified": int(data.n_modified[i]),
+                "wt_modified": float(data.wt_modified[i]),
+                "n_unmodified": int(data.n_unmodified[i]),
+                "wt_unmodified": float(data.wt_unmodified[i]),
+                "mod_level": _nullable_float(data.mod_level[i]),
+                "wt_mod_level": _nullable_float(data.wt_mod_level[i]),
+                "gene_id": gene_id,
+                "chrom": chrom,
+                "strand": strand,
+                "gpos": int(gpos_val),
+            }
+            groups.setdefault(key, []).append(row)
 
     # Keep only groups with ≥ 2 distinct transcripts
     filtered: dict[_LocusKey, list[dict[str, Any]]] = {}
@@ -256,6 +224,18 @@ def read_sites_grouped_by_locus(
             filtered[key] = group_rows
 
     return filtered
+
+
+def _nullable_float(val: float) -> float | None:
+    """Return None if *val* is NaN, otherwise the float value."""
+    return None if np.isnan(val) else float(val)
+
+
+def _nullable_str(val: str | None) -> str | None:
+    """Return None for a None or empty string value."""
+    if val is None:
+        return None
+    return str(val) if val else None
 
 
 def validate_input(groups: dict[_LocusKey, list[dict[str, Any]]]) -> None:

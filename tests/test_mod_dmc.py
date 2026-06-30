@@ -12,6 +12,7 @@ import pytest
 
 try:
     from isolens.mod_dmc import (
+        TxSiteData,
         _extract_site_reads,
         _read_mod_codes,
         _validate_mod_codes,
@@ -33,6 +34,7 @@ try:
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
     from isolens.mod_dmc import (  # type: ignore[no-redef]
+        TxSiteData,
         _extract_site_reads,
         _read_mod_codes,
         _validate_mod_codes,
@@ -54,6 +56,39 @@ except ImportError:
 
 
 # ---------- helpers ----------
+
+
+def _make_tx_site_data(sites_list: list[dict]) -> TxSiteData:
+    """Build a TxSiteData from a list of per-site dicts for testing."""
+    n = len(sites_list)
+    if n == 0:
+        raise ValueError("Need at least one site")
+    return TxSiteData(
+        positions=np.array([s["position"] for s in sites_list], dtype=np.int32),
+        mod_types=np.array([s["mod_type"] for s in sites_list], dtype=object),
+        n_modified=np.array([s["n_modified"] for s in sites_list], dtype=np.int32),
+        wt_modified=np.array([s["wt_modified"] for s in sites_list], dtype=np.float64),
+        n_unmodified=np.array(
+            [s["n_unmodified"] for s in sites_list], dtype=np.int32
+        ),
+        wt_unmodified=np.array(
+            [s["wt_unmodified"] for s in sites_list], dtype=np.float64
+        ),
+        mod_level=np.array([s["mod_level"] for s in sites_list], dtype=np.float64),
+        wt_mod_level=np.array(
+            [s["wt_mod_level"] for s in sites_list], dtype=np.float64
+        ),
+        gene_id=np.array([s.get("gene_id") for s in sites_list], dtype=object),
+        chrom=np.array([s.get("chrom") for s in sites_list], dtype=object),
+        strand=np.array([s.get("strand") for s in sites_list], dtype=object),
+        gpos=np.array(
+            [
+                np.nan if s.get("gpos") is None else float(s["gpos"])
+                for s in sites_list
+            ],
+            dtype=np.float64,
+        ),
+    )
 
 
 def _make_h5(path, tx_data, mod_codes):
@@ -247,11 +282,14 @@ class TestReadSiteSummaryFull:
             ],
         )
         sites = read_site_summary_full(path)
-        key = ("TX1", 10, "a")
-        assert key in sites
-        assert sites[key]["n_modified"] == 5
-        assert sites[key]["gene_id"] == "G1"
-        assert sites[key]["gpos"] == 100
+        assert "TX1" in sites
+        data = sites["TX1"]
+        assert data.n_sites == 1
+        assert data.positions[0] == 10
+        assert data.mod_types[0] == "a"
+        assert data.n_modified[0] == 5
+        assert data.gene_id[0] == "G1"
+        assert data.gpos[0] == pytest.approx(100.0)
 
     def test_tsv(self, tmp_path):
         path = str(tmp_path / "sites.tsv")
@@ -271,10 +309,12 @@ class TestReadSiteSummaryFull:
                 "G1\t2L\t+\t100\n"
             )
         sites = read_site_summary_full(path)
-        key = ("TX1", 10, "a")
-        assert key in sites
-        assert sites[key]["n_modified"] == 5
-        assert sites[key]["gene_id"] == "G1"
+        assert "TX1" in sites
+        data = sites["TX1"]
+        assert data.n_sites == 1
+        assert data.positions[0] == 10
+        assert data.n_modified[0] == 5
+        assert data.gene_id[0] == "G1"
 
     def test_tsv_na_values(self, tmp_path):
         """TSV with NA values for null genomic coordinates."""
@@ -288,10 +328,10 @@ class TestReadSiteSummaryFull:
             )
             f.write("TX1\t5\tm\t3\t2.5\t7\t6.5\t0.3\t0.28\tNA\tNA\tNA\tNA\n")
         sites = read_site_summary_full(path)
-        key = ("TX1", 5, "m")
-        assert key in sites
-        assert sites[key]["gene_id"] is None
-        assert sites[key]["gpos"] is None
+        assert "TX1" in sites
+        data = sites["TX1"]
+        assert data.gene_id[0] is None
+        assert np.isnan(data.gpos[0])
 
     def test_multiple_sites(self, tmp_path):
         path = str(tmp_path / "sites.parquet")
@@ -351,9 +391,9 @@ class TestReadSiteSummaryFull:
             ],
         )
         sites = read_site_summary_full(path)
-        assert len(sites) == 2
-        assert ("TX1", 10, "a") in sites
-        assert ("TX1", 20, "a") in sites
+        assert len(sites) == 1  # one transcript
+        assert "TX1" in sites
+        assert sites["TX1"].n_sites == 2
 
 
 # ---------- process_transcript ----------
@@ -373,34 +413,42 @@ class TestProcessTranscript:
         matrix_2 = np.array([[4]] * n, dtype=np.uint8)
         weights_2 = np.ones(n, dtype=np.float32)
 
-        sites_1 = {
-            ("TX1", 1, "a"): {
-                "n_modified": 0,
-                "wt_modified": 0.0,
-                "n_unmodified": n,
-                "wt_unmodified": float(n),
-                "mod_level": 0.0,
-                "wt_mod_level": 0.0,
-                "gene_id": "G1",
-                "chrom": "2L",
-                "strand": "+",
-                "gpos": 100,
-            }
-        }
-        sites_2 = {
-            ("TX1", 1, "a"): {
-                "n_modified": n,
-                "wt_modified": float(n),
-                "n_unmodified": 0,
-                "wt_unmodified": 0.0,
-                "mod_level": 1.0,
-                "wt_mod_level": 1.0,
-                "gene_id": "G1",
-                "chrom": "2L",
-                "strand": "+",
-                "gpos": 100,
-            }
-        }
+        data_1 = _make_tx_site_data(
+            [
+                {
+                    "position": 1,
+                    "mod_type": "a",
+                    "n_modified": 0,
+                    "wt_modified": 0.0,
+                    "n_unmodified": n,
+                    "wt_unmodified": float(n),
+                    "mod_level": 0.0,
+                    "wt_mod_level": 0.0,
+                    "gene_id": "G1",
+                    "chrom": "2L",
+                    "strand": "+",
+                    "gpos": 100,
+                }
+            ]
+        )
+        data_2 = _make_tx_site_data(
+            [
+                {
+                    "position": 1,
+                    "mod_type": "a",
+                    "n_modified": n,
+                    "wt_modified": float(n),
+                    "n_unmodified": 0,
+                    "wt_unmodified": 0.0,
+                    "mod_level": 1.0,
+                    "wt_mod_level": 1.0,
+                    "gene_id": "G1",
+                    "chrom": "2L",
+                    "strand": "+",
+                    "gpos": 100,
+                }
+            ]
+        )
         mod_code_map = {"a": 4}
 
         rows = process_transcript(
@@ -409,8 +457,8 @@ class TestProcessTranscript:
             weights_1,
             matrix_2,
             weights_2,
-            sites_1,
-            sites_2,
+            data_1,
+            data_2,
             mod_code_map,
         )
 
@@ -434,21 +482,43 @@ class TestProcessTranscript:
         matrix_2 = np.array([[CODE_CANONICAL]], dtype=np.uint8)
         weights_2 = np.ones(1, dtype=np.float32)
 
-        sites_1 = {
-            ("TX1", 1, "a"): {
-                "n_modified": 2,
-                "n_unmodified": 0,
-                "mod_level": 1.0,
-                "wt_mod_level": 1.0,
-                "wt_modified": 2.0,
-                "wt_unmodified": 0.0,
-                "gene_id": None,
-                "chrom": None,
-                "strand": None,
-                "gpos": None,
-            }
-        }
-        sites_2 = {}  # No sites for this transcript in condition 2
+        data_1 = _make_tx_site_data(
+            [
+                {
+                    "position": 1,
+                    "mod_type": "a",
+                    "n_modified": 2,
+                    "n_unmodified": 0,
+                    "mod_level": 1.0,
+                    "wt_mod_level": 1.0,
+                    "wt_modified": 2.0,
+                    "wt_unmodified": 0.0,
+                    "gene_id": None,
+                    "chrom": None,
+                    "strand": None,
+                    "gpos": None,
+                }
+            ]
+        )
+        # data_2: empty — different mod_type ensures no intersection
+        data_2 = _make_tx_site_data(
+            [
+                {
+                    "position": 1,
+                    "mod_type": "m",
+                    "n_modified": 0,
+                    "n_unmodified": 1,
+                    "mod_level": 0.0,
+                    "wt_mod_level": 0.0,
+                    "wt_modified": 0.0,
+                    "wt_unmodified": 1.0,
+                    "gene_id": None,
+                    "chrom": None,
+                    "strand": None,
+                    "gpos": None,
+                }
+            ]
+        )
 
         rows = process_transcript(
             "TX1",
@@ -456,8 +526,8 @@ class TestProcessTranscript:
             weights_1,
             matrix_2,
             weights_2,
-            sites_1,
-            sites_2,
+            data_1,
+            data_2,
             {"a": 4},
         )
         assert rows == []
@@ -469,34 +539,24 @@ class TestProcessTranscript:
         matrix_2 = np.array([[4], [4]], dtype=np.uint8)
         weights_2 = np.ones(2, dtype=np.float32)
 
-        sites_1 = {
-            ("TX1", 1, "a"): {
-                "n_modified": 0,
-                "n_unmodified": 0,
-                "mod_level": 0.0,
-                "wt_mod_level": 0.0,
-                "wt_modified": 0.0,
-                "wt_unmodified": 0.0,
-                "gene_id": None,
-                "chrom": None,
-                "strand": None,
-                "gpos": None,
-            }
+        site = {
+            "position": 1,
+            "mod_type": "a",
+            "n_modified": 0,
+            "n_unmodified": 0,
+            "mod_level": 0.0,
+            "wt_mod_level": 0.0,
+            "wt_modified": 0.0,
+            "wt_unmodified": 0.0,
+            "gene_id": None,
+            "chrom": None,
+            "strand": None,
+            "gpos": None,
         }
-        sites_2 = {
-            ("TX1", 1, "a"): {
-                "n_modified": 2,
-                "n_unmodified": 0,
-                "mod_level": 1.0,
-                "wt_mod_level": 1.0,
-                "wt_modified": 2.0,
-                "wt_unmodified": 0.0,
-                "gene_id": None,
-                "chrom": None,
-                "strand": None,
-                "gpos": None,
-            }
-        }
+        data_1 = _make_tx_site_data([site])
+        site2 = {**site, "n_modified": 2, "wt_modified": 2.0, "mod_level": 1.0,
+                  "wt_mod_level": 1.0}
+        data_2 = _make_tx_site_data([site2])
 
         rows = process_transcript(
             "TX1",
@@ -504,8 +564,8 @@ class TestProcessTranscript:
             weights_1,
             matrix_2,
             weights_2,
-            sites_1,
-            sites_2,
+            data_1,
+            data_2,
             {"a": 4},
         )
         assert rows == []
@@ -517,34 +577,20 @@ class TestProcessTranscript:
         matrix_2 = np.array([[4]], dtype=np.uint8)
         weights_2 = np.ones(1, dtype=np.float32)
 
-        sites_1 = {
-            ("TX1", 1, "a"): {
-                "n_modified": 1,
-                "n_unmodified": 0,
-                "mod_level": 1.0,
-                "wt_mod_level": 1.0,
-                "wt_modified": 1.0,
-                "wt_unmodified": 0.0,
-                "gene_id": None,
-                "chrom": None,
-                "strand": None,
-                "gpos": None,
-            }
+        site = {
+            "n_modified": 1,
+            "n_unmodified": 0,
+            "mod_level": 1.0,
+            "wt_mod_level": 1.0,
+            "wt_modified": 1.0,
+            "wt_unmodified": 0.0,
+            "gene_id": None,
+            "chrom": None,
+            "strand": None,
+            "gpos": None,
         }
-        sites_2 = {
-            ("TX1", 2, "a"): {  # Different position
-                "n_modified": 1,
-                "n_unmodified": 0,
-                "mod_level": 1.0,
-                "wt_mod_level": 1.0,
-                "wt_modified": 1.0,
-                "wt_unmodified": 0.0,
-                "gene_id": None,
-                "chrom": None,
-                "strand": None,
-                "gpos": None,
-            }
-        }
+        data_1 = _make_tx_site_data([{"position": 1, "mod_type": "a", **site}])
+        data_2 = _make_tx_site_data([{"position": 2, "mod_type": "a", **site}])
 
         rows = process_transcript(
             "TX1",
@@ -552,8 +598,8 @@ class TestProcessTranscript:
             weights_1,
             matrix_2,
             weights_2,
-            sites_1,
-            sites_2,
+            data_1,
+            data_2,
             {"a": 4},
         )
         assert rows == []
@@ -566,6 +612,8 @@ class TestProcessTranscript:
         weights_2 = np.ones(2, dtype=np.float32)
 
         site = {
+            "position": 1,
+            "mod_type": "a",
             "n_modified": 1,
             "wt_modified": 0.8,
             "n_unmodified": 1,
@@ -577,6 +625,17 @@ class TestProcessTranscript:
             "strand": "+",
             "gpos": 100,
         }
+        site2 = {
+            **site,
+            "n_modified": 0,
+            "wt_modified": 0.0,
+            "n_unmodified": 2,
+            "wt_unmodified": 1.8,
+            "mod_level": 0.0,
+            "wt_mod_level": 0.0,
+        }
+        data_1 = _make_tx_site_data([site])
+        data_2 = _make_tx_site_data([site2])
 
         rows = process_transcript(
             "TX1",
@@ -584,21 +643,8 @@ class TestProcessTranscript:
             weights_1,
             matrix_2,
             weights_2,
-            {("TX1", 1, "a"): site},
-            {
-                ("TX1", 1, "a"): {
-                    "n_modified": 0,
-                    "wt_modified": 0.0,
-                    "n_unmodified": 2,
-                    "wt_unmodified": 1.8,
-                    "mod_level": 0.0,
-                    "wt_mod_level": 0.0,
-                    "gene_id": "G1",
-                    "chrom": "2L",
-                    "strand": "+",
-                    "gpos": 100,
-                }
-            },
+            data_1,
+            data_2,
             {"a": 4},
         )
 
@@ -640,6 +686,8 @@ class TestProcessTranscript:
         weights_2 = np.ones(1, dtype=np.float32)
 
         site = {
+            "position": 1,
+            "mod_type": "unknown",
             "n_modified": 1,
             "n_unmodified": 0,
             "mod_level": 1.0,
@@ -651,6 +699,8 @@ class TestProcessTranscript:
             "strand": None,
             "gpos": None,
         }
+        data_1 = _make_tx_site_data([site])
+        data_2 = _make_tx_site_data([site])
 
         rows = process_transcript(
             "TX1",
@@ -658,8 +708,8 @@ class TestProcessTranscript:
             weights_1,
             matrix_2,
             weights_2,
-            {("TX1", 1, "unknown"): site},
-            {("TX1", 1, "unknown"): site},
+            data_1,
+            data_2,
             {"a": 4},  # "unknown" not in map
         )
         assert rows == []

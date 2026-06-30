@@ -12,6 +12,7 @@ Site key: ``(transcript_id, position, mod_type)``.
 import argparse
 import sys
 from contextlib import ExitStack
+from dataclasses import dataclass
 from typing import Any
 
 import h5py
@@ -83,6 +84,44 @@ _SITE_COLS = [
     "strand",
     "gpos",
 ]
+
+
+# ---------- compact site data ----------
+
+
+@dataclass(slots=True)
+class TxSiteData:
+    """Memory-efficient site data for a single transcript.
+
+    Stores per-site values as numpy arrays instead of Python dicts
+    to avoid the ~608-byte-per-row dict overhead.  All arrays have
+    the same length (``n_sites``).
+    """
+
+    positions: np.ndarray  # int32  (n_sites,)
+    mod_types: np.ndarray  # object (n_sites,) — short shared strings
+    n_modified: np.ndarray  # int32
+    wt_modified: np.ndarray  # float64
+    n_unmodified: np.ndarray  # int32
+    wt_unmodified: np.ndarray  # float64
+    mod_level: np.ndarray  # float64
+    wt_mod_level: np.ndarray  # float64
+    gene_id: np.ndarray  # object (n_sites,) — str or None
+    chrom: np.ndarray  # object
+    strand: np.ndarray  # object
+    gpos: np.ndarray  # float64 (NaN for NA / missing)
+
+    @property
+    def n_sites(self) -> int:
+        return len(self.positions)
+
+
+def _build_site_index(data: TxSiteData) -> dict[tuple[int, str], int]:
+    """Build ``(position, mod_type) → array_index`` for fast intersection."""
+    return {
+        (int(data.positions[i]), str(data.mod_types[i])): i
+        for i in range(data.n_sites)
+    }
 
 
 # ---------- CLI ----------
@@ -166,78 +205,202 @@ def parse_args() -> argparse.Namespace:
 # ---------- site-summary readers ----------
 
 
-def _read_sites_parquet(path: str) -> dict[tuple, dict[str, Any]]:
-    """Read a Parquet site summary into a flat dict keyed by
-    ``(transcript_id, position, mod_type)``."""
+def _read_sites_parquet_grouped(path: str) -> dict[str, TxSiteData]:
+    """Read a Parquet site summary grouped by transcript.
+
+    Builds a ``transcript → TxSiteData`` mapping without creating
+    per-row Python dicts — data moves directly from PyArrow columns
+    into numpy arrays.
+    """
     table = pq.read_table(path, columns=_SITE_COLS)
-    sites: dict[tuple, dict[str, Any]] = {}
-    col_data = {c: table.column(c) for c in _SITE_COLS}
-    for i in range(len(table)):
-        tx = col_data["transcript_id"][i].as_py()
-        pos = col_data["position"][i].as_py()
-        mod = col_data["mod_type"][i].as_py()
-        key = (tx, pos, mod)
-        row = {}
-        for c in _SITE_COLS:
-            val = col_data[c][i].as_py()
-            row[c] = val
-        sites[key] = row
-    return sites
+
+    # --- pass 1: find transcript boundaries ---
+    tx_col = table.column("transcript_id")
+    tx_ranges: dict[str, tuple[int, int]] = {}
+    n_rows = len(table)
+    if n_rows == 0:
+        return {}
+    cur_tx = tx_col[0].as_py()
+    start = 0
+    for i in range(1, n_rows):
+        tx = tx_col[i].as_py()
+        if tx != cur_tx:
+            tx_ranges[cur_tx] = (start, i)
+            cur_tx = tx
+            start = i
+    tx_ranges[cur_tx] = (start, n_rows)
+
+    # --- pass 2: extract numpy arrays per transcript ---
+    result: dict[str, TxSiteData] = {}
+    for tx, (lo, hi) in tx_ranges.items():
+        result[tx] = TxSiteData(
+            positions=table.column("position")[lo:hi].to_numpy().astype(np.int32),
+            mod_types=table.column("mod_type")[lo:hi].to_numpy(),
+            n_modified=table.column("n_modified")[lo:hi].to_numpy().astype(np.int32),
+            wt_modified=table.column("wt_modified")[lo:hi]
+            .to_numpy()
+            .astype(np.float64),
+            n_unmodified=table.column("n_unmodified")[lo:hi]
+            .to_numpy()
+            .astype(np.int32),
+            wt_unmodified=table.column("wt_unmodified")[lo:hi]
+            .to_numpy()
+            .astype(np.float64),
+            mod_level=table.column("mod_level")[lo:hi].to_numpy().astype(np.float64),
+            wt_mod_level=table.column("wt_mod_level")[lo:hi]
+            .to_numpy()
+            .astype(np.float64),
+            gene_id=table.column("gene_id")[lo:hi].to_numpy(),
+            chrom=table.column("chrom")[lo:hi].to_numpy(),
+            strand=table.column("strand")[lo:hi].to_numpy(),
+            gpos=_col_to_float64_nullable(table.column("gpos")[lo:hi]),
+        )
+    return result
 
 
-def _read_sites_tsv(path: str) -> dict[tuple, dict[str, Any]]:
-    """Read a TSV/TSV.GZ site summary into a flat dict keyed by
-    ``(transcript_id, position, mod_type)``."""
+def _col_to_float64_nullable(col: pa.ChunkedArray) -> np.ndarray:
+    """Convert a PyArrow int column to float64 with NaN for nulls."""
+    arr = col.to_numpy()
+    if hasattr(col, "null_count") and col.null_count > 0:
+        out = np.full(len(arr), np.nan, dtype=np.float64)
+        mask = arr != np.array(None)
+        # PyArrow nullable int → numpy object array with None for nulls
+        if arr.dtype == object:
+            valid = np.array([v is not None for v in arr])
+            out[valid] = arr[valid].astype(np.float64)
+        else:
+            out[mask] = arr[mask].astype(np.float64)
+        return out
+    if arr.dtype == object:
+        return np.array(
+            [np.nan if v is None else np.float64(v) for v in arr], dtype=np.float64
+        )
+    return arr.astype(np.float64)
+
+
+def _read_sites_tsv_grouped(path: str) -> dict[str, TxSiteData]:
+    """Read a TSV/TSV.GZ site summary grouped by transcript.
+
+    Streams the file one line at a time, buffers rows for the current
+    transcript in plain Python lists, then converts to numpy arrays when
+    the transcript changes.  Peak memory is one transcript's worth of
+    raw values plus the final ``TxSiteData``.
+    """
     import gzip
 
     open_func = gzip.open if path.endswith(".gz") else open
     mode = "rt" if path.endswith(".gz") else "r"
-    sites: dict[tuple, dict[str, Any]] = {}
+
+    tx_sites: dict[str, TxSiteData] = {}
+
     with open_func(path, mode, encoding="utf-8") as fh:
         header = fh.readline().strip().split("\t")
         col_idx = {c: header.index(c) for c in _SITE_COLS if c in header}
+
+        # --- column buffers for the current transcript ---
+        cur_tx: str | None = None
+        cur_positions: list[int] = []
+        cur_mod_types: list[str] = []
+        cur_n_modified: list[int] = []
+        cur_wt_modified: list[float] = []
+        cur_n_unmodified: list[int] = []
+        cur_wt_unmodified: list[float] = []
+        cur_mod_level: list[float] = []
+        cur_wt_mod_level: list[float] = []
+        cur_gene_id: list[str | None] = []
+        cur_chrom: list[str | None] = []
+        cur_strand: list[str | None] = []
+        cur_gpos: list[float] = []  # NaN for NA
+
+        def _flush() -> None:
+            """Convert buffered lists to TxSiteData and store."""
+            nonlocal cur_tx
+            if cur_tx is not None and cur_positions:
+                tx_sites[cur_tx] = TxSiteData(
+                    positions=np.array(cur_positions, dtype=np.int32),
+                    mod_types=np.array(cur_mod_types, dtype=object),
+                    n_modified=np.array(cur_n_modified, dtype=np.int32),
+                    wt_modified=np.array(cur_wt_modified, dtype=np.float64),
+                    n_unmodified=np.array(cur_n_unmodified, dtype=np.int32),
+                    wt_unmodified=np.array(cur_wt_unmodified, dtype=np.float64),
+                    mod_level=np.array(cur_mod_level, dtype=np.float64),
+                    wt_mod_level=np.array(cur_wt_mod_level, dtype=np.float64),
+                    gene_id=np.array(cur_gene_id, dtype=object),
+                    chrom=np.array(cur_chrom, dtype=object),
+                    strand=np.array(cur_strand, dtype=object),
+                    gpos=np.array(cur_gpos, dtype=np.float64),
+                )
+            cur_positions.clear()
+            cur_mod_types.clear()
+            cur_n_modified.clear()
+            cur_wt_modified.clear()
+            cur_n_unmodified.clear()
+            cur_wt_unmodified.clear()
+            cur_mod_level.clear()
+            cur_wt_mod_level.clear()
+            cur_gene_id.clear()
+            cur_chrom.clear()
+            cur_strand.clear()
+            cur_gpos.clear()
+
+        def _parse_str(col: str) -> str | None:
+            i = col_idx.get(col)
+            if i is None:
+                return None
+            val = parts[i]
+            return None if val == "NA" else val
+
+        def _parse_int(col: str) -> int:
+            return int(parts[col_idx[col]])
+
+        def _parse_float(col: str) -> float:
+            return float(parts[col_idx[col]])
+
+        def _parse_gpos(col: str) -> float:
+            i = col_idx.get(col)
+            if i is None:
+                return np.nan
+            val = parts[i]
+            return np.float64(val) if val != "NA" else np.nan
+
         for line in fh:
             parts = line.strip().split("\t")
             if not parts:
                 continue
+
             tx = parts[col_idx["transcript_id"]]
-            pos = int(parts[col_idx["position"]])
-            mod = parts[col_idx["mod_type"]]
-            key = (tx, pos, mod)
-            row: dict[str, Any] = {}
-            for c in _SITE_COLS:
-                if c not in col_idx:
-                    row[c] = None
-                    continue
-                val = parts[col_idx[c]]
-                if val == "NA":
-                    row[c] = None
-                elif c in ("n_modified", "n_unmodified", "position"):
-                    row[c] = int(val)
-                elif c in (
-                    "wt_modified",
-                    "wt_unmodified",
-                    "mod_level",
-                    "wt_mod_level",
-                ):
-                    row[c] = float(val)
-                elif c == "gpos":
-                    row[c] = int(val) if val != "NA" else None
-                else:
-                    row[c] = val
-            sites[key] = row
-    return sites
+
+            if tx != cur_tx:
+                _flush()
+                cur_tx = tx
+
+            cur_positions.append(_parse_int("position"))
+            cur_mod_types.append(parts[col_idx["mod_type"]])
+            cur_n_modified.append(_parse_int("n_modified"))
+            cur_wt_modified.append(_parse_float("wt_modified"))
+            cur_n_unmodified.append(_parse_int("n_unmodified"))
+            cur_wt_unmodified.append(_parse_float("wt_unmodified"))
+            cur_mod_level.append(_parse_float("mod_level"))
+            cur_wt_mod_level.append(_parse_float("wt_mod_level"))
+            cur_gene_id.append(_parse_str("gene_id"))
+            cur_chrom.append(_parse_str("chrom"))
+            cur_strand.append(_parse_str("strand"))
+            cur_gpos.append(_parse_gpos("gpos"))
+
+        _flush()  # last transcript
+
+    return tx_sites
 
 
-def read_site_summary_full(path: str) -> dict[tuple, dict[str, Any]]:
+def read_site_summary_full(path: str) -> dict[str, TxSiteData]:
     """Read a modification site summary file (Parquet or TSV/TSV.GZ).
 
-    Returns a dict keyed by ``(transcript_id, position, mod_type)``,
-    where each value is a dict with all site-summary columns.
+    Returns a dict mapping ``transcript_id`` to ``TxSiteData``,
+    a compact numpy-backed container with all site-summary columns.
     """
     if path.endswith(".parquet"):
-        return _read_sites_parquet(path)
-    return _read_sites_tsv(path)
+        return _read_sites_parquet_grouped(path)
+    return _read_sites_tsv_grouped(path)
 
 
 # ---------- per-site read extraction ----------
@@ -403,8 +566,8 @@ def process_transcript(
     weights_1: np.ndarray,
     matrix_2: np.ndarray,
     weights_2: np.ndarray,
-    sites_1_for_tx: dict[tuple, dict[str, Any]],
-    sites_2_for_tx: dict[tuple, dict[str, Any]],
+    data_1: TxSiteData,
+    data_2: TxSiteData,
     mod_code_map: dict[str, int],
 ) -> list[dict[str, Any]]:
     """Process one transcript for DMC.
@@ -417,9 +580,8 @@ def process_transcript(
         Pooled HDF5 matrices for condition 1 and 2.
     weights_1, weights_2 : ndarray
         Pooled read weights for condition 1 and 2.
-    sites_1_for_tx, sites_2_for_tx : dict
-        Site summary entries for this transcript, keyed by
-        ``(tx_name, position, mod_type)``.
+    data_1, data_2 : TxSiteData
+        Compact site data for this transcript in each condition.
     mod_code_map : dict
         ``{mod_type_str: integer_code}`` from the HDF5.
 
@@ -428,14 +590,18 @@ def process_transcript(
     list of dict
         One dict per matched site with all ``_OUTPUT_COLS`` fields.
     """
-    # Intersection of site keys for this transcript
-    common_keys = sorted(set(sites_1_for_tx.keys()) & set(sites_2_for_tx.keys()))
+    # Build temporary per-transcript lookup dicts for intersection
+    idx1 = _build_site_index(data_1)
+    idx2 = _build_site_index(data_2)
+    common_keys = sorted(set(idx1.keys()) & set(idx2.keys()))
     if not common_keys:
         return []
 
     rows: list[dict[str, Any]] = []
-    for key in common_keys:
-        _tx, pos, mod_str = key
+    for pos, mod_str in common_keys:
+        i1 = idx1[(pos, mod_str)]
+        i2 = idx2[(pos, mod_str)]
+
         mod_code = mod_code_map.get(mod_str)
         if mod_code is None:
             continue
@@ -465,38 +631,41 @@ def process_transcript(
 
         result = weighted_logistic_test(y, x, w)
 
-        # Site summary rows for effect sizes
-        s1 = sites_1_for_tx[key]
-        s2 = sites_2_for_tx[key]
-
-        ml1 = s1.get("mod_level")
-        ml2 = s2.get("mod_level")
-        wml1 = s1.get("wt_mod_level")
-        wml2 = s2.get("wt_mod_level")
+        # Site summary values from numpy arrays
+        ml1 = _nullable_float(data_1.mod_level[i1])
+        ml2 = _nullable_float(data_2.mod_level[i2])
+        wml1 = _nullable_float(data_1.wt_mod_level[i1])
+        wml2 = _nullable_float(data_2.wt_mod_level[i2])
+        gpos_val = data_1.gpos[i1]
+        gene_id = _nullable_str(data_1.gene_id[i1])
+        chrom = _nullable_str(data_1.chrom[i1])
+        strand = _nullable_str(data_1.strand[i1])
 
         rows.append(
             {
                 "transcript_id": tx_name,
                 "position": pos,
                 "mod_type": mod_str,
-                "gene_id": s1.get("gene_id"),
-                "chrom": s1.get("chrom"),
-                "strand": s1.get("strand"),
-                "gpos": s1.get("gpos"),
-                "n_modified_1": s1.get("n_modified"),
-                "n_unmodified_1": s1.get("n_unmodified"),
-                "n_modified_2": s2.get("n_modified"),
-                "n_unmodified_2": s2.get("n_unmodified"),
-                "wt_modified_1": s1.get("wt_modified"),
-                "wt_unmodified_1": s1.get("wt_unmodified"),
-                "wt_modified_2": s2.get("wt_modified"),
-                "wt_unmodified_2": s2.get("wt_unmodified"),
+                "gene_id": gene_id,
+                "chrom": chrom,
+                "strand": strand,
+                "gpos": None if np.isnan(gpos_val) else int(gpos_val),
+                "n_modified_1": int(data_1.n_modified[i1]),
+                "n_unmodified_1": int(data_1.n_unmodified[i1]),
+                "n_modified_2": int(data_2.n_modified[i2]),
+                "n_unmodified_2": int(data_2.n_unmodified[i2]),
+                "wt_modified_1": float(data_1.wt_modified[i1]),
+                "wt_unmodified_1": float(data_1.wt_unmodified[i1]),
+                "wt_modified_2": float(data_2.wt_modified[i2]),
+                "wt_unmodified_2": float(data_2.wt_unmodified[i2]),
                 "mod_level_1": ml1,
                 "mod_level_2": ml2,
                 "wt_mod_level_1": wml1,
                 "wt_mod_level_2": wml2,
                 "delta_mod_level": (
-                    round(ml2 - ml1, 6) if ml1 is not None and ml2 is not None else None
+                    round(ml2 - ml1, 6)
+                    if ml1 is not None and ml2 is not None
+                    else None
                 ),
                 "delta_wt_mod_level": (
                     round(wml2 - wml1, 6)
@@ -510,6 +679,18 @@ def process_transcript(
         )
 
     return rows
+
+
+def _nullable_float(val: float) -> float | None:
+    """Return None if *val* is NaN, otherwise the float value."""
+    return None if np.isnan(val) else float(val)
+
+
+def _nullable_str(val: str | None) -> str | None:
+    """Return None for a None or empty string value."""
+    if val is None:
+        return None
+    return str(val) if val else None
 
 
 # ---------- output writers ----------
@@ -608,12 +789,16 @@ def main(args: argparse.Namespace | None = None) -> None:
     sites_2 = read_site_summary_full(args.sites_2)
 
     if args.verbose:
+        n_sites_1 = sum(d.n_sites for d in sites_1.values())
+        n_sites_2 = sum(d.n_sites for d in sites_2.values())
         print(
-            f"[mod_dmc] Condition 1: {len(sites_1)} sites",
+            f"[mod_dmc] Condition 1: {len(sites_1)} transcripts, "
+            f"{n_sites_1} sites",
             file=sys.stderr,
         )
         print(
-            f"[mod_dmc] Condition 2: {len(sites_2)} sites",
+            f"[mod_dmc] Condition 2: {len(sites_2)} transcripts, "
+            f"{n_sites_2} sites",
             file=sys.stderr,
         )
 
@@ -648,8 +833,8 @@ def main(args: argparse.Namespace | None = None) -> None:
         # ---- 4. Build transcript sets ----
         h5_1_tx = set.union(*[set(h["transcripts"].keys()) for h in h5_1])
         h5_2_tx = set.union(*[set(h["transcripts"].keys()) for h in h5_2])
-        sites_1_tx = {k[0] for k in sites_1}
-        sites_2_tx = {k[0] for k in sites_2}
+        sites_1_tx = set(sites_1.keys())
+        sites_2_tx = set(sites_2.keys())
 
         common_tx = sorted(h5_1_tx & h5_2_tx & sites_1_tx & sites_2_tx)
 
@@ -689,9 +874,12 @@ def main(args: argparse.Namespace | None = None) -> None:
                     file=sys.stderr,
                 )
 
-            # Filter site keys to this transcript
-            st1 = {k: v for k, v in sites_1.items() if k[0] == tx_name}
-            st2 = {k: v for k, v in sites_2.items() if k[0] == tx_name}
+            # Look up sites for this transcript (O(1) dict access)
+            data_1 = sites_1.get(tx_name)
+            data_2 = sites_2.get(tx_name)
+            if data_1 is None or data_2 is None:
+                processed += 1
+                continue
 
             tx_rows = process_transcript(
                 tx_name,
@@ -699,8 +887,8 @@ def main(args: argparse.Namespace | None = None) -> None:
                 weights_1,
                 matrix_2,
                 weights_2,
-                st1,
-                st2,
+                data_1,
+                data_2,
                 mod_code_map,
             )
             all_rows.extend(tx_rows)
