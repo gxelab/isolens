@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--gtf` (`-g`) option to `mod_sites` for mapping transcript coordinates to
   genomic coordinates, adding `gene_id`, `chrom`, `strand`, and `gpos` columns
   to the output.
-- `--gtf` / `--tx2gene` options to `polya_calc` and `polya_t2g` for direct
+- `--gtf` / `--tx2gene` options to `polya_calc` and `polya_gene` for direct
   GTF-to-gene mapping.
 - Multi-file HDF5 pooling support in `mod_sites` and `mod_corr`: `--h5` (`-i`)
   now accepts multiple files and pools reads for the same transcript across all
@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stats.py`, providing richer statistical tests and shared infrastructure.
 - Renamed TSV column `tx_name` to `transcript_id` in all poly(A) modules
   for consistency with the modification modules.
-- Refactored GTF parsing from `polya_t2g`, `polya_calc`, and `mod_sites` into
+- Refactored GTF parsing from `polya_gene`, `polya_calc`, and `mod_sites` into
   shared `_gtf.py` module.
 - `mod_corr` plot flag renamed from `-P`/`--plot` to `-d`/`--plot-dir` with
   added `-t`/`--metric` option to select the association statistic visualized
@@ -118,7 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `polya_diff` module — differential poly(A) length comparison between two
   conditions using a weighted two-sample KS test with Kish's effective sample
   size correction.
-- `polya_t2g` module — aggregate transcript-level poly(A) estimates to gene
+- `polya_gene` module — aggregate transcript-level poly(A) estimates to gene
   level via a user-provided `tx_name → gene_id` mapping file.
 - `_parsing` module — shared Oarfish LZ4 assignment file parser and
   `TargetAssignment` data structure.
@@ -141,7 +141,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--format` (`-f`) option to `mod_sites` and `mod_corr` for choosing between
   Parquet and TSV output.
 - `--gzip` (`-z`) option to `mod_sites`, `mod_corr`, `polya_calc`,
-  `polya_merge`, `polya_diff`, and `polya_t2g` for compressed TSV output.
+  `polya_merge`, `polya_diff`, and `polya_gene` for compressed TSV output.
 - Python API: `parse_oarfish()` function for programmatic access to Oarfish
   read-to-transcript assignment probabilities.
 - Example test dataset in `examples/` (subset of two _Drosophila_ transcripts).

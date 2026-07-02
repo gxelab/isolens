@@ -118,7 +118,7 @@ Oarfish (.lz4) ────────┐                  │
                         ├── polya_calc ──► polya TSV ──┬── polya_merge ──► merged TSV
 BAM (reads/alignment) ─┘                               │
                                                        ├── polya_diff ──► diff TSV
-                                                       └── polya_t2g ───► gene-level TSV
+                                                       └── polya_gene ───► gene-level TSV
 ```
 
 ### Outputs
@@ -135,7 +135,7 @@ BAM (reads/alignment) ─┘                               │
 | `polya_calc` | Transcript-level poly(A) estimates |
 | `polya_merge` | Merged replicate poly(A) estimates |
 | `polya_diff` | Differential poly(A) comparison |
-| `polya_t2g` | Gene-level poly(A) summaries |
+| `polya_gene` | Gene-level poly(A) summaries |
 
 ---
 
@@ -446,12 +446,12 @@ Key options:
 
 ---
 
-### `polya_t2g` — Transcript-to-gene aggregation
+### `polya_gene` — Transcript-to-gene aggregation
 
 Aggregates transcript-level poly(A) estimates to the gene level using a user-provided `tx_name → gene_id` mapping file. Per-transcript probability and length lists are pooled before recalculating the weighted average.
 
 ```bash
-python -m isolens.polya_t2g \
+python -m isolens.polya_gene \
   -i polya.tsv.gz \
   -m tx2gene.tsv \
   -o gene_polya.tsv.gz -z

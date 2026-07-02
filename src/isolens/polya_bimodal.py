@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
         "-i",
         "--input",
         required=True,
-        help="Input poly(A) TSV file (from polya_calc or polya_t2g, gzipped or raw)",
+        help="Input poly(A) TSV file (from polya_calc or polya_gene, gzipped or raw)",
     )
     parser.add_argument(
         "-o",
@@ -368,7 +368,7 @@ def _process_feature(
 def main(args: argparse.Namespace | None = None) -> None:
     """Detect bimodal poly(A) tail length distributions.
 
-    Reads a poly(A) TSV file (from ``polya_calc`` or ``polya_t2g``),
+    Reads a poly(A) TSV file (from ``polya_calc`` or ``polya_gene``),
     applies weighted GMM and KDE bimodality tests to each feature, and
     writes a consensus bimodality call table.
     """

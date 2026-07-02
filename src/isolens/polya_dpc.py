@@ -84,7 +84,7 @@ def parse_args() -> argparse.Namespace:
 def main(args: argparse.Namespace | None = None) -> None:
     """Compare poly(A) length distributions between two conditions.
 
-    Reads two poly(A) TSV files (from ``polya_calc`` or ``polya_t2g``),
+    Reads two poly(A) TSV files (from ``polya_calc`` or ``polya_gene``),
     performs weighted KS, t-test, and rank-sum tests on each shared
     feature, applies global BH FDR correction per test type, and writes
     a comparison table.

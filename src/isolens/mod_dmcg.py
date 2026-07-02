@@ -93,6 +93,7 @@ def parse_args() -> argparse.Namespace:
         "calling between two conditions"
     )
     parser.add_argument(
+        "-s1",
         "--sites-1",
         required=True,
         metavar="FILE",
@@ -100,6 +101,7 @@ def parse_args() -> argparse.Namespace:
         "(Parquet or TSV/TSV.GZ from mod_gene)",
     )
     parser.add_argument(
+        "-s2",
         "--sites-2",
         required=True,
         metavar="FILE",

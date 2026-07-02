@@ -20,7 +20,7 @@ except ImportError:
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for polya_t2g."""
+    """Parse command-line arguments for polya_gene."""
     parser = argparse.ArgumentParser(
         description="Aggregate transcript-level poly(A) length estimates "
         "to the gene level."
@@ -102,7 +102,7 @@ def main(args: argparse.Namespace | None = None) -> None:
                 "Error: Input file does not contain a 'gene_id' column "
                 "and no --gtf annotation was provided.  "
                 "Either run polya_calc with --gtf, or provide --gtf "
-                "to polya_t2g.",
+                "to polya_gene.",
                 file=sys.stderr,
             )
             sys.exit(1)

@@ -1,6 +1,6 @@
 """Shared GTF parsing utilities for the isolens pipeline.
 
-Used by mod_sites.py, polya_calc.py, polya_t2g.py, and other modules
+Used by mod_sites.py, polya_calc.py, polya_gene.py, and other modules
 that need transcript-to-gene mapping from GTF annotations.
 """
 

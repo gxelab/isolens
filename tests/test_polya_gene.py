@@ -1,4 +1,4 @@
-"""Tests for polya_t2g — transcript-to-gene aggregation via GTF."""
+"""Tests for polya_gene — transcript-to-gene aggregation via GTF."""
 
 import argparse
 import gzip
@@ -9,12 +9,12 @@ import pytest
 
 try:
     from isolens._gtf import build_tx_to_gene
-    from isolens.polya_t2g import main
+    from isolens.polya_gene import main
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
     from _gtf import build_tx_to_gene  # type: ignore[no-redef]
 
-    from isolens.polya_t2g import (  # type: ignore[no-redef]
+    from isolens.polya_gene import (  # type: ignore[no-redef]
         main,
     )
 

@@ -141,6 +141,7 @@ def parse_args() -> argparse.Namespace:
         description="mod_dmc: Differential modification calling between two conditions"
     )
     parser.add_argument(
+        "-i1",
         "--h5-1",
         required=True,
         nargs="+",
@@ -149,6 +150,7 @@ def parse_args() -> argparse.Namespace:
         "are provided, reads for the same transcript are pooled.",
     )
     parser.add_argument(
+        "-i2",
         "--h5-2",
         required=True,
         nargs="+",
@@ -157,6 +159,7 @@ def parse_args() -> argparse.Namespace:
         "are provided, reads for the same transcript are pooled.",
     )
     parser.add_argument(
+        "-s1",
         "--sites-1",
         required=True,
         metavar="FILE",
@@ -164,6 +167,7 @@ def parse_args() -> argparse.Namespace:
         "from mod_sites)",
     )
     parser.add_argument(
+        "-s2",
         "--sites-2",
         required=True,
         metavar="FILE",
