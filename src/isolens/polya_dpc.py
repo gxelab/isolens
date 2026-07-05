@@ -7,10 +7,11 @@ import argparse
 import sys
 
 import numpy as np
+import pyarrow as pa
 
 try:
-    from isolens._io import ensure_gz_suffix, format_float
-    from isolens._parsing import open_by_suffix, parse_polyA_file
+    from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
+    from isolens._parsing import parse_polyA_file
     from isolens._stats import (
         bh_fdr,
         weighted_ks_test,
@@ -19,12 +20,9 @@ try:
         weighted_t_test,
     )
 except ImportError:
-    from _io import ensure_gz_suffix, format_float  # type: ignore[no-redef]
+    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
 
-    from _parsing import (  # type: ignore[no-redef]
-        open_by_suffix,
-        parse_polyA_file,
-    )
+    from _parsing import parse_polyA_file  # type: ignore[no-redef]
     from _stats import (  # type: ignore[no-redef]
         bh_fdr,
         weighted_ks_test,
@@ -57,6 +55,13 @@ def parse_args() -> argparse.Namespace:
         "--output",
         required=True,
         help="Output TSV results file",
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["parquet", "tsv"],
+        default="tsv",
+        help="Output format: tsv (default) or parquet",
     )
     parser.add_argument(
         "-z",
@@ -99,6 +104,55 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     id_col_header = id_name_1 if id_name_1 == id_name_2 else "feature_id"
 
+    _OUTPUT_COLS = [
+        id_col_header,
+        "n_reads_1",
+        "total_wt_1",
+        "wmlen_1",
+        "wmedlen_1",
+        "n_reads_2",
+        "total_wt_2",
+        "wmlen_2",
+        "wmedlen_2",
+        "ks_stat",
+        "ks_p_value",
+        "ks_q_value",
+        "wmlen_diff",
+        "t_stat",
+        "t_p_value",
+        "t_q_value",
+        "wmedlen_diff",
+        "u_stat",
+        "u_p_value",
+        "u_q_value",
+    ]
+    _TSV_HEADER = "\t".join(_OUTPUT_COLS)
+
+    _SCHEMA = pa.schema(
+        [
+            (id_col_header, pa.string()),
+            ("n_reads_1", pa.int32()),
+            ("total_wt_1", pa.float64()),
+            ("wmlen_1", pa.float64()),
+            ("wmedlen_1", pa.float64()),
+            ("n_reads_2", pa.int32()),
+            ("total_wt_2", pa.float64()),
+            ("wmlen_2", pa.float64()),
+            ("wmedlen_2", pa.float64()),
+            ("ks_stat", pa.float64()),
+            ("ks_p_value", pa.float64()),
+            ("ks_q_value", pa.float64()),
+            ("wmlen_diff", pa.float64()),
+            ("t_stat", pa.float64()),
+            ("t_p_value", pa.float64()),
+            ("t_q_value", pa.float64()),
+            ("wmedlen_diff", pa.float64()),
+            ("u_stat", pa.float64()),
+            ("u_p_value", pa.float64()),
+            ("u_q_value", pa.float64()),
+        ]
+    )
+
     # Only compare features present in both conditions
     shared_features = sorted(set(cond1_data.keys()) & set(cond2_data.keys()))
     print(
@@ -120,7 +174,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         eff2 = int(np.sum(mask2))
 
         row: dict = {
-            "feat_id": feat_id,
+            id_col_header: feat_id,
             "n_reads_1": eff1,
             "total_wt_1": float("nan"),
             "wmlen_1": float("nan"),
@@ -198,57 +252,11 @@ def main(args: argparse.Namespace | None = None) -> None:
                 results[i][q_key] = round(qv, 6)
 
     # Write output
-    output_filename = ensure_gz_suffix(args.output, args.gzip)
-
-    print(
-        f"Writing statistical test matrix to {output_filename}...",
-        file=sys.stderr,
-    )
-
-    write_mode = "wt" if output_filename.endswith(".gz") else "w"
-    with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write(
-            f"{id_col_header}\tn_reads_1\ttotal_wt_1\twmlen_1\twmedlen_1\t"
-            f"n_reads_2\ttotal_wt_2\twmlen_2\twmedlen_2\t"
-            f"ks_stat\tks_p_value\tks_q_value\t"
-            f"wmlen_diff\tt_stat\tt_p_value\tt_q_value\t"
-            f"wmedlen_diff\tu_stat\tu_p_value\tu_q_value\n"
-        )
-
-        for row in results:
-            feat = row["feat_id"]
-            n1 = row["n_reads_1"]
-            n2 = row["n_reads_2"]
-
-            # Format numeric columns
-            twt1 = format_float(row["total_wt_1"], ".2f")
-            twt2 = format_float(row["total_wt_2"], ".2f")
-            wlen1 = format_float(row["wmlen_1"], ".2f")
-            wlen2 = format_float(row["wmlen_2"], ".2f")
-            wmed1 = format_float(row["wmedlen_1"], ".2f")
-            wmed2 = format_float(row["wmedlen_2"], ".2f")
-
-            ks_s = format_float(row["ks_stat"], ".5f")
-            ks_p = format_float(row["ks_p_value"], ".5e")
-            ks_q = format_float(row["ks_q_value"], ".6f")
-
-            wl_diff = format_float(row["wmlen_diff"], ".2f")
-            t_s = format_float(row["t_stat"], ".5f")
-            t_p = format_float(row["t_p_value"], ".5e")
-            t_q = format_float(row["t_q_value"], ".6f")
-
-            wm_diff = format_float(row["wmedlen_diff"], ".2f")
-            u_s = format_float(row["u_stat"], ".5f")
-            u_p = format_float(row["u_p_value"], ".5e")
-            u_q = format_float(row["u_q_value"], ".6f")
-
-            out_f.write(
-                f"{feat}\t{n1}\t{twt1}\t{wlen1}\t{wmed1}\t"
-                f"{n2}\t{twt2}\t{wlen2}\t{wmed2}\t"
-                f"{ks_s}\t{ks_p}\t{ks_q}\t"
-                f"{wl_diff}\t{t_s}\t{t_p}\t{t_q}\t"
-                f"{wm_diff}\t{u_s}\t{u_p}\t{u_q}\n"
-            )
+    if args.format == "tsv":
+        out_path = ensure_gz_suffix(args.output, args.gzip)
+        write_tsv(results, out_path, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
+    else:
+        write_parquet(results, args.output, _SCHEMA, _OUTPUT_COLS)
 
     print("Genome-wide comparison complete!", file=sys.stderr)
 

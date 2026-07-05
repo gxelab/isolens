@@ -5,16 +5,40 @@ import argparse
 import sys
 from typing import Any
 
+import pyarrow as pa
+
 try:
-    from isolens._io import ensure_gz_suffix
+    from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
     from isolens._parsing import calc_weighted_pa_len, open_by_suffix
 except ImportError:
-    from _io import ensure_gz_suffix  # type: ignore[no-redef]
+    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
 
     from _parsing import (  # type: ignore[no-redef]
         calc_weighted_pa_len,
         open_by_suffix,
     )
+
+
+_OUTPUT_COLS = [
+    "transcript_id",
+    "n_reads",
+    "total_wt",
+    "wmlen",
+    "weights",
+    "lengths",
+]
+_TSV_HEADER = "\t".join(_OUTPUT_COLS)
+
+_MERGE_SCHEMA = pa.schema(
+    [
+        ("transcript_id", pa.string()),
+        ("n_reads", pa.int32()),
+        ("total_wt", pa.float32()),
+        ("wmlen", pa.float32()),
+        ("weights", pa.list_(pa.float32())),
+        ("lengths", pa.list_(pa.int32())),
+    ]
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +54,13 @@ def parse_args() -> argparse.Namespace:
         "-i2", "--input2", required=True, help="Second input TSV file (gzipped or raw)"
     )
     parser.add_argument("-o", "--output", required=True, help="Output file path")
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["parquet", "tsv"],
+        default="tsv",
+        help="Output format: tsv (default) or parquet",
+    )
     parser.add_argument(
         "-z",
         "--gzip",
@@ -99,39 +130,42 @@ def main() -> None:
         file=sys.stderr,
     )
 
-    output_filename = ensure_gz_suffix(args.output, args.gzip)
+    # Accumulate rows
+    all_rows: list[dict] = []
 
-    print(f"Writing re-estimated results to {output_filename}...", file=sys.stderr)
+    for tx_name in all_tx_names:
+        merged_weights: list[float] = []
+        merged_lengths: list[int] = []
 
-    write_mode = "wt" if output_filename.endswith(".gz") else "w"
-    with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write(
-            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n"
+        if tx_name in file1_data:
+            merged_weights.extend(file1_data[tx_name]["weights"])
+            merged_lengths.extend(file1_data[tx_name]["lengths"])
+
+        if tx_name in file2_data:
+            merged_weights.extend(file2_data[tx_name]["weights"])
+            merged_lengths.extend(file2_data[tx_name]["lengths"])
+
+        n_reads = len(merged_weights)
+        total_wt = sum(merged_weights)
+        wmlen = calc_weighted_pa_len(merged_weights, merged_lengths)
+
+        all_rows.append(
+            {
+                "transcript_id": tx_name,
+                "n_reads": n_reads,
+                "total_wt": total_wt,
+                "wmlen": wmlen,
+                "weights": merged_weights,
+                "lengths": merged_lengths,
+            }
         )
 
-        for tx_name in all_tx_names:
-            merged_weights: list[float] = []
-            merged_lengths: list[int] = []
-
-            if tx_name in file1_data:
-                merged_weights.extend(file1_data[tx_name]["weights"])
-                merged_lengths.extend(file1_data[tx_name]["lengths"])
-
-            if tx_name in file2_data:
-                merged_weights.extend(file2_data[tx_name]["weights"])
-                merged_lengths.extend(file2_data[tx_name]["lengths"])
-
-            n_reads = len(merged_weights)
-            total_wt = sum(merged_weights)
-            wmlen = calc_weighted_pa_len(merged_weights, merged_lengths)
-
-            weights_str = ",".join(f"{w:.5g}" for w in merged_weights)
-            lengths_str = ",".join(str(pa_len) for pa_len in merged_lengths)
-
-            out_f.write(
-                f"{tx_name}\t{n_reads}\t{total_wt:.2f}\t{wmlen:.2f}\t"
-                f"{weights_str}\t{lengths_str}\n"
-            )
+    # Write output
+    if args.format == "tsv":
+        out_path = ensure_gz_suffix(args.output, args.gzip)
+        write_tsv(all_rows, out_path, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
+    else:
+        write_parquet(all_rows, args.output, _MERGE_SCHEMA, _OUTPUT_COLS)
 
     print("Done merging seamlessly!", file=sys.stderr)
 

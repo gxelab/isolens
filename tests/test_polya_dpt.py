@@ -50,6 +50,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -82,6 +83,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -109,6 +111,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -162,6 +165,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=str(gtf_path),
             gzip=False,
             min_asp=0.0,
@@ -187,6 +191,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -212,6 +217,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.5,
@@ -234,6 +240,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -261,6 +268,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -283,6 +291,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -305,6 +314,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=True,
             min_asp=0.0,
@@ -337,6 +347,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -373,6 +384,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,
@@ -398,6 +410,7 @@ class TestMainIntegration:
         args = argparse.Namespace(
             input=str(in_path),
             output=str(out_path),
+            format="tsv",
             gtf=None,
             gzip=False,
             min_asp=0.0,

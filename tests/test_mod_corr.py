@@ -604,10 +604,20 @@ class TestReadSiteSummary:
         assert "TX1" in sites
         assert "a" in sites["TX1"]
         assert sites["TX1"]["a"] == [
-            {"pos": 42, "n_mod": 10, "mod_level": 0.1,
-             "wt_mod_level": 0.1, "depth": 100},
-            {"pos": 100, "n_mod": 5, "mod_level": 0.1,
-             "wt_mod_level": 0.1, "depth": 50},
+            {
+                "pos": 42,
+                "n_mod": 10,
+                "mod_level": 0.1,
+                "wt_mod_level": 0.1,
+                "depth": 100,
+            },
+            {
+                "pos": 100,
+                "n_mod": 5,
+                "mod_level": 0.1,
+                "wt_mod_level": 0.1,
+                "depth": 50,
+            },
         ]
 
     def test_tsv_input(self, tmp_path):
@@ -621,12 +631,16 @@ class TestReadSiteSummary:
         )
         sites = read_site_summary(str(path))
         assert sites["TX1"]["a"] == [
-            {"pos": 42, "n_mod": 10, "mod_level": 0.1,
-             "wt_mod_level": 0.1, "depth": 100}
+            {
+                "pos": 42,
+                "n_mod": 10,
+                "mod_level": 0.1,
+                "wt_mod_level": 0.1,
+                "depth": 100,
+            }
         ]
         assert sites["TX1"]["m"] == [
-            {"pos": 100, "n_mod": 5, "mod_level": 0.1,
-             "wt_mod_level": 0.1, "depth": 50}
+            {"pos": 100, "n_mod": 5, "mod_level": 0.1, "wt_mod_level": 0.1, "depth": 50}
         ]
 
 

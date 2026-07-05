@@ -683,7 +683,7 @@ def parse_args() -> argparse.Namespace:
         "-a",
         "--oarfish",
         required=True,
-        help="Path to Oarfish isoform assignment probability file (.lz4)",
+        help="Path to Oarfish isoform assignment probability file (.lz4 or plain text)",
     )
     parser.add_argument(
         "-o",

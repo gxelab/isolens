@@ -8,10 +8,11 @@ import itertools
 import sys
 
 import numpy as np
+import pyarrow as pa
 
 try:
     from isolens._gtf import build_tx_to_gene
-    from isolens._io import ensure_gz_suffix, format_float
+    from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
     from isolens._parsing import open_by_suffix
     from isolens._stats import (
         bh_fdr,
@@ -21,7 +22,7 @@ try:
         weighted_t_test,
     )
 except ImportError:
-    from _io import ensure_gz_suffix, format_float  # type: ignore[no-redef]
+    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
 
     from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _parsing import open_by_suffix  # type: ignore[no-redef]
@@ -32,6 +33,60 @@ except ImportError:
         weighted_rank_sum_test,
         weighted_t_test,
     )
+
+
+_OUTPUT_COLS = [
+    "gene_id",
+    "transcript_1",
+    "transcript_2",
+    "n_reads_1",
+    "total_wt_1",
+    "wmlen_1",
+    "wmedlen_1",
+    "n_reads_2",
+    "total_wt_2",
+    "wmlen_2",
+    "wmedlen_2",
+    "ks_stat",
+    "ks_p_value",
+    "ks_q_value",
+    "wmlen_diff",
+    "t_stat",
+    "t_p_value",
+    "t_q_value",
+    "wmedlen_diff",
+    "u_stat",
+    "u_p_value",
+    "u_q_value",
+]
+_TSV_HEADER = "\t".join(_OUTPUT_COLS)
+
+_DPT_SCHEMA = pa.schema(
+    [
+        ("gene_id", pa.string()),
+        ("transcript_1", pa.string()),
+        ("transcript_2", pa.string()),
+        ("n_reads_1", pa.int32()),
+        ("total_wt_1", pa.float64()),
+        ("wmlen_1", pa.float64()),
+        ("wmedlen_1", pa.float64()),
+        ("n_reads_2", pa.int32()),
+        ("total_wt_2", pa.float64()),
+        ("wmlen_2", pa.float64()),
+        ("wmedlen_2", pa.float64()),
+        ("ks_stat", pa.float64()),
+        ("ks_p_value", pa.float64()),
+        ("ks_q_value", pa.float64()),
+        ("wmlen_diff", pa.float64()),
+        ("t_stat", pa.float64()),
+        ("t_p_value", pa.float64()),
+        ("t_q_value", pa.float64()),
+        ("wmedlen_diff", pa.float64()),
+        ("u_stat", pa.float64()),
+        ("u_p_value", pa.float64()),
+        ("u_q_value", pa.float64()),
+    ]
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +114,13 @@ def parse_args() -> argparse.Namespace:
         "--output",
         required=True,
         help="Output pairwise TSV results file",
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["parquet", "tsv"],
+        default="tsv",
+        help="Output format: tsv (default) or parquet",
     )
     parser.add_argument(
         "-z",
@@ -296,9 +358,7 @@ def main(args: argparse.Namespace | None = None) -> None:
 
                 if not np.isnan(row["wmlen_1"]) and not np.isnan(row["wmlen_2"]):
                     row["wmlen_diff"] = row["wmlen_1"] - row["wmlen_2"]
-                if not np.isnan(row["wmedlen_1"]) and not np.isnan(
-                    row["wmedlen_2"]
-                ):
+                if not np.isnan(row["wmedlen_1"]) and not np.isnan(row["wmedlen_2"]):
                     row["wmedlen_diff"] = row["wmedlen_1"] - row["wmedlen_2"]
 
                 ks_stat, ks_p = weighted_ks_test(l_a, p_a, l_b, p_b)
@@ -329,60 +389,11 @@ def main(args: argparse.Namespace | None = None) -> None:
                 results[i][q_key] = round(qv, 6)
 
     # Write output
-    output_filename = ensure_gz_suffix(args.output, args.gzip)
-
-    print(
-        f"Writing pairwise comparison results to {output_filename}...",
-        file=sys.stderr,
-    )
-
-    write_mode = "wt" if output_filename.endswith(".gz") else "w"
-    with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write(
-            "gene_id\ttranscript_1\ttranscript_2\t"
-            "n_reads_1\ttotal_wt_1\twmlen_1\twmedlen_1\t"
-            "n_reads_2\ttotal_wt_2\twmlen_2\twmedlen_2\t"
-            "ks_stat\tks_p_value\tks_q_value\t"
-            "wmlen_diff\tt_stat\tt_p_value\tt_q_value\t"
-            "wmedlen_diff\tu_stat\tu_p_value\tu_q_value\n"
-        )
-
-        for row in results:
-            gene = row["gene_id"]
-            tx1 = row["transcript_1"]
-            tx2 = row["transcript_2"]
-            n1 = row["n_reads_1"]
-            n2 = row["n_reads_2"]
-
-            twt1 = format_float(row["total_wt_1"], ".2f")
-            twt2 = format_float(row["total_wt_2"], ".2f")
-            wlen1 = format_float(row["wmlen_1"], ".2f")
-            wlen2 = format_float(row["wmlen_2"], ".2f")
-            wmed1 = format_float(row["wmedlen_1"], ".2f")
-            wmed2 = format_float(row["wmedlen_2"], ".2f")
-
-            ks_s = format_float(row["ks_stat"], ".5f")
-            ks_p = format_float(row["ks_p_value"], ".5e")
-            ks_q = format_float(row["ks_q_value"], ".6f")
-
-            wl_diff = format_float(row["wmlen_diff"], ".2f")
-            t_s = format_float(row["t_stat"], ".5f")
-            t_p = format_float(row["t_p_value"], ".5e")
-            t_q = format_float(row["t_q_value"], ".6f")
-
-            wm_diff = format_float(row["wmedlen_diff"], ".2f")
-            u_s = format_float(row["u_stat"], ".5f")
-            u_p = format_float(row["u_p_value"], ".5e")
-            u_q = format_float(row["u_q_value"], ".6f")
-
-            out_f.write(
-                f"{gene}\t{tx1}\t{tx2}\t"
-                f"{n1}\t{twt1}\t{wlen1}\t{wmed1}\t"
-                f"{n2}\t{twt2}\t{wlen2}\t{wmed2}\t"
-                f"{ks_s}\t{ks_p}\t{ks_q}\t"
-                f"{wl_diff}\t{t_s}\t{t_p}\t{t_q}\t"
-                f"{wm_diff}\t{u_s}\t{u_p}\t{u_q}\n"
-            )
+    if args.format == "tsv":
+        out_path = ensure_gz_suffix(args.output, args.gzip)
+        write_tsv(results, out_path, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
+    else:
+        write_parquet(results, args.output, _DPT_SCHEMA, _OUTPUT_COLS)
 
     print("Pairwise isoform comparison complete!", file=sys.stderr)
 

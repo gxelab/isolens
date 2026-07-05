@@ -60,10 +60,12 @@ def write_tsv(
     def _fmt(v: Any) -> str:
         if v is None:
             return "NA"
+        if isinstance(v, list):
+            return ",".join(_fmt(x) for x in v)
         if isinstance(v, float):
             if np.isnan(v):
                 return "NA"
-            if 0.0 < abs(v) < 1e-6:
+            if 0.0 < abs(v) < 5e-7:
                 return f"{v:.6e}"
         return str(v)
 

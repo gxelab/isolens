@@ -50,9 +50,7 @@ class TestReadTsvToDict:
 
     def test_empty_data(self, tmp_path):
         path = tmp_path / "empty.tsv"
-        path.write_text(
-            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n"
-        )
+        path.write_text("transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n")
         data = read_tsv_to_dict(str(path))
         assert data == {}
 

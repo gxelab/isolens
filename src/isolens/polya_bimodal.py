@@ -10,20 +10,58 @@ import argparse
 import sys
 
 import numpy as np
+import pyarrow as pa
 from scipy.signal import find_peaks
 from scipy.special import logsumexp
 from scipy.stats import gaussian_kde
 
 try:
-    from isolens._io import ensure_gz_suffix
-    from isolens._parsing import open_by_suffix, parse_polyA_file
+    from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
+    from isolens._parsing import parse_polyA_file
 except ImportError:
-    from _io import ensure_gz_suffix  # type: ignore[no-redef]
+    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
 
-    from _parsing import (  # type: ignore[no-redef]
-        open_by_suffix,
-        parse_polyA_file,
-    )
+    from _parsing import parse_polyA_file  # type: ignore[no-redef]
+
+
+_OUTPUT_COLS = [
+    "feature_id",
+    "id_type",
+    "n_reads_raw",
+    "n_reads_filtered",
+    "total_wt_raw",
+    "total_wt_filtered",
+    "delta_bic",
+    "bic_k1",
+    "bic_k2",
+    "ll_k1",
+    "ll_k2",
+    "n_kde_peaks",
+    "bimodal_gmm",
+    "bimodal_kde",
+    "bimodal_call",
+]
+_TSV_HEADER = "\t".join(_OUTPUT_COLS)
+
+_BIMODAL_SCHEMA = pa.schema(
+    [
+        ("feature_id", pa.string()),
+        ("id_type", pa.string()),
+        ("n_reads_raw", pa.int32()),
+        ("n_reads_filtered", pa.int32()),
+        ("total_wt_raw", pa.float64()),
+        ("total_wt_filtered", pa.float64()),
+        ("delta_bic", pa.float64()),
+        ("bic_k1", pa.float64()),
+        ("bic_k2", pa.float64()),
+        ("ll_k1", pa.float64()),
+        ("ll_k2", pa.float64()),
+        ("n_kde_peaks", pa.int32()),
+        ("bimodal_gmm", pa.bool_()),
+        ("bimodal_kde", pa.bool_()),
+        ("bimodal_call", pa.bool_()),
+    ]
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +81,13 @@ def parse_args() -> argparse.Namespace:
         "--output",
         required=True,
         help="Output bimodality TSV results file",
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["parquet", "tsv"],
+        default="tsv",
+        help="Output format: tsv (default) or parquet",
     )
     parser.add_argument(
         "-z",
@@ -416,49 +461,11 @@ def main(args: argparse.Namespace | None = None) -> None:
         sys.exit(0)
 
     # Write output
-    output_filename = ensure_gz_suffix(args.output, args.gzip)
-
-    print(
-        f"Writing bimodality results to {output_filename}...",
-        file=sys.stderr,
-    )
-
-    write_mode = "wt" if output_filename.endswith(".gz") else "w"
-    with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write(
-            "feature_id\tid_type\tn_reads_raw\tn_reads_filtered\t"
-            "total_wt_raw\ttotal_wt_filtered\t"
-            "delta_bic\tbic_k1\tbic_k2\tll_k1\tll_k2\t"
-            "n_kde_peaks\tbimodal_gmm\tbimodal_kde\tbimodal_call\n"
-        )
-
-        def _fmt(v, fmt_str=".6f"):
-            if isinstance(v, float) and np.isnan(v):
-                return "NA"
-            if isinstance(v, bool):
-                return str(v)
-            if isinstance(v, float):
-                return f"{v:{fmt_str}}"
-            return str(v)
-
-        for row in results:
-            out_f.write(
-                f"{row['feature_id']}\t"
-                f"{row['id_type']}\t"
-                f"{row['n_reads_raw']}\t"
-                f"{row['n_reads_filtered']}\t"
-                f"{_fmt(row['total_wt_raw'], '.2f')}\t"
-                f"{_fmt(row['total_wt_filtered'], '.2f')}\t"
-                f"{_fmt(row['delta_bic'], '.4f')}\t"
-                f"{_fmt(row['bic_k1'], '.2f')}\t"
-                f"{_fmt(row['bic_k2'], '.2f')}\t"
-                f"{_fmt(row['ll_k1'], '.4f')}\t"
-                f"{_fmt(row['ll_k2'], '.4f')}\t"
-                f"{row['n_kde_peaks']}\t"
-                f"{row['bimodal_gmm']}\t"
-                f"{row['bimodal_kde']}\t"
-                f"{row['bimodal_call']}\n"
-            )
+    if args.format == "tsv":
+        out_path = ensure_gz_suffix(args.output, args.gzip)
+        write_tsv(results, out_path, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
+    else:
+        write_parquet(results, args.output, _BIMODAL_SCHEMA, _OUTPUT_COLS)
 
     n_bimodal = sum(1 for r in results if r["bimodal_call"])
     print(

@@ -5,6 +5,7 @@ Used by mod_scan.py, polya_calc.py, and downstream analysis modules.
 
 import gzip
 import hashlib
+import io
 import sys
 import typing
 import uuid
@@ -39,10 +40,12 @@ def read_id_to_int(read_id_str: str) -> int:
 def parse_oarfish(
     path: str,
 ) -> tuple[list[str], dict[int, list[TargetAssignment]], dict[str, int]]:
-    """Parse an LZ4-compressed Oarfish assignment probability file.
+    """Parse an Oarfish assignment probability file (LZ4-compressed or
+    plain text).
 
     Args:
-        path: Path to the LZ4-compressed Oarfish ``.lz4`` file.
+        path: Path to the Oarfish file.  If the path ends with ``.lz4``
+            it is treated as LZ4-compressed; otherwise as plain text.
 
     Returns:
         A 3-tuple ``(tx_names, prob_map, name_to_id)`` where:
@@ -56,24 +59,32 @@ def parse_oarfish(
     Raises:
         ValueError: If the file is empty.
     """
+    # Detect format by suffix and read content
+    if path.endswith(".lz4"):
+        with lz4.frame.open(path, "rb") as raw_f:
+            content = raw_f.read().decode("utf-8")
+    else:
+        with open(path, "r", encoding="utf-8") as raw_f:
+            content = raw_f.read()
+
     tx_names: list[str] = []
     name_to_id: dict[str, int] = {}
     prob_map: dict[int, list[TargetAssignment]] = {}
 
-    with lz4.frame.open(path, "rb") as f:
-        header_line = f.readline().decode("utf-8").strip()
+    with io.StringIO(content) as f:
+        header_line = f.readline().strip()
         if not header_line:
             raise ValueError("Empty Oarfish allocation file.")
 
         num_transcripts = int(header_line.split()[0])
 
         for i in range(num_transcripts):
-            tx_name = f.readline().decode("utf-8").strip()
+            tx_name = f.readline().strip()
             name_to_id[tx_name] = i
             tx_names.append(tx_name)
 
         for line in f:
-            tokens = line.decode("utf-8").strip().split()
+            tokens = line.strip().split()
             if not tokens:
                 continue
 
@@ -172,9 +183,7 @@ def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
 
             n_reads = len(weights)
             total_wt = float(np.sum(weights))
-            wmlen = (
-                float(np.sum(weights * lengths) / total_wt) if total_wt > 0 else 0.0
-            )
+            wmlen = float(np.sum(weights * lengths) / total_wt) if total_wt > 0 else 0.0
 
             data_dict[feature_id] = {
                 "n_reads": n_reads,

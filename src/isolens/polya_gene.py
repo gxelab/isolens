@@ -5,18 +5,42 @@ import argparse
 import sys
 from collections import defaultdict
 
+import pyarrow as pa
+
 try:
     from isolens._gtf import build_tx_to_gene
-    from isolens._io import ensure_gz_suffix
+    from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
     from isolens._parsing import calc_weighted_pa_len, open_by_suffix
 except ImportError:
-    from _io import ensure_gz_suffix  # type: ignore[no-redef]
+    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
 
     from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _parsing import (  # type: ignore[no-redef]
         calc_weighted_pa_len,
         open_by_suffix,
     )
+
+
+_OUTPUT_COLS = [
+    "gene_id",
+    "n_reads",
+    "total_wt",
+    "wmlen",
+    "weights",
+    "lengths",
+]
+_TSV_HEADER = "\t".join(_OUTPUT_COLS)
+
+_GENE_SCHEMA = pa.schema(
+    [
+        ("gene_id", pa.string()),
+        ("n_reads", pa.int32()),
+        ("total_wt", pa.float32()),
+        ("wmlen", pa.float32()),
+        ("weights", pa.list_(pa.float32())),
+        ("lengths", pa.list_(pa.int32())),
+    ]
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,7 +64,14 @@ def parse_args() -> argparse.Namespace:
         "already contain a gene_id column.",
     )
     parser.add_argument(
-        "-o", "--output", required=True, help="Output gene-level TSV file path"
+        "-o", "--output", required=True, help="Output gene-level file path"
+    )
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["parquet", "tsv"],
+        default="tsv",
+        help="Output format: tsv (default) or parquet",
     )
     parser.add_argument(
         "-z",
@@ -153,30 +184,34 @@ def main(args: argparse.Namespace | None = None) -> None:
             file=sys.stderr,
         )
 
-    # Compute gene-level statistics and write output
-    output_filename = ensure_gz_suffix(args.output, args.gzip)
+    # Compute gene-level statistics and accumulate rows
+    all_rows: list[dict] = []
 
-    print(f"Writing gene-level metrics to {output_filename}...", file=sys.stderr)
+    for gene_id in sorted(gene_pools.keys()):
+        weights = gene_pools[gene_id]["weights"]
+        lengths = gene_pools[gene_id]["lengths"]
 
-    write_mode = "wt" if output_filename.endswith(".gz") else "w"
-    with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write("gene_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n")
+        n_reads = len(weights)
+        total_wt = sum(weights)
+        wmlen = calc_weighted_pa_len(weights, lengths)
 
-        for gene_id in sorted(gene_pools.keys()):
-            weights = gene_pools[gene_id]["weights"]
-            lengths = gene_pools[gene_id]["lengths"]
+        all_rows.append(
+            {
+                "gene_id": gene_id,
+                "n_reads": n_reads,
+                "total_wt": total_wt,
+                "wmlen": wmlen,
+                "weights": weights,
+                "lengths": lengths,
+            }
+        )
 
-            n_reads = len(weights)
-            total_wt = sum(weights)
-            wmlen = calc_weighted_pa_len(weights, lengths)
-
-            weights_str = ",".join(f"{w:.5g}" for w in weights)
-            lengths_str = ",".join(str(pa_len) for pa_len in lengths)
-
-            out_f.write(
-                f"{gene_id}\t{n_reads}\t{total_wt:.2f}\t{wmlen:.2f}\t"
-                f"{weights_str}\t{lengths_str}\n"
-            )
+    # Write output
+    if args.format == "tsv":
+        out_path = ensure_gz_suffix(args.output, args.gzip)
+        write_tsv(all_rows, out_path, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
+    else:
+        write_parquet(all_rows, args.output, _GENE_SCHEMA, _OUTPUT_COLS)
 
     print("Gene-level aggregation completed successfully!", file=sys.stderr)
 

@@ -6,24 +6,23 @@ assignments and a Dorado BAM file with ``pt:i`` tags.
 import argparse
 import sys
 
+import pyarrow as pa
 import pysam
 
 try:
     from isolens._gtf import build_tx_to_gene
-    from isolens._io import ensure_gz_suffix
+    from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
     from isolens._parsing import (
         calc_weighted_pa_len,
-        open_by_suffix,
         parse_oarfish,
         read_id_to_int,
     )
 except ImportError:
-    from _io import ensure_gz_suffix  # type: ignore[no-redef]
+    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
 
     from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _parsing import (  # type: ignore[no-redef]
         calc_weighted_pa_len,
-        open_by_suffix,
         parse_oarfish,
         read_id_to_int,
     )
@@ -39,12 +38,19 @@ def parse_args() -> argparse.Namespace:
         "-a",
         "--oarfish",
         required=True,
-        help="Oarfish read assignment probability file (.lz4)",
+        help="Oarfish read assignment probability file (.lz4 or plain text)",
     )
     parser.add_argument(
         "-b", "--bam", required=True, help="Raw reads BAM file containing pt:i tags"
     )
-    parser.add_argument("-o", "--output", required=True, help="Output TSV file")
+    parser.add_argument("-o", "--output", required=True, help="Output file path")
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["parquet", "tsv"],
+        default="tsv",
+        help="Output format: tsv (default) or parquet",
+    )
     parser.add_argument(
         "-z",
         "--gzip",
@@ -138,45 +144,63 @@ def main() -> None:
         file=sys.stderr,
     )
 
-    # Compute metrics and generate output TSV
-    output_filename = ensure_gz_suffix(args.output, args.gzip)
+    # Compute metrics and accumulate rows
+    all_rows: list[dict] = []
 
-    print(f"Writing results to {output_filename}...", file=sys.stderr)
-    write_mode = "wt" if output_filename.endswith(".gz") else "w"
-    with open_by_suffix(output_filename, write_mode) as out_f:
+    for tx_idx, tx_name in tx_idx_to_name.items():
+        data = tx_data.get(tx_idx, [])
+
+        if not data:
+            continue
+
+        weights = [item[0] for item in data]
+        lengths = [item[1] for item in data]
+
+        n_reads = len(data)
+        total_wt = sum(weights)
+        wmlen = calc_weighted_pa_len(weights, lengths)
+
+        row = {
+            "transcript_id": tx_name,
+            "n_reads": n_reads,
+            "total_wt": total_wt,
+            "wmlen": wmlen,
+            "weights": weights,
+            "lengths": lengths,
+        }
         if tx_to_gene is not None:
-            out_f.write(
-                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\tgene_id\n"
-            )
-        else:
-            out_f.write(
-                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n"
-            )
+            row["gene_id"] = tx_to_gene.get(tx_name, "NA")
+        all_rows.append(row)
 
-        for tx_idx, tx_name in tx_idx_to_name.items():
-            data = tx_data.get(tx_idx, [])
+    # Build output structures (conditional gene_id)
+    _OUTPUT_COLS = [
+        "transcript_id",
+        "n_reads",
+        "total_wt",
+        "wmlen",
+        "weights",
+        "lengths",
+    ]
+    _SCHEMA_FIELDS = [
+        ("transcript_id", pa.string()),
+        ("n_reads", pa.int32()),
+        ("total_wt", pa.float32()),
+        ("wmlen", pa.float32()),
+        ("weights", pa.list_(pa.float32())),
+        ("lengths", pa.list_(pa.int32())),
+    ]
+    if tx_to_gene is not None:
+        _OUTPUT_COLS.append("gene_id")
+        _SCHEMA_FIELDS.append(("gene_id", pa.string()))
+    _TSV_HEADER = "\t".join(_OUTPUT_COLS)
+    _SCHEMA = pa.schema(_SCHEMA_FIELDS)
 
-            if not data:
-                continue
-
-            weights = [item[0] for item in data]
-            lengths = [item[1] for item in data]
-
-            n_reads = len(data)
-            total_wt = sum(weights)
-            wmlen = calc_weighted_pa_len(weights, lengths)
-
-            weights_str = ",".join(f"{w:.5g}" for w in weights)
-            lengths_str = ",".join(str(pl) for pl in lengths)
-
-            line = (
-                f"{tx_name}\t{n_reads}\t{total_wt:.3f}\t{wmlen:.3f}\t"
-                f"{weights_str}\t{lengths_str}"
-            )
-            if tx_to_gene is not None:
-                gene_id = tx_to_gene.get(tx_name, "NA")
-                line += f"\t{gene_id}"
-            out_f.write(line + "\n")
+    # Write output
+    if args.format == "tsv":
+        out_path = ensure_gz_suffix(args.output, args.gzip)
+        write_tsv(all_rows, out_path, _TSV_HEADER, _OUTPUT_COLS, args.gzip)
+    else:
+        write_parquet(all_rows, args.output, _SCHEMA, _OUTPUT_COLS)
 
     print("Done!", file=sys.stderr)
 
