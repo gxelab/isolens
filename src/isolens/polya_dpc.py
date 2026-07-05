@@ -14,6 +14,7 @@ try:
     from isolens._stats import (
         bh_fdr,
         weighted_ks_test,
+        weighted_median,
         weighted_rank_sum_test,
         weighted_t_test,
     )
@@ -27,6 +28,7 @@ except ImportError:
     from _stats import (  # type: ignore[no-redef]
         bh_fdr,
         weighted_ks_test,
+        weighted_median,
         weighted_rank_sum_test,
         weighted_t_test,
     )
@@ -110,9 +112,9 @@ def main(args: argparse.Namespace | None = None) -> None:
         f1 = cond1_data[feat_id]
         f2 = cond2_data[feat_id]
 
-        # Filter by min_asp and non-negative pa_lens
-        mask1 = (f1["probs"] >= args.min_asp) & (f1["pa_lens"] >= 0)
-        mask2 = (f2["probs"] >= args.min_asp) & (f2["pa_lens"] >= 0)
+        # Filter by min_asp and non-negative lengths
+        mask1 = (f1["weights"] >= args.min_asp) & (f1["lengths"] >= 0)
+        mask2 = (f2["weights"] >= args.min_asp) & (f2["lengths"] >= 0)
 
         eff1 = int(np.sum(mask1))
         eff2 = int(np.sum(mask2))
@@ -120,33 +122,52 @@ def main(args: argparse.Namespace | None = None) -> None:
         row: dict = {
             "feat_id": feat_id,
             "n_reads_1": eff1,
-            "pa_wlen_1": float("nan"),
+            "total_wt_1": float("nan"),
+            "wmlen_1": float("nan"),
+            "wmedlen_1": float("nan"),
             "n_reads_2": eff2,
-            "pa_wlen_2": float("nan"),
+            "total_wt_2": float("nan"),
+            "wmlen_2": float("nan"),
+            "wmedlen_2": float("nan"),
             "ks_stat": float("nan"),
             "ks_p_value": float("nan"),
             "ks_q_value": float("nan"),
+            "wmlen_diff": float("nan"),
             "t_stat": float("nan"),
             "t_p_value": float("nan"),
             "t_q_value": float("nan"),
+            "wmedlen_diff": float("nan"),
             "u_stat": float("nan"),
             "u_p_value": float("nan"),
             "u_q_value": float("nan"),
         }
 
         if eff1 >= args.min_pareads and eff2 >= args.min_pareads:
-            p1 = f1["probs"][mask1]
-            l1 = f1["pa_lens"][mask1]
-            p2 = f2["probs"][mask2]
-            l2 = f2["pa_lens"][mask2]
+            p1 = f1["weights"][mask1]
+            l1 = f1["lengths"][mask1]
+            p2 = f2["weights"][mask2]
+            l2 = f2["lengths"][mask2]
+
+            row["total_wt_1"] = float(p1.sum())
+            row["total_wt_2"] = float(p2.sum())
 
             # Weighted mean poly(A) lengths
-            row["pa_wlen_1"] = (
+            row["wmlen_1"] = (
                 float(np.average(l1, weights=p1)) if p1.sum() > 0 else float("nan")
             )
-            row["pa_wlen_2"] = (
+            row["wmlen_2"] = (
                 float(np.average(l2, weights=p2)) if p2.sum() > 0 else float("nan")
             )
+
+            # Weighted median poly(A) lengths
+            row["wmedlen_1"] = weighted_median(l1, p1)
+            row["wmedlen_2"] = weighted_median(l2, p2)
+
+            # Differences
+            if not np.isnan(row["wmlen_1"]) and not np.isnan(row["wmlen_2"]):
+                row["wmlen_diff"] = row["wmlen_1"] - row["wmlen_2"]
+            if not np.isnan(row["wmedlen_1"]) and not np.isnan(row["wmedlen_2"]):
+                row["wmedlen_diff"] = row["wmedlen_1"] - row["wmedlen_2"]
 
             # Run three tests
             ks_stat, ks_p = weighted_ks_test(l1, p1, l2, p2)
@@ -187,11 +208,11 @@ def main(args: argparse.Namespace | None = None) -> None:
     write_mode = "wt" if output_filename.endswith(".gz") else "w"
     with open_by_suffix(output_filename, write_mode) as out_f:
         out_f.write(
-            f"{id_col_header}\tn_reads_1\tpa_wlen_1\t"
-            f"n_reads_2\tpa_wlen_2\t"
+            f"{id_col_header}\tn_reads_1\ttotal_wt_1\twmlen_1\twmedlen_1\t"
+            f"n_reads_2\ttotal_wt_2\twmlen_2\twmedlen_2\t"
             f"ks_stat\tks_p_value\tks_q_value\t"
-            f"t_stat\tt_p_value\tt_q_value\t"
-            f"u_stat\tu_p_value\tu_q_value\n"
+            f"wmlen_diff\tt_stat\tt_p_value\tt_q_value\t"
+            f"wmedlen_diff\tu_stat\tu_p_value\tu_q_value\n"
         )
 
         for row in results:
@@ -200,26 +221,33 @@ def main(args: argparse.Namespace | None = None) -> None:
             n2 = row["n_reads_2"]
 
             # Format numeric columns
-            wlen1 = format_float(row["pa_wlen_1"], ".2f")
-            wlen2 = format_float(row["pa_wlen_2"], ".2f")
+            twt1 = format_float(row["total_wt_1"], ".2f")
+            twt2 = format_float(row["total_wt_2"], ".2f")
+            wlen1 = format_float(row["wmlen_1"], ".2f")
+            wlen2 = format_float(row["wmlen_2"], ".2f")
+            wmed1 = format_float(row["wmedlen_1"], ".2f")
+            wmed2 = format_float(row["wmedlen_2"], ".2f")
 
             ks_s = format_float(row["ks_stat"], ".5f")
             ks_p = format_float(row["ks_p_value"], ".5e")
             ks_q = format_float(row["ks_q_value"], ".6f")
 
+            wl_diff = format_float(row["wmlen_diff"], ".2f")
             t_s = format_float(row["t_stat"], ".5f")
             t_p = format_float(row["t_p_value"], ".5e")
             t_q = format_float(row["t_q_value"], ".6f")
 
+            wm_diff = format_float(row["wmedlen_diff"], ".2f")
             u_s = format_float(row["u_stat"], ".5f")
             u_p = format_float(row["u_p_value"], ".5e")
             u_q = format_float(row["u_q_value"], ".6f")
 
             out_f.write(
-                f"{feat}\t{n1}\t{wlen1}\t{n2}\t{wlen2}\t"
+                f"{feat}\t{n1}\t{twt1}\t{wlen1}\t{wmed1}\t"
+                f"{n2}\t{twt2}\t{wlen2}\t{wmed2}\t"
                 f"{ks_s}\t{ks_p}\t{ks_q}\t"
-                f"{t_s}\t{t_p}\t{t_q}\t"
-                f"{u_s}\t{u_p}\t{u_q}\n"
+                f"{wl_diff}\t{t_s}\t{t_p}\t{t_q}\t"
+                f"{wm_diff}\t{u_s}\t{u_p}\t{u_q}\n"
             )
 
     print("Genome-wide comparison complete!", file=sys.stderr)

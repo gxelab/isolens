@@ -33,20 +33,20 @@ class TestParsePolyaFile:
     def test_valid_tsv(self, tmp_path):
         path = tmp_path / "test.tsv"
         path.write_text(
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
-            "TX1\t0\t2\t100.5\t0.5,0.5\t100,101\n"
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n"
+            "TX1\t2\t1.0\t100.5\t0.5,0.5\t100,101\n"
         )
         id_name, data = parse_polyA_file(str(path))
         assert id_name == "transcript_id"
         assert "TX1" in data
         assert data["TX1"]["n_reads"] == 2
-        assert len(data["TX1"]["probs"]) == 2
-        np.testing.assert_array_equal(data["TX1"]["pa_lens"], np.array([100, 101]))
+        assert len(data["TX1"]["weights"]) == 2
+        np.testing.assert_array_equal(data["TX1"]["lengths"], np.array([100, 101]))
 
     def test_gene_level_tsv(self, tmp_path):
         path = tmp_path / "gene.tsv"
         path.write_text(
-            "gene_id\tn_reads\tpa_wlen\tprobs\tpa_lens\nGENE1\t1\t42.0\t1.0\t42\n"
+            "gene_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\nGENE1\t1\t1.0\t42.0\t1.0\t42\n"
         )
         id_name, data = parse_polyA_file(str(path))
         assert id_name == "gene_id"
@@ -56,15 +56,15 @@ class TestParsePolyaFile:
         path = tmp_path / "test.tsv.gz"
         with gzip.open(path, "wt", encoding="utf-8") as f:
             f.write(
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n"
-                "TX1\t0\t1\t100.0\t1.0\t100\n"
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n"
+                "TX1\t1\t1.0\t100.0\t1.0\t100\n"
             )
         id_name, data = parse_polyA_file(str(path))
         assert "TX1" in data
 
     def test_empty_file_after_header(self, tmp_path):
         path = tmp_path / "empty.tsv"
-        path.write_text("transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+        path.write_text("transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n")
         _, data = parse_polyA_file(str(path))
         assert data == {}
 
@@ -79,17 +79,17 @@ class TestMainIntegration:
         _make_polya_tsv(
             c1,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
-                "TX2\t1\t2\t300.0\t1.0,0.5\t250,350\tGENE_B",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\tgene_id",
+                "TX1\t3\t3.0\t150.0\t1.0,1.0,1.0\t100,150,200\tGENE_A",
+                "TX2\t2\t1.5\t300.0\t1.0,0.5\t250,350\tGENE_B",
             ],
         )
         _make_polya_tsv(
             c2,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-                "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
-                "TX2\t1\t2\t250.0\t1.0,1.0\t200,300\tGENE_B",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\tgene_id",
+                "TX1\t3\t3.0\t120.0\t1.0,1.0,1.0\t80,120,160\tGENE_A",
+                "TX2\t2\t2.0\t250.0\t1.0,1.0\t200,300\tGENE_B",
             ],
         )
         args = argparse.Namespace(
@@ -124,15 +124,15 @@ class TestMainIntegration:
         _make_polya_tsv(
             c1,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t3\t150.0\t0.1,0.1,0.1\t100,150,200",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t3\t0.3\t150.0\t0.1,0.1,0.1\t100,150,200",
             ],
         )
         _make_polya_tsv(
             c2,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t3\t120.0\t0.2,0.2,0.2\t80,120,160",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t3\t0.6\t120.0\t0.2,0.2,0.2\t80,120,160",
             ],
         )
         args = argparse.Namespace(
@@ -148,7 +148,7 @@ class TestMainIntegration:
         assert len(lines) == 2  # header + 1 feature with NA
         parts = lines[1].split("\t")
         # n_reads should reflect filtered counts
-        assert int(parts[1]) == 0 or parts[6] == "NA"  # ks_stat is NA
+        assert int(parts[1]) == 0 or parts[9] == "NA"  # ks_stat is NA
 
     def test_min_pareads_threshold(self, tmp_path):
         c1 = tmp_path / "c1.tsv"
@@ -157,15 +157,15 @@ class TestMainIntegration:
         _make_polya_tsv(
             c1,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t2\t2.0\t150.0\t1.0,1.0\t100,200",
             ],
         )
         _make_polya_tsv(
             c2,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t2\t120.0\t1.0,1.0\t80,160",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t2\t2.0\t120.0\t1.0,1.0\t80,160",
             ],
         )
         args = argparse.Namespace(
@@ -180,7 +180,7 @@ class TestMainIntegration:
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 2  # header + 1 NA row
         parts = lines[1].split("\t")
-        assert parts[6] == "NA"  # ks_stat
+        assert parts[9] == "NA"  # ks_stat
 
     def test_no_shared_features(self, tmp_path):
         c1 = tmp_path / "c1.tsv"
@@ -189,15 +189,15 @@ class TestMainIntegration:
         _make_polya_tsv(
             c1,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t2\t2.0\t150.0\t1.0,1.0\t100,200",
             ],
         )
         _make_polya_tsv(
             c2,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX2\t1\t1\t300.0\t1.0\t300",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX2\t1\t1.0\t300.0\t1.0\t300",
             ],
         )
         args = argparse.Namespace(
@@ -219,15 +219,15 @@ class TestMainIntegration:
         _make_polya_tsv(
             c1,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,150,200",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t3\t3.0\t150.0\t1.0,1.0,1.0\t100,150,200",
             ],
         )
         _make_polya_tsv(
             c2,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,120,160",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t3\t3.0\t120.0\t1.0,1.0,1.0\t80,120,160",
             ],
         )
         args = argparse.Namespace(
@@ -249,10 +249,10 @@ class TestMainIntegration:
         out = tmp_path / "out.tsv"
         # Multiple features so BH FDR is non-trivial
         lines_c1 = [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
         ]
         lines_c2 = [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
         ]
         np.random.seed(42)
         for i in range(5):
@@ -260,7 +260,7 @@ class TestMainIntegration:
             l1 = np.random.normal(100, 20, n).astype(float)
             l2 = np.random.normal(105, 20, n).astype(float)
             lines_c1.append(
-                f"TX{i}\t{i}\t{n}\t{l1.mean():.1f}\t"
+                f"TX{i}\t{n}\t{float(n):.1f}\t{l1.mean():.1f}\t"
                 f"{','.join('1.0' for _ in range(n))}\t"
                 f"{','.join(str(int(x)) for x in l1)}"
             )
@@ -296,7 +296,7 @@ class TestMainIntegration:
                     assert 0.0 <= float(val) <= 1.0
 
     def test_negative_lengths_filtered(self, tmp_path):
-        """Reads with negative pa_lens are filtered out."""
+        """Reads with negative lengths are filtered out."""
         c1 = tmp_path / "c1.tsv"
         c2 = tmp_path / "c2.tsv"
         out = tmp_path / "out.tsv"
@@ -304,15 +304,15 @@ class TestMainIntegration:
         _make_polya_tsv(
             c1,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t3\t150.0\t1.0,1.0,1.0\t100,-1,-1",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t3\t3.0\t150.0\t1.0,1.0,1.0\t100,-1,-1",
             ],
         )
         _make_polya_tsv(
             c2,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t3\t120.0\t1.0,1.0,1.0\t80,-1,-1",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t3\t3.0\t120.0\t1.0,1.0,1.0\t80,-1,-1",
             ],
         )
         args = argparse.Namespace(
@@ -328,4 +328,4 @@ class TestMainIntegration:
         parts = lines[1].split("\t")
         # Each side should have 1 effective read (non-negative)
         assert int(parts[1]) == 1  # n_reads_1
-        assert int(parts[3]) == 1  # n_reads_2
+        assert int(parts[5]) == 1  # n_reads_2

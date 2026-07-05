@@ -87,6 +87,8 @@ _OUTPUT_COLS = [
     "site2",
     "mod_type1",
     "mod_type2",
+    "wt_mod_level1",
+    "wt_mod_level2",
     "n11",
     "n10",
     "n01",
@@ -280,20 +282,7 @@ def read_site_summary(path: str) -> dict[str, dict[str, list[dict[str, int | flo
 def _read_sites_parquet(
     path: str,
 ) -> dict[str, dict[str, list[dict[str, int | float]]]]:
-    table = pq.read_table(
-        path,
-        columns=[
-            "transcript_id",
-            "position",
-            "mod_type",
-            "n_modified",
-            "n_unmodified",
-            "n_mismatch",
-            "n_deletion",
-            "n_failed",
-            "mod_level",
-        ],
-    )
+    table = pq.read_table(path)
     sites: dict[str, dict[str, list[dict[str, int | float]]]] = {}
     for i in range(len(table)):
         tx = table.column("transcript_id")[i].as_py()
@@ -305,9 +294,16 @@ def _read_sites_parquet(
         n_del = table.column("n_deletion")[i].as_py()
         n_failed = table.column("n_failed")[i].as_py()
         mod_level = table.column("mod_level")[i].as_py()
+        wt_mod_level = table.column("wt_mod_level")[i].as_py()
         depth = n_mod + n_unmod + n_mismatch + n_del + n_failed
         sites.setdefault(tx, {}).setdefault(mod, []).append(
-            {"pos": pos, "n_mod": n_mod, "mod_level": mod_level, "depth": depth}
+            {
+                "pos": pos,
+                "n_mod": n_mod,
+                "mod_level": mod_level,
+                "wt_mod_level": wt_mod_level,
+                "depth": depth,
+            }
         )
     return sites
 
@@ -331,6 +327,7 @@ def _read_sites_tsv(
         ndel_col = header.index("n_deletion")
         nfail_col = header.index("n_failed")
         ml_col = header.index("mod_level")
+        wt_ml_col = header.index("wt_mod_level")
         for line in f:
             parts = line.strip().split("\t")
             if len(parts) <= max(
@@ -343,6 +340,7 @@ def _read_sites_tsv(
                 ndel_col,
                 nfail_col,
                 ml_col,
+                wt_ml_col,
             ):
                 continue
             tx = parts[tx_col]
@@ -352,12 +350,14 @@ def _read_sites_tsv(
             n_del = int(parts[ndel_col])
             n_failed = int(parts[nfail_col])
             mod_level = float(parts[ml_col])
+            wt_mod_level = float(parts[wt_ml_col])
             depth = n_mod + n_unmod + n_mismatch + n_del + n_failed
             sites.setdefault(tx, {}).setdefault(parts[mod_col], []).append(
                 {
                     "pos": int(parts[pos_col]),
                     "n_mod": n_mod,
                     "mod_level": mod_level,
+                    "wt_mod_level": wt_mod_level,
                     "depth": depth,
                 }
             )
@@ -526,13 +526,13 @@ def process_transcript(
         weights = weights[read_mask]
 
     # ---- flatten all candidates across modification types ----
-    candidates: list[tuple[int, str, int]] = []
+    candidates: list[tuple[int, str, int, float]] = []
     for mod_str, site_list in sites_by_mod.items():
         mod_code = mod_code_map.get(mod_str)
         if mod_code is None:
             continue
         candidates.extend(
-            (site["pos"], mod_str, mod_code)
+            (site["pos"], mod_str, mod_code, site.get("wt_mod_level", 0.0))
             for site in site_list
             if site["n_mod"] >= min_mod_reads
             and site["mod_level"] >= min_mod_level
@@ -545,8 +545,9 @@ def process_transcript(
     candidates.sort(key=lambda x: x[0])
 
     # ---- pre-compute per-candidate masks and binary arrays ----
-    pre: list[tuple[int, str, int, np.ndarray, np.ndarray]] = []
-    for pos_1b, mod_str, mod_code in candidates:
+    w = weights.astype(np.float64)
+    pre: list[tuple[int, str, int, np.ndarray, np.ndarray, float]] = []
+    for pos_1b, mod_str, mod_code, wt_mod_level in candidates:
         col = matrix[:, pos_1b - 1]
         valid = (
             (col != CODE_UNCOVERED)
@@ -557,9 +558,7 @@ def process_transcript(
         other_mod = (col >= 4) & (col != mod_code) & (col != CODE_FAIL)
         valid = valid & (~other_mod)
         binary = (col == mod_code).astype(np.int8)
-        pre.append((pos_1b, mod_str, mod_code, valid, binary))
-
-    w = weights.astype(np.float64)
+        pre.append((pos_1b, mod_str, mod_code, valid, binary, wt_mod_level))
     k = len(candidates)
 
     pair_p_values: list[float] = []
@@ -567,9 +566,9 @@ def process_transcript(
     pair_rows: list[dict[str, Any]] = []
 
     for i in range(k):
-        pos_i, mod_i, code_i, vi, bi = pre[i]
+        pos_i, mod_i, code_i, vi, bi, wt_ml_i = pre[i]
         for j in range(i + 1, k):
-            pos_j, mod_j, code_j, vj, bj = pre[j]
+            pos_j, mod_j, code_j, vj, bj, wt_ml_j = pre[j]
 
             joint_valid = vi & vj
             if joint_valid.sum() < 2:
@@ -615,6 +614,8 @@ def process_transcript(
                     "site2": pos_j,
                     "mod_type1": mod_i,
                     "mod_type2": mod_j,
+                    "wt_mod_level1": round(wt_ml_i, 6),
+                    "wt_mod_level2": round(wt_ml_j, 6),
                     "n11": n11,
                     "n10": n10,
                     "n01": n01,
@@ -656,6 +657,8 @@ _CORR_SCHEMA = pa.schema(
         ("site2", pa.int32()),
         ("mod_type1", pa.string()),
         ("mod_type2", pa.string()),
+        ("wt_mod_level1", pa.float64()),
+        ("wt_mod_level2", pa.float64()),
         ("n11", pa.int32()),
         ("n10", pa.int32()),
         ("n01", pa.int32()),

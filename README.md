@@ -394,7 +394,7 @@ Key options:
 | `-o, --output` | Output TSV file | (required) |
 | `-z, --gzip` | Gzip-compress output | off |
 
-**Output columns (6):** `tx_name`, `tx_idx`, `n_reads`, `pa_wlen` (assignment-probability-weighted mean poly(A) length), `probs` (comma-separated assignment probabilities), `pa_lens` (comma-separated raw poly(A) lengths).
+**Output columns (6):** `transcript_id`, `n_reads`, `total_wt` (sum of assignment probabilities), `wmlen` (weighted mean poly(A) length), `weights` (comma-separated assignment probabilities), `lengths` (comma-separated raw poly(A) lengths).
 
 ---
 
@@ -418,7 +418,7 @@ Key options:
 | `-o, --output` | Output TSV file | (required) |
 | `-z, --gzip` | Gzip-compress output | off |
 
-**Output columns (6):** Same schema as `polya_calc` — `tx_name`, `tx_idx`, `n_reads`, `pa_wlen`, `probs`, `pa_lens`. Per-transcript probability and length lists from both files are concatenated before recalculating `pa_wlen`.
+**Output columns (6):** Same schema as `polya_calc` — `transcript_id`, `n_reads`, `total_wt`, `wmlen`, `weights`, `lengths`. Per-transcript probability and length lists from both files are concatenated before recalculating `wmlen`.
 
 ---
 
@@ -442,7 +442,7 @@ Key options:
 | `-o, --output` | Output TSV file | (required) |
 | `-z, --gzip` | Gzip-compress output | off |
 
-**Output columns (7):** `<feature_id>`, `n_reads_1`, `pa_wlen_1`, `n_reads_2`, `pa_wlen_2`, `stat` (weighted KS statistic), `p_value`. The feature ID column header is `tx_name` for transcript-level input, `gene_id` for gene-level input, or `feature_id` if the two files disagree.
+**Output columns:** `<feature_id>`, `n_reads_1`, `total_wt_1`, `wmlen_1`, `wmedlen_1`, `n_reads_2`, `total_wt_2`, `wmlen_2`, `wmedlen_2`, `ks_stat`, `ks_p_value`, `ks_q_value`, `wmlen_diff`, `t_stat`, `t_p_value`, `t_q_value`, `wmedlen_diff`, `u_stat`, `u_p_value`, `u_q_value`. The feature ID column header is `transcript_id` for transcript-level input, `gene_id` for gene-level input, or `feature_id` if the two files disagree.
 
 ---
 
@@ -466,7 +466,7 @@ Key options:
 | `-o, --output` | Output gene-level TSV file | (required) |
 | `-z, --gzip` | Gzip-compress output | off |
 
-**Output columns (5):** `gene_id`, `n_reads`, `pa_wlen` (recalculated weighted mean), `probs` (comma-separated pooled probabilities), `pa_lens` (comma-separated pooled lengths).
+**Output columns (6):** `gene_id`, `n_reads`, `total_wt` (sum of pooled weights), `wmlen` (recalculated weighted mean), `weights` (comma-separated pooled probabilities), `lengths` (comma-separated pooled lengths).
 
 ---
 

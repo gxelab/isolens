@@ -113,23 +113,23 @@ def open_by_suffix(path: str, mode: str = "r") -> typing.IO:
     return open(path, mode, encoding="utf-8")
 
 
-def calc_weighted_pa_len(probs: list[float], pa_lens: list[int]) -> float:
+def calc_weighted_pa_len(weights: list[float], lengths: list[int]) -> float:
     """Compute the assignment-probability-weighted poly(A) tail length.
 
     Args:
-        probs: Oarfish assignment probabilities (one per read).
-        pa_lens: Raw poly(A) tail lengths (one per read, same order).
+        weights: Oarfish assignment probabilities (one per read).
+        lengths: Raw poly(A) tail lengths (one per read, same order).
 
     Returns:
         Weighted average poly(A) length, or 0.0 if the sum of
-        probabilities is zero.
+        weights is zero.
     """
-    if not probs:
+    if not weights:
         return 0.0
-    sum_prob = sum(probs)
-    if sum_prob <= 0:
+    sum_wt = sum(weights)
+    if sum_wt <= 0:
         return 0.0
-    return sum(p * pl for p, pl in zip(probs, pa_lens)) / sum_prob
+    return sum(w * pl for w, pl in zip(weights, lengths)) / sum_wt
 
 
 def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
@@ -144,7 +144,8 @@ def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
 
     Returns:
         ``(id_col_name, data_dict)`` where *data_dict* maps feature IDs
-        to dicts with keys ``n_reads``, ``pa_wlen``, ``probs``, ``pa_lens``.
+        to dicts with keys ``n_reads``, ``total_wt``, ``wmlen``,
+        ``weights``, ``lengths``.
     """
     print(f"Loading data from {filename}...", file=sys.stderr)
     data_dict: dict[str, dict[str, Any]] = {}
@@ -155,27 +156,32 @@ def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
         # Detect whether transcript-level or gene-level output
         id_col_name = "transcript_id" if "transcript_id" in header else "gene_id"
         id_col = header.index(id_col_name)
-        probs_col = header.index("probs")
-        lens_col = header.index("pa_lens")
+        weights_col = header.index("weights")
+        lengths_col = header.index("lengths")
 
         for line in f:
             parts = line.strip().split("\t")
-            if len(parts) <= max(probs_col, lens_col):
+            if len(parts) <= max(weights_col, lengths_col):
                 continue
 
             feature_id = parts[id_col]
-            probs = np.array([float(p) for p in parts[probs_col].split(",")])
-            pa_lens = np.array([int(pa_len) for pa_len in parts[lens_col].split(",")])
+            weights = np.array([float(p) for p in parts[weights_col].split(",")])
+            lengths = np.array(
+                [int(pa_len) for pa_len in parts[lengths_col].split(",")]
+            )
 
-            n_reads = len(probs)
-            sum_prob = float(np.sum(probs))
-            pa_wlen = float(np.sum(probs * pa_lens) / sum_prob) if sum_prob > 0 else 0.0
+            n_reads = len(weights)
+            total_wt = float(np.sum(weights))
+            wmlen = (
+                float(np.sum(weights * lengths) / total_wt) if total_wt > 0 else 0.0
+            )
 
             data_dict[feature_id] = {
                 "n_reads": n_reads,
-                "pa_wlen": pa_wlen,
-                "probs": probs,
-                "pa_lens": pa_lens,
+                "total_wt": total_wt,
+                "wmlen": wmlen,
+                "weights": weights,
+                "lengths": lengths,
             }
 
     return id_col_name, data_dict

@@ -561,18 +561,23 @@ def main(args: argparse.Namespace | None = None) -> None:
 # ---------- output writers ----------
 
 _TSV_HEADER = (
-    "transcript_id\tposition\tmod_type\tn_modified\twt_modified"
+    "transcript_id\tposition\tmod_type"
+    "\tgene_id\tchrom\tstrand\tgpos"
+    "\tn_modified\twt_modified"
     "\tn_unmodified\twt_unmodified\tn_canonical\twt_canonical"
     "\tn_othermod\twt_othermod\tn_mismatch\twt_mismatch"
     "\tn_deletion\twt_deletion\tn_failed\twt_failed"
     "\tmod_level\twt_mod_level"
-    "\tgene_id\tchrom\tstrand\tgpos"
 )
 
 _TSV_COLS = [
     "transcript_id",
     "position",
     "mod_type",
+    "gene_id",
+    "chrom",
+    "strand",
+    "gpos",
     "n_modified",
     "wt_modified",
     "n_unmodified",
@@ -589,10 +594,6 @@ _TSV_COLS = [
     "wt_failed",
     "mod_level",
     "wt_mod_level",
-    "gene_id",
-    "chrom",
-    "strand",
-    "gpos",
 ]
 
 
@@ -601,6 +602,10 @@ _SITES_SCHEMA = pa.schema(
         ("transcript_id", pa.string()),
         ("position", pa.int32()),
         ("mod_type", pa.string()),
+        ("gene_id", pa.string()),
+        ("chrom", pa.string()),
+        ("strand", pa.string()),
+        ("gpos", pa.int32()),
         ("n_modified", pa.int32()),
         ("wt_modified", pa.float64()),
         ("n_unmodified", pa.int32()),
@@ -617,10 +622,6 @@ _SITES_SCHEMA = pa.schema(
         ("wt_failed", pa.float64()),
         ("mod_level", pa.float64()),
         ("wt_mod_level", pa.float64()),
-        ("gene_id", pa.string()),
-        ("chrom", pa.string()),
-        ("strand", pa.string()),
-        ("gpos", pa.int32()),
     ]
 )
 

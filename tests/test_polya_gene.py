@@ -181,10 +181,10 @@ class TestMainIntegration:
         _make_polya_tsv(
             in_path,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
-                "TX2\t1\t1\t300.0\t1.0\t300\tGENE_A",
-                "TX3\t2\t1\t50.0\t1.0\t50\tGENE_B",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\tgene_id",
+                "TX1\t2\t2.0\t150.0\t1.0,1.0\t100,200\tGENE_A",
+                "TX2\t1\t1.0\t300.0\t1.0\t300\tGENE_A",
+                "TX3\t1\t1.0\t50.0\t1.0\t50\tGENE_B",
             ],
         )
         args = argparse.Namespace(
@@ -197,7 +197,7 @@ class TestMainIntegration:
 
         lines = out_path.read_text().strip().split("\n")
         assert len(lines) == 3  # header + 2 genes
-        assert lines[0] == "gene_id\tn_reads\tpa_wlen\tprobs\tpa_lens"
+        assert lines[0] == "gene_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths"
         # Gene A pools TX1 (2 reads) + TX2 (1 read)
         assert lines[1].startswith("GENE_A\t3\t")
         # Gene B pools TX3 (1 read)
@@ -210,11 +210,11 @@ class TestMainIntegration:
         _make_polya_tsv(
             in_path,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id",
-                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200\tGENE_A",
-                "TX2\t1\t1\t300.0\t1.0\t300\tNA",
-                "TX3\t2\t1\t50.0\t1.0\t50\t.",
-                "TX4\t3\t1\t60.0\t1.0\t60\t",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\tgene_id",
+                "TX1\t2\t2.0\t150.0\t1.0,1.0\t100,200\tGENE_A",
+                "TX2\t1\t1.0\t300.0\t1.0\t300\tNA",
+                "TX3\t1\t1.0\t50.0\t1.0\t50\t.",
+                "TX4\t1\t1.0\t60.0\t1.0\t60\t",
             ],
         )
         args = argparse.Namespace(
@@ -236,8 +236,8 @@ class TestMainIntegration:
         _make_polya_tsv(
             in_path,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t2\t2.0\t150.0\t1.0,1.0\t100,200",
             ],
         )
         args = argparse.Namespace(
@@ -257,9 +257,9 @@ class TestMainIntegration:
         _make_polya_tsv(
             in_path,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-                "TX1\t0\t2\t150.0\t1.0,1.0\t100,200",
-                "TX2\t1\t1\t300.0\t1.0\t300",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+                "TX1\t2\t2.0\t150.0\t1.0,1.0\t100,200",
+                "TX2\t1\t1.0\t300.0\t1.0\t300",
             ],
         )
         lines = [

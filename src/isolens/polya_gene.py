@@ -71,19 +71,19 @@ def main(args: argparse.Namespace | None = None) -> None:
         header = f.readline().strip().split("\t")
         if (
             "transcript_id" not in header
-            or "probs" not in header
-            or "pa_lens" not in header
+            or "weights" not in header
+            or "lengths" not in header
         ):
             print(
-                "Error: Input file must contain 'transcript_id', 'probs', "
-                "and 'pa_lens' headers.",
+                "Error: Input file must contain 'transcript_id', 'weights', "
+                "and 'lengths' headers.",
                 file=sys.stderr,
             )
             sys.exit(1)
 
         tx_col = header.index("transcript_id")
-        probs_col = header.index("probs")
-        lens_col = header.index("pa_lens")
+        weights_col = header.index("weights")
+        lengths_col = header.index("lengths")
 
         has_gene_id_col = "gene_id" in header
         gene_id_col = header.index("gene_id") if has_gene_id_col else -1
@@ -114,13 +114,13 @@ def main(args: argparse.Namespace | None = None) -> None:
 
         # Read transcript data and pool by gene
         gene_pools: dict[str, dict[str, list]] = defaultdict(
-            lambda: {"probs": [], "pa_lens": []}
+            lambda: {"weights": [], "lengths": []}
         )
         unmapped_transcripts: set[str] = set()
 
         for line in f:
             parts = line.strip().split("\t")
-            if len(parts) <= max(probs_col, lens_col):
+            if len(parts) <= max(weights_col, lengths_col):
                 continue
 
             if has_gene_id_col and len(parts) <= gene_id_col:
@@ -140,11 +140,11 @@ def main(args: argparse.Namespace | None = None) -> None:
                 unmapped_transcripts.add(tx_name)
                 continue
 
-            probs = [float(p) for p in parts[probs_col].split(",")]
-            pa_lens = [int(pa_len) for pa_len in parts[lens_col].split(",")]
+            weights = [float(p) for p in parts[weights_col].split(",")]
+            lengths = [int(pa_len) for pa_len in parts[lengths_col].split(",")]
 
-            gene_pools[gene_id]["probs"].extend(probs)
-            gene_pools[gene_id]["pa_lens"].extend(pa_lens)
+            gene_pools[gene_id]["weights"].extend(weights)
+            gene_pools[gene_id]["lengths"].extend(lengths)
 
     if unmapped_transcripts:
         print(
@@ -160,20 +160,22 @@ def main(args: argparse.Namespace | None = None) -> None:
 
     write_mode = "wt" if output_filename.endswith(".gz") else "w"
     with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write("gene_id\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+        out_f.write("gene_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n")
 
         for gene_id in sorted(gene_pools.keys()):
-            probs = gene_pools[gene_id]["probs"]
-            pa_lens = gene_pools[gene_id]["pa_lens"]
+            weights = gene_pools[gene_id]["weights"]
+            lengths = gene_pools[gene_id]["lengths"]
 
-            n_reads = len(probs)
-            pa_wlen = calc_weighted_pa_len(probs, pa_lens)
+            n_reads = len(weights)
+            total_wt = sum(weights)
+            wmlen = calc_weighted_pa_len(weights, lengths)
 
-            probs_str = ",".join(f"{p:.5g}" for p in probs)
-            pa_lens_str = ",".join(str(pa_len) for pa_len in pa_lens)
+            weights_str = ",".join(f"{w:.5g}" for w in weights)
+            lengths_str = ",".join(str(pa_len) for pa_len in lengths)
 
             out_f.write(
-                f"{gene_id}\t{n_reads}\t{pa_wlen:.2f}\t{probs_str}\t{pa_lens_str}\n"
+                f"{gene_id}\t{n_reads}\t{total_wt:.2f}\t{wmlen:.2f}\t"
+                f"{weights_str}\t{lengths_str}\n"
             )
 
     print("Gene-level aggregation completed successfully!", file=sys.stderr)

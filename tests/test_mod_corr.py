@@ -263,7 +263,13 @@ class TestProcessTranscript:
 
     def _site(self, pos, n_mod, mod_level=0.5, depth=100):
         """Helper to create a site dict for tests."""
-        return {"pos": pos, "n_mod": n_mod, "mod_level": mod_level, "depth": depth}
+        return {
+            "pos": pos,
+            "n_mod": n_mod,
+            "mod_level": mod_level,
+            "wt_mod_level": mod_level,
+            "depth": depth,
+        }
 
     def test_two_sites_same_type(self):
         """Two sites of same mod type produce one pair."""
@@ -588,6 +594,7 @@ class TestReadSiteSummary:
                 "n_deletion": [0, 0],
                 "n_failed": [0, 0],
                 "mod_level": [0.1, 0.1],
+                "wt_mod_level": [0.1, 0.1],
             }
         )
         path = tmp_path / "sites.parquet"
@@ -597,24 +604,29 @@ class TestReadSiteSummary:
         assert "TX1" in sites
         assert "a" in sites["TX1"]
         assert sites["TX1"]["a"] == [
-            {"pos": 42, "n_mod": 10, "mod_level": 0.1, "depth": 100},
-            {"pos": 100, "n_mod": 5, "mod_level": 0.1, "depth": 50},
+            {"pos": 42, "n_mod": 10, "mod_level": 0.1,
+             "wt_mod_level": 0.1, "depth": 100},
+            {"pos": 100, "n_mod": 5, "mod_level": 0.1,
+             "wt_mod_level": 0.1, "depth": 50},
         ]
 
     def test_tsv_input(self, tmp_path):
         path = tmp_path / "sites.tsv"
         path.write_text(
             "transcript_id\tposition\tmod_type\tn_modified\t"
-            "n_unmodified\tn_mismatch\tn_deletion\tn_failed\tmod_level\n"
-            "TX1\t42\ta\t10\t90\t0\t0\t0\t0.1\n"
-            "TX1\t100\tm\t5\t40\t3\t2\t0\t0.1\n"
+            "n_unmodified\tn_mismatch\tn_deletion\tn_failed\t"
+            "mod_level\twt_mod_level\n"
+            "TX1\t42\ta\t10\t90\t0\t0\t0\t0.1\t0.1\n"
+            "TX1\t100\tm\t5\t40\t3\t2\t0\t0.1\t0.1\n"
         )
         sites = read_site_summary(str(path))
         assert sites["TX1"]["a"] == [
-            {"pos": 42, "n_mod": 10, "mod_level": 0.1, "depth": 100}
+            {"pos": 42, "n_mod": 10, "mod_level": 0.1,
+             "wt_mod_level": 0.1, "depth": 100}
         ]
         assert sites["TX1"]["m"] == [
-            {"pos": 100, "n_mod": 5, "mod_level": 0.1, "depth": 50}
+            {"pos": 100, "n_mod": 5, "mod_level": 0.1,
+             "wt_mod_level": 0.1, "depth": 50}
         ]
 
 
@@ -647,6 +659,8 @@ class TestWriteParquet:
                 "site2": 2,
                 "mod_type1": "a",
                 "mod_type2": "a",
+                "wt_mod_level1": 0.25,
+                "wt_mod_level2": 0.4,
                 "n11": 5,
                 "n10": 2,
                 "n01": 3,
@@ -699,6 +713,8 @@ class TestWriteTsv:
                 "site2": 2,
                 "mod_type1": "a",
                 "mod_type2": "a",
+                "wt_mod_level1": 0.25,
+                "wt_mod_level2": 0.4,
                 "n11": 5,
                 "n10": 2,
                 "n01": 3,
@@ -888,6 +904,7 @@ class TestMainMultiFile:
                 "n_deletion": [0] * len(sites_data),
                 "n_failed": [0] * len(sites_data),
                 "mod_level": [s[5] for s in sites_data],
+                "wt_mod_level": [s[5] for s in sites_data],
             }
         )
         pq.write_table(table, path)

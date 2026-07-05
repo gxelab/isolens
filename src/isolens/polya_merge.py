@@ -39,26 +39,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_tsv_to_dict(filename: str) -> dict[int, dict[str, Any]]:
+def read_tsv_to_dict(filename: str) -> dict[str, dict[str, Any]]:
     """Read a poly(A) TSV file, auto-detecting gzip by suffix.
 
     Args:
         filename: Path to a TSV (or TSV.GZ) file with columns
-            ``transcript_id, tx_idx, n_reads, pa_wlen, probs, pa_lens``.
+            ``transcript_id, n_reads, total_wt, wmlen, weights, lengths``.
 
     Returns:
-        ``dict[int, dict]`` mapping ``tx_idx`` to
-        ``{'tx_name': str, 'probs': list[float], 'pa_lens': list[int]}``.
+        ``dict[str, dict]`` mapping ``transcript_id`` to
+        ``{'weights': list[float], 'lengths': list[int]}``.
     """
-    data_dict: dict[int, dict[str, Any]] = {}
+    data_dict: dict[str, dict[str, Any]] = {}
     print(f"Reading {filename}...", file=sys.stderr)
 
     read_mode = "rt" if filename.endswith(".gz") else "r"
     with open_by_suffix(filename, read_mode) as f:
         header = f.readline().strip().split("\t")
-        if len(header) < 6 or header[1] != "tx_idx":
+        if "transcript_id" not in header:
             print(
-                f"Error: {filename} header layout is unexpected or malformed.",
+                f"Error: {filename} is missing 'transcript_id' column.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -69,15 +69,13 @@ def read_tsv_to_dict(filename: str) -> dict[int, dict[str, Any]]:
                 continue
 
             tx_name = parts[0]
-            tx_idx = int(parts[1])
 
-            probs = [float(p) for p in parts[4].split(",")]
-            pa_lens = [int(pa_len) for pa_len in parts[5].split(",")]
+            weights = [float(p) for p in parts[4].split(",")]
+            lengths = [int(pa_len) for pa_len in parts[5].split(",")]
 
-            data_dict[tx_idx] = {
-                "tx_name": tx_name,
-                "probs": probs,
-                "pa_lens": pa_lens,
+            data_dict[tx_name] = {
+                "weights": weights,
+                "lengths": lengths,
             }
     return data_dict
 
@@ -95,9 +93,9 @@ def main() -> None:
     file1_data = read_tsv_to_dict(args.input1)
     file2_data = read_tsv_to_dict(args.input2)
 
-    all_tx_indices = sorted(set(file1_data.keys()) | set(file2_data.keys()))
+    all_tx_names = sorted(set(file1_data.keys()) | set(file2_data.keys()))
     print(
-        f"Merging information across {len(all_tx_indices)} distinct transcripts...",
+        f"Merging information across {len(all_tx_names)} distinct transcripts...",
         file=sys.stderr,
     )
 
@@ -107,33 +105,32 @@ def main() -> None:
 
     write_mode = "wt" if output_filename.endswith(".gz") else "w"
     with open_by_suffix(output_filename, write_mode) as out_f:
-        out_f.write("transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+        out_f.write(
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n"
+        )
 
-        for tx_idx in all_tx_indices:
-            tx_name = None
-            merged_probs: list[float] = []
-            merged_lens: list[int] = []
+        for tx_name in all_tx_names:
+            merged_weights: list[float] = []
+            merged_lengths: list[int] = []
 
-            if tx_idx in file1_data:
-                tx_name = file1_data[tx_idx]["tx_name"]
-                merged_probs.extend(file1_data[tx_idx]["probs"])
-                merged_lens.extend(file1_data[tx_idx]["pa_lens"])
+            if tx_name in file1_data:
+                merged_weights.extend(file1_data[tx_name]["weights"])
+                merged_lengths.extend(file1_data[tx_name]["lengths"])
 
-            if tx_idx in file2_data:
-                if tx_name is None:
-                    tx_name = file2_data[tx_idx]["tx_name"]
-                merged_probs.extend(file2_data[tx_idx]["probs"])
-                merged_lens.extend(file2_data[tx_idx]["pa_lens"])
+            if tx_name in file2_data:
+                merged_weights.extend(file2_data[tx_name]["weights"])
+                merged_lengths.extend(file2_data[tx_name]["lengths"])
 
-            n_reads = len(merged_probs)
-            pa_wlen = calc_weighted_pa_len(merged_probs, merged_lens)
+            n_reads = len(merged_weights)
+            total_wt = sum(merged_weights)
+            wmlen = calc_weighted_pa_len(merged_weights, merged_lengths)
 
-            probs_str = ",".join(f"{p:.5g}" for p in merged_probs)
-            pa_lens_str = ",".join(str(pa_len) for pa_len in merged_lens)
+            weights_str = ",".join(f"{w:.5g}" for w in merged_weights)
+            lengths_str = ",".join(str(pa_len) for pa_len in merged_lengths)
 
             out_f.write(
-                f"{tx_name}\t{tx_idx}\t{n_reads}\t{pa_wlen:.2f}\t"
-                f"{probs_str}\t{pa_lens_str}\n"
+                f"{tx_name}\t{n_reads}\t{total_wt:.2f}\t{wmlen:.2f}\t"
+                f"{weights_str}\t{lengths_str}\n"
             )
 
     print("Done merging seamlessly!", file=sys.stderr)

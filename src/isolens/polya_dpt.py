@@ -16,6 +16,7 @@ try:
     from isolens._stats import (
         bh_fdr,
         weighted_ks_test,
+        weighted_median,
         weighted_rank_sum_test,
         weighted_t_test,
     )
@@ -27,6 +28,7 @@ except ImportError:
     from _stats import (  # type: ignore[no-redef]
         bh_fdr,
         weighted_ks_test,
+        weighted_median,
         weighted_rank_sum_test,
         weighted_t_test,
     )
@@ -95,7 +97,7 @@ def _load_and_group(
 
     Returns:
         ``(tx_data, gene_groups)`` where *tx_data* maps transcript IDs
-        to ``{probs, pa_lens}`` and *gene_groups* maps gene IDs to
+        to ``{weights, lengths}`` and *gene_groups* maps gene IDs to
         lists of transcript IDs.  Only genes with ≥ 2 transcripts
         after filtering are included.
     """
@@ -117,16 +119,16 @@ def _load_and_group(
             )
             sys.exit(1)
 
-        if "probs" not in header or "pa_lens" not in header:
+        if "weights" not in header or "lengths" not in header:
             print(
-                "Error: Input file must contain 'probs' and 'pa_lens' columns.",
+                "Error: Input file must contain 'weights' and 'lengths' columns.",
                 file=sys.stderr,
             )
             sys.exit(1)
 
         tx_col = header.index("transcript_id")
-        probs_col = header.index("probs")
-        lens_col = header.index("pa_lens")
+        weights_col = header.index("weights")
+        lengths_col = header.index("lengths")
 
         has_gene_id_col = "gene_id" in header
         gene_id_col = header.index("gene_id") if has_gene_id_col else -1
@@ -157,7 +159,7 @@ def _load_and_group(
 
         for line in f:
             parts = line.strip().split("\t")
-            if len(parts) <= max(probs_col, lens_col):
+            if len(parts) <= max(weights_col, lengths_col):
                 continue
 
             tx_id = parts[tx_col]
@@ -177,17 +179,17 @@ def _load_and_group(
                     unmapped.add(tx_id)
                     continue
 
-            probs = np.array([float(p) for p in parts[probs_col].split(",")])
-            pa_lens = np.array([int(pl) for pl in parts[lens_col].split(",")])
+            weights = np.array([float(p) for p in parts[weights_col].split(",")])
+            lengths = np.array([int(pl) for pl in parts[lengths_col].split(",")])
 
             # Apply min_asp filter and non-negative length filter
-            mask = (probs >= min_asp) & (pa_lens >= 0)
+            mask = (weights >= min_asp) & (lengths >= 0)
             if not np.any(mask):
                 continue
 
             tx_data[tx_id] = {
-                "probs": probs[mask],
-                "pa_lens": pa_lens[mask],
+                "weights": weights[mask],
+                "lengths": lengths[mask],
             }
             gene_groups.setdefault(gene_id, []).append(tx_id)
 
@@ -241,44 +243,63 @@ def main(args: argparse.Namespace | None = None) -> None:
             d_a = tx_data[tx_a]
             d_b = tx_data[tx_b]
 
-            eff_a = len(d_a["probs"])
-            eff_b = len(d_b["probs"])
+            eff_a = len(d_a["weights"])
+            eff_b = len(d_b["weights"])
 
             row: dict = {
                 "gene_id": gene_id,
                 "transcript_1": tx_a,
                 "transcript_2": tx_b,
                 "n_reads_1": eff_a,
-                "pa_wlen_1": float("nan"),
+                "total_wt_1": float("nan"),
+                "wmlen_1": float("nan"),
+                "wmedlen_1": float("nan"),
                 "n_reads_2": eff_b,
-                "pa_wlen_2": float("nan"),
+                "total_wt_2": float("nan"),
+                "wmlen_2": float("nan"),
+                "wmedlen_2": float("nan"),
                 "ks_stat": float("nan"),
                 "ks_p_value": float("nan"),
                 "ks_q_value": float("nan"),
+                "wmlen_diff": float("nan"),
                 "t_stat": float("nan"),
                 "t_p_value": float("nan"),
                 "t_q_value": float("nan"),
+                "wmedlen_diff": float("nan"),
                 "u_stat": float("nan"),
                 "u_p_value": float("nan"),
                 "u_q_value": float("nan"),
             }
 
             if eff_a >= args.min_pareads and eff_b >= args.min_pareads:
-                p_a = d_a["probs"]
-                l_a = d_a["pa_lens"]
-                p_b = d_b["probs"]
-                l_b = d_b["pa_lens"]
+                p_a = d_a["weights"]
+                l_a = d_a["lengths"]
+                p_b = d_b["weights"]
+                l_b = d_b["lengths"]
 
-                row["pa_wlen_1"] = (
+                row["total_wt_1"] = float(p_a.sum())
+                row["total_wt_2"] = float(p_b.sum())
+
+                row["wmlen_1"] = (
                     float(np.average(l_a, weights=p_a))
                     if p_a.sum() > 0
                     else float("nan")
                 )
-                row["pa_wlen_2"] = (
+                row["wmlen_2"] = (
                     float(np.average(l_b, weights=p_b))
                     if p_b.sum() > 0
                     else float("nan")
                 )
+
+                row["wmedlen_1"] = weighted_median(l_a, p_a)
+                row["wmedlen_2"] = weighted_median(l_b, p_b)
+
+                if not np.isnan(row["wmlen_1"]) and not np.isnan(row["wmlen_2"]):
+                    row["wmlen_diff"] = row["wmlen_1"] - row["wmlen_2"]
+                if not np.isnan(row["wmedlen_1"]) and not np.isnan(
+                    row["wmedlen_2"]
+                ):
+                    row["wmedlen_diff"] = row["wmedlen_1"] - row["wmedlen_2"]
 
                 ks_stat, ks_p = weighted_ks_test(l_a, p_a, l_b, p_b)
                 row["ks_stat"] = ks_stat
@@ -319,10 +340,11 @@ def main(args: argparse.Namespace | None = None) -> None:
     with open_by_suffix(output_filename, write_mode) as out_f:
         out_f.write(
             "gene_id\ttranscript_1\ttranscript_2\t"
-            "n_reads_1\tpa_wlen_1\tn_reads_2\tpa_wlen_2\t"
+            "n_reads_1\ttotal_wt_1\twmlen_1\twmedlen_1\t"
+            "n_reads_2\ttotal_wt_2\twmlen_2\twmedlen_2\t"
             "ks_stat\tks_p_value\tks_q_value\t"
-            "t_stat\tt_p_value\tt_q_value\t"
-            "u_stat\tu_p_value\tu_q_value\n"
+            "wmlen_diff\tt_stat\tt_p_value\tt_q_value\t"
+            "wmedlen_diff\tu_stat\tu_p_value\tu_q_value\n"
         )
 
         for row in results:
@@ -332,26 +354,34 @@ def main(args: argparse.Namespace | None = None) -> None:
             n1 = row["n_reads_1"]
             n2 = row["n_reads_2"]
 
-            wlen1 = format_float(row["pa_wlen_1"], ".2f")
-            wlen2 = format_float(row["pa_wlen_2"], ".2f")
+            twt1 = format_float(row["total_wt_1"], ".2f")
+            twt2 = format_float(row["total_wt_2"], ".2f")
+            wlen1 = format_float(row["wmlen_1"], ".2f")
+            wlen2 = format_float(row["wmlen_2"], ".2f")
+            wmed1 = format_float(row["wmedlen_1"], ".2f")
+            wmed2 = format_float(row["wmedlen_2"], ".2f")
 
             ks_s = format_float(row["ks_stat"], ".5f")
             ks_p = format_float(row["ks_p_value"], ".5e")
             ks_q = format_float(row["ks_q_value"], ".6f")
 
+            wl_diff = format_float(row["wmlen_diff"], ".2f")
             t_s = format_float(row["t_stat"], ".5f")
             t_p = format_float(row["t_p_value"], ".5e")
             t_q = format_float(row["t_q_value"], ".6f")
 
+            wm_diff = format_float(row["wmedlen_diff"], ".2f")
             u_s = format_float(row["u_stat"], ".5f")
             u_p = format_float(row["u_p_value"], ".5e")
             u_q = format_float(row["u_q_value"], ".6f")
 
             out_f.write(
-                f"{gene}\t{tx1}\t{tx2}\t{n1}\t{wlen1}\t{n2}\t{wlen2}\t"
+                f"{gene}\t{tx1}\t{tx2}\t"
+                f"{n1}\t{twt1}\t{wlen1}\t{wmed1}\t"
+                f"{n2}\t{twt2}\t{wlen2}\t{wmed2}\t"
                 f"{ks_s}\t{ks_p}\t{ks_q}\t"
-                f"{t_s}\t{t_p}\t{t_q}\t"
-                f"{u_s}\t{u_p}\t{u_q}\n"
+                f"{wl_diff}\t{t_s}\t{t_p}\t{t_q}\t"
+                f"{wm_diff}\t{u_s}\t{u_p}\t{u_q}\n"
             )
 
     print("Pairwise isoform comparison complete!", file=sys.stderr)

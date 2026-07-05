@@ -293,7 +293,7 @@ class TestProcessFeature:
         assert result is not None
         assert result["feature_id"] == "TX1"
         assert result["n_reads_raw"] == n
-        assert result["ess"] == pytest.approx(float(n))
+        assert result["total_wt_filtered"] == pytest.approx(float(n))
         # Should not be called bimodal
         assert result["bimodal_call"] is False
 
@@ -321,7 +321,7 @@ class TestProcessFeature:
         )
         assert result is not None
         assert result["id_type"] == "gene_id"
-        assert result["ess"] == pytest.approx(float(n))
+        assert result["total_wt_filtered"] == pytest.approx(float(n))
         assert result["n_kde_peaks"] == 2
         assert result["bimodal_kde"] is True
         # Delta BIC should be strongly positive for such separated modes
@@ -349,7 +349,8 @@ class TestProcessFeature:
             "id_type",
             "n_reads_raw",
             "n_reads_filtered",
-            "ess",
+            "total_wt_raw",
+            "total_wt_filtered",
             "delta_bic",
             "bic_k1",
             "bic_k2",
@@ -376,14 +377,14 @@ class TestMainIntegration:
         out_path = tmp_path / "out.tsv"
         np.random.seed(16)
         polya_lines = [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
         ]
         for i in range(3):
             n = 50
             pl = np.random.normal(80, 10, n).astype(float)
             pl = np.clip(pl, 0, None)
             polya_lines.append(
-                f"TX{i}\t{i}\t{n}\t{pl.mean():.1f}\t"
+                f"TX{i}\t{n}\t{float(n):.1f}\t{pl.mean():.1f}\t"
                 f"{','.join('1.0' for _ in range(n))}\t"
                 f"{','.join(str(int(x)) for x in pl)}"
             )
@@ -424,8 +425,8 @@ class TestMainIntegration:
         ).astype(float)
         pa_lens = np.clip(pa_lens, 0, None)
         polya_lines = [
-            "gene_id\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            f"GENE_A\t{n}\t{pa_lens.mean():.1f}\t"
+            "gene_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+            f"GENE_A\t{n}\t{float(n):.1f}\t{pa_lens.mean():.1f}\t"
             f"{','.join('1.0' for _ in range(n))}\t"
             f"{','.join(str(int(x)) for x in pa_lens)}",
         ]
@@ -456,8 +457,8 @@ class TestMainIntegration:
         pa_lens = np.random.normal(80, 10, 50).astype(float)
         pa_lens = np.clip(pa_lens, 0, None)
         polya_lines = [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            f"TX1\t0\t50\t{pa_lens.mean():.1f}\t"
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+            f"TX1\t50\t50.0\t{pa_lens.mean():.1f}\t"
             f"{','.join('1.0' for _ in range(50))}\t"
             f"{','.join(str(int(x)) for x in pa_lens)}",
         ]
@@ -482,7 +483,7 @@ class TestMainIntegration:
         _make_polya_tsv(
             in_path,
             [
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
             ],
         )
         args = argparse.Namespace(
@@ -503,8 +504,8 @@ class TestMainIntegration:
         pa_lens = np.random.normal(80, 10, 50).astype(float)
         pa_lens = np.clip(pa_lens, 0, None)
         polya_lines = [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            f"TX1\t0\t50\t{pa_lens.mean():.1f}\t"
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+            f"TX1\t50\t2.5\t{pa_lens.mean():.1f}\t"
             f"{','.join('0.05' for _ in range(50))}\t"
             f"{','.join(str(int(x)) for x in pa_lens)}",
         ]
@@ -527,8 +528,8 @@ class TestMainIntegration:
         out_path = tmp_path / "out.tsv"
         pa_lens = np.array([50.0, 150.0, 80.0, 120.0])
         polya_lines = [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            f"TX1\t0\t4\t{pa_lens.mean():.1f}\t"
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+            f"TX1\t4\t4.0\t{pa_lens.mean():.1f}\t"
             f"{','.join('1.0' for _ in range(4))}\t"
             f"{','.join(str(int(x)) for x in pa_lens)}",
         ]
@@ -543,7 +544,7 @@ class TestMainIntegration:
             min_ess=30.0,
             kde_prominence=0.05,
         )
-        with pytest.raises(SystemExit):  # ESS=4 < 30
+        with pytest.raises(SystemExit):  # total_wt_filtered=4 < 30
             main(args)
 
     def test_output_column_order(self, tmp_path):
@@ -553,8 +554,8 @@ class TestMainIntegration:
         pa_lens = np.random.normal(80, 10, 50).astype(float)
         pa_lens = np.clip(pa_lens, 0, None)
         polya_lines = [
-            "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens",
-            f"TX1\t0\t50\t{pa_lens.mean():.1f}\t"
+            "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths",
+            f"TX1\t50\t50.0\t{pa_lens.mean():.1f}\t"
             f"{','.join('1.0' for _ in range(50))}\t"
             f"{','.join(str(int(x)) for x in pa_lens)}",
         ]
@@ -578,7 +579,8 @@ class TestMainIntegration:
             "id_type",
             "n_reads_raw",
             "n_reads_filtered",
-            "ess",
+            "total_wt_raw",
+            "total_wt_filtered",
             "delta_bic",
             "bic_k1",
             "bic_k2",

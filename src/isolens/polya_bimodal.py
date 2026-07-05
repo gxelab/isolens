@@ -286,8 +286,8 @@ def _find_peaks_kde(
 def _process_feature(
     feature_id: str,
     id_type: str,
-    probs: np.ndarray,
-    pa_lens: np.ndarray,
+    weights: np.ndarray,
+    lengths: np.ndarray,
     min_length: float,
     min_asp: float,
     min_ess: float,
@@ -298,8 +298,8 @@ def _process_feature(
     Args:
         feature_id: Transcript or gene identifier.
         id_type: ``"transcript_id"`` or ``"gene_id"``.
-        probs: Array of assignment probabilities.
-        pa_lens: Array of poly(A) tail lengths (same length as *probs*).
+        weights: Array of assignment probabilities.
+        lengths: Array of poly(A) tail lengths (same length as *weights*).
         min_length: Minimum poly(A) length threshold.
         min_asp: Minimum assignment probability threshold.
         min_ess: Minimum effective sample size.
@@ -309,37 +309,42 @@ def _process_feature(
         A dict with result columns, or ``None`` if the feature should
         be skipped (insufficient data after filtering).
     """
-    n_reads_raw = len(pa_lens)
+    n_reads_raw = len(lengths)
+    total_wt_raw = float(np.sum(weights))
 
     # Filtering
-    mask = (pa_lens >= min_length) & (probs >= min_asp)
+    mask = (lengths >= min_length) & (weights >= min_asp)
     n_reads_filtered = int(np.sum(mask))
     if n_reads_filtered == 0:
         return None
 
-    probs_f = probs[mask].astype(np.float64)
-    pa_lens_f = pa_lens[mask].astype(np.float64)
+    weights_f = weights[mask].astype(np.float64)
+    lengths_f = lengths[mask].astype(np.float64)
 
-    ess = float(np.sum(probs_f))
-    if ess < min_ess:
+    total_wt_filtered = float(np.sum(weights_f))
+    if total_wt_filtered < min_ess:
         return None
 
     # Variance-stabilising log-transform
-    x_log = np.log(pa_lens_f + 1.0)
+    x_log = np.log(lengths_f + 1.0)
 
     # GMM k=1 (always computable)
-    _means1, _vars1, _mix1, ll_k1 = _fit_weighted_gmm_1d(x_log, probs_f, n_components=1)
-    bic_k1 = _compute_bic(ll_k1, n_params=2, ess=ess)
+    _means1, _vars1, _mix1, ll_k1 = _fit_weighted_gmm_1d(
+        x_log, weights_f, n_components=1
+    )
+    bic_k1 = _compute_bic(ll_k1, n_params=2, ess=total_wt_filtered)
 
     # GMM k=2
-    _means2, _vars2, _mix2, ll_k2 = _fit_weighted_gmm_1d(x_log, probs_f, n_components=2)
-    bic_k2 = _compute_bic(ll_k2, n_params=5, ess=ess)
+    _means2, _vars2, _mix2, ll_k2 = _fit_weighted_gmm_1d(
+        x_log, weights_f, n_components=2
+    )
+    bic_k2 = _compute_bic(ll_k2, n_params=5, ess=total_wt_filtered)
 
     delta_bic = bic_k1 - bic_k2  # positive = evidence for k=2
     bimodal_gmm = bool((not np.isnan(delta_bic)) and delta_bic > 10.0)
 
     # KDE peak detection
-    n_kde_peaks = _find_peaks_kde(x_log, probs_f, prominence=kde_prominence)
+    n_kde_peaks = _find_peaks_kde(x_log, weights_f, prominence=kde_prominence)
     bimodal_kde = n_kde_peaks >= 2
 
     return {
@@ -347,7 +352,8 @@ def _process_feature(
         "id_type": id_type,
         "n_reads_raw": n_reads_raw,
         "n_reads_filtered": n_reads_filtered,
-        "ess": ess,
+        "total_wt_raw": total_wt_raw,
+        "total_wt_filtered": total_wt_filtered,
         "delta_bic": delta_bic,
         "bic_k1": bic_k1,
         "bic_k2": bic_k2,
@@ -392,8 +398,8 @@ def main(args: argparse.Namespace | None = None) -> None:
         row = _process_feature(
             feature_id=feat_id,
             id_type=id_col_name,
-            probs=d["probs"],
-            pa_lens=d["pa_lens"],
+            weights=d["weights"],
+            lengths=d["lengths"],
             min_length=args.min_length,
             min_asp=args.min_asp,
             min_ess=args.min_ess,
@@ -421,7 +427,8 @@ def main(args: argparse.Namespace | None = None) -> None:
     with open_by_suffix(output_filename, write_mode) as out_f:
         out_f.write(
             "feature_id\tid_type\tn_reads_raw\tn_reads_filtered\t"
-            "ess\tdelta_bic\tbic_k1\tbic_k2\tll_k1\tll_k2\t"
+            "total_wt_raw\ttotal_wt_filtered\t"
+            "delta_bic\tbic_k1\tbic_k2\tll_k1\tll_k2\t"
             "n_kde_peaks\tbimodal_gmm\tbimodal_kde\tbimodal_call\n"
         )
 
@@ -440,7 +447,8 @@ def main(args: argparse.Namespace | None = None) -> None:
                 f"{row['id_type']}\t"
                 f"{row['n_reads_raw']}\t"
                 f"{row['n_reads_filtered']}\t"
-                f"{_fmt(row['ess'], '.2f')}\t"
+                f"{_fmt(row['total_wt_raw'], '.2f')}\t"
+                f"{_fmt(row['total_wt_filtered'], '.2f')}\t"
                 f"{_fmt(row['delta_bic'], '.4f')}\t"
                 f"{_fmt(row['bic_k1'], '.2f')}\t"
                 f"{_fmt(row['bic_k2'], '.2f')}\t"

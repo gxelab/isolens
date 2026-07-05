@@ -146,10 +146,12 @@ def main() -> None:
     with open_by_suffix(output_filename, write_mode) as out_f:
         if tx_to_gene is not None:
             out_f.write(
-                "transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\tgene_id\n"
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\tgene_id\n"
             )
         else:
-            out_f.write("transcript_id\ttx_idx\tn_reads\tpa_wlen\tprobs\tpa_lens\n")
+            out_f.write(
+                "transcript_id\tn_reads\ttotal_wt\twmlen\tweights\tlengths\n"
+            )
 
         for tx_idx, tx_name in tx_idx_to_name.items():
             data = tx_data.get(tx_idx, [])
@@ -157,18 +159,19 @@ def main() -> None:
             if not data:
                 continue
 
-            probs = [item[0] for item in data]
-            pa_lens = [item[1] for item in data]
+            weights = [item[0] for item in data]
+            lengths = [item[1] for item in data]
 
             n_reads = len(data)
-            pa_wlen = calc_weighted_pa_len(probs, pa_lens)
+            total_wt = sum(weights)
+            wmlen = calc_weighted_pa_len(weights, lengths)
 
-            probs_str = ",".join(f"{p:.5g}" for p in probs)
-            pa_lens_str = ",".join(str(pa_len) for pa_len in pa_lens)
+            weights_str = ",".join(f"{w:.5g}" for w in weights)
+            lengths_str = ",".join(str(pl) for pl in lengths)
 
             line = (
-                f"{tx_name}\t{tx_idx}\t{n_reads}\t{pa_wlen:.3f}\t"
-                f"{probs_str}\t{pa_lens_str}"
+                f"{tx_name}\t{n_reads}\t{total_wt:.3f}\t{wmlen:.3f}\t"
+                f"{weights_str}\t{lengths_str}"
             )
             if tx_to_gene is not None:
                 gene_id = tx_to_gene.get(tx_name, "NA")

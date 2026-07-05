@@ -639,9 +639,9 @@ class TestWriteWithGtfColumns:
         assert "gpos" in header
         # Verify the GTF columns are at the end
         cols = header.split("\t")
-        assert cols[-4:] == ["gene_id", "chrom", "strand", "gpos"]
+        assert cols[3:7] == ["gene_id", "chrom", "strand", "gpos"]
         data = lines[1].split("\t")
-        assert data[-4:] == ["G1", "chr1", "+", "142"]
+        assert data[3:7] == ["G1", "chr1", "+", "142"]
 
     def test_tsv_with_null_gtf_columns(self, tmp_path):
         """TSV writes 'NA' for None GTF values."""
@@ -650,7 +650,7 @@ class TestWriteWithGtfColumns:
         write_tsv(rows, str(path), _TSV_HEADER, _TSV_COLS, use_gzip=False)
         content = path.read_text()
         data = content.strip().split("\n")[1].split("\t")
-        assert data[-4:] == ["NA", "NA", "NA", "NA"]
+        assert data[3:7] == ["NA", "NA", "NA", "NA"]
 
     def test_empty_parquet_has_gtf_columns(self):
         """Empty Parquet schema includes gene_id, chrom, strand, gpos."""
@@ -667,8 +667,8 @@ class TestWriteWithGtfColumns:
             os.unlink(tmp_path)
 
     def test_tsv_cols_includes_gtf(self):
-        """_TSV_COLS has gene_id, chrom, strand, gpos as last four entries."""
-        assert _TSV_COLS[-4:] == ["gene_id", "chrom", "strand", "gpos"]
+        """_TSV_COLS has gene_id, chrom, strand, gpos right after core ID columns."""
+        assert _TSV_COLS[3:7] == ["gene_id", "chrom", "strand", "gpos"]
 
 
 # ---------- validate_mod_codes ----------

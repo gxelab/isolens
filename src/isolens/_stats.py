@@ -151,6 +151,33 @@ def bh_fdr(p_values: list[float]) -> list[float]:
     return q.tolist()
 
 
+def weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
+    """Compute the weighted median of *values* with observation *weights*.
+
+    Sorts values, computes the cumulative sum of the corresponding weights,
+    and returns the value where the cumulative weight first reaches or
+    exceeds half the total weight.
+
+    Args:
+        values: 1-D array of observed values.
+        weights: 1-D array of non-negative weights (same length as *values*).
+
+    Returns:
+        The weighted median, or ``nan`` if total weight ≤ 0 or no data.
+    """
+    if len(values) == 0:
+        return float("nan")
+    total_wt = np.sum(weights)
+    if total_wt <= 0:
+        return float("nan")
+
+    sorter = np.argsort(values)
+    cum_wt = np.cumsum(weights[sorter])
+    half = total_wt / 2.0
+    idx = int(np.searchsorted(cum_wt, half))
+    return float(values[sorter][idx])
+
+
 # ---------------------------------------------------------------------------
 # Weighted two-sample tests (poly(A) distribution comparison)
 # ---------------------------------------------------------------------------
