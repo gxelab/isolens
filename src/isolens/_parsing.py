@@ -64,7 +64,7 @@ def parse_oarfish(
         with lz4.frame.open(path, "rb") as raw_f:
             content = raw_f.read().decode("utf-8")
     else:
-        with open(path, "r", encoding="utf-8") as raw_f:
+        with open(path, encoding="utf-8") as raw_f:
             content = raw_f.read()
 
     tx_names: list[str] = []

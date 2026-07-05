@@ -33,7 +33,8 @@ it terminates with a message instructing the user to re-run
 import argparse
 import sys
 from collections import defaultdict
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
