@@ -135,20 +135,23 @@ def parse_args() -> argparse.Namespace:
 
 
 def _read_sites_parquet(path: str) -> dict[_SiteKey, dict[str, Any]]:
-    """Read a Parquet gene-level site summary into a flat dict."""
+    """Read a Parquet gene-level site summary into a flat dict.
+
+    Uses ``table.to_pydict()`` for bulk conversion — a single C++ call
+    instead of per-cell ``.as_py()`` dispatch, which is 10–100× faster.
+    """
     table = pq.read_table(path, columns=_SITE_COLS)
+    col_data = table.to_pydict()  # dict[str, list] — bulk Python conversion
     sites: dict[_SiteKey, dict[str, Any]] = {}
-    col_data = {c: table.column(c) for c in _SITE_COLS}
     for i in range(len(table)):
-        gene_id = col_data["gene_id"][i].as_py()
-        chrom = col_data["chrom"][i].as_py()
-        strand = col_data["strand"][i].as_py()
-        gpos = col_data["gpos"][i].as_py()
-        mod_type = col_data["mod_type"][i].as_py()
-        key: _SiteKey = (gene_id, chrom, strand, gpos, mod_type)
-        row: dict[str, Any] = {}
-        for c in _SITE_COLS:
-            row[c] = col_data[c][i].as_py()
+        key: _SiteKey = (
+            col_data["gene_id"][i],
+            col_data["chrom"][i],
+            col_data["strand"][i],
+            col_data["gpos"][i],
+            col_data["mod_type"][i],
+        )
+        row: dict[str, Any] = {c: col_data[c][i] for c in _SITE_COLS}
         sites[key] = row
     return sites
 
@@ -241,6 +244,7 @@ def _fisher_test(
 def process_matched_sites(
     sites_1: dict[_SiteKey, dict[str, Any]],
     sites_2: dict[_SiteKey, dict[str, Any]],
+    common_keys: set[_SiteKey] | None = None,
 ) -> list[dict[str, Any]]:
     """Compare matched gene-level sites between two conditions.
 
@@ -249,6 +253,9 @@ def process_matched_sites(
     sites_1, sites_2 : dict
         Gene-level site summaries keyed by
         ``(gene_id, chrom, strand, gpos, mod_type)``.
+    common_keys : set or None
+        Pre-computed intersection of *sites_1* and *sites_2* keys.
+        If ``None``, computed from the dicts.
 
     Returns
     -------
@@ -257,7 +264,8 @@ def process_matched_sites(
         ``q_value`` and ``w_q_value`` are set to 0.0 — the caller
         must apply BH FDR correction afterward.
     """
-    common_keys = sorted(sites_1.keys() & sites_2.keys())
+    if common_keys is None:
+        common_keys = sites_1.keys() & sites_2.keys()
     rows: list[dict[str, Any]] = []
 
     for key in common_keys:
@@ -420,7 +428,7 @@ def main(args: argparse.Namespace | None = None) -> None:
             file=sys.stderr,
         )
 
-    all_rows = process_matched_sites(sites_1, sites_2)
+    all_rows = process_matched_sites(sites_1, sites_2, common)
 
     # ---- 3. Global BH FDR correction ----
     if all_rows:

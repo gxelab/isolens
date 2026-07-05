@@ -33,7 +33,7 @@ it terminates with a message instructing the user to re-run
 import argparse
 import sys
 from collections import defaultdict
-from typing import Any
+from typing import Any, Iterable
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -164,8 +164,28 @@ _WT_COLS = [
 ]
 
 
+def iter_input(path: str):
+    """Yield rows one at a time from a site summary file (Parquet or TSV/TSV.GZ).
+
+    Streams without loading the entire file into memory.
+
+    Args:
+        path: Path to a Parquet or TSV/TSV.GZ file from ``mod_sites``.
+
+    Yields:
+        Row dicts with keys from ``_INPUT_COLS``.
+    """
+    if path.endswith(".parquet"):
+        yield from _iter_parquet(path)
+    else:
+        yield from _iter_tsv(path)
+
+
 def read_input(path: str) -> list[dict[str, Any]]:
-    """Read a site summary file (Parquet or TSV/TSV.GZ).
+    """Read a site summary file into memory (legacy wrapper).
+
+    Prefer :func:`iter_input` for large files to avoid loading all rows
+    into memory at once.
 
     Args:
         path: Path to a Parquet or TSV/TSV.GZ file from ``mod_sites``.
@@ -173,26 +193,37 @@ def read_input(path: str) -> list[dict[str, Any]]:
     Returns:
         List of row dicts with keys from ``_INPUT_COLS``.
     """
-    if path.endswith(".parquet"):
-        return _read_parquet(path)
-    return _read_tsv(path)
+    return list(iter_input(path))
 
 
-def _read_parquet(path: str) -> list[dict[str, Any]]:
-    """Read a Parquet site summary file."""
-    table = pq.read_table(path)
-    rows: list[dict[str, Any]] = []
-    for i in range(len(table)):
-        row: dict[str, Any] = {}
-        for col in table.column_names:
-            val = table.column(col)[i].as_py()
-            row[col] = val
-        rows.append(row)
-    return rows
+def _iter_parquet(path: str, batch_size: int = 50000):
+    """Yield rows from a Parquet file in batches, never loading the full table.
+
+    Args:
+        path: Path to a Parquet file.
+        batch_size: Maximum rows per batch (bounds peak memory).
+
+    Yields:
+        Row dicts with keys from the Parquet schema.
+    """
+    pf = pq.ParquetFile(path)
+    for batch in pf.iter_batches(batch_size=batch_size):
+        cols = batch.schema.names
+        for i in range(batch.num_rows):
+            yield {col: batch.column(col)[i].as_py() for col in cols}
 
 
-def _read_tsv(path: str) -> list[dict[str, Any]]:
-    """Read a TSV (optionally gzipped) site summary file."""
+def _iter_tsv(path: str):
+    """Yield rows from a TSV (optionally gzipped) site summary file.
+
+    Reads line-by-line without accumulating all rows in memory.
+
+    Args:
+        path: Path to a TSV or TSV.GZ file.
+
+    Yields:
+        Row dicts with keys from ``_INPUT_COLS``.
+    """
     import gzip
 
     open_func = gzip.open if path.endswith(".gz") else open
@@ -209,7 +240,6 @@ def _read_tsv(path: str) -> list[dict[str, Any]]:
             except ValueError:
                 col_idx[col] = -1
 
-        rows: list[dict[str, Any]] = []
         for line in f:
             line = line.strip()
             if not line:
@@ -236,9 +266,7 @@ def _read_tsv(path: str) -> list[dict[str, Any]]:
                     row[col] = int(raw)
                 else:
                     row[col] = float(raw)
-            rows.append(row)
-
-    return rows
+            yield row
 
 
 # ---------- validation ----------
@@ -278,7 +306,7 @@ def _fail_metadata() -> None:
 
 
 def aggregate_to_gene(
-    rows: list[dict[str, Any]],
+    rows: Iterable[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Aggregate transcript-level rows to gene level.
 
@@ -288,8 +316,12 @@ def aggregate_to_gene(
     Rows where ``gene_id`` or ``gpos`` is ``None`` are dropped (they
     cannot be assigned to a genomic position).
 
+    Validation of ``gene_id`` and ``chrom`` presence is performed inline
+    during iteration — if no row has non-null values for both columns,
+    the function calls ``sys.exit(1)`` with an error message.
+
     Args:
-        rows: List of row dicts from :func:`read_input`.
+        rows: Iterable of row dicts from :func:`iter_input` (or a list).
 
     Returns:
         List of gene-level row dicts with keys from ``_OUTPUT_COLS``,
@@ -300,8 +332,19 @@ def aggregate_to_gene(
         lambda: {c: 0 for c in _COUNT_COLS} | {c: 0.0 for c in _WT_COLS}
     )
 
+    seen_any_row = False
+    seen_gene_id = False
+    seen_chrom = False
+
     for row in rows:
+        seen_any_row = True
+
         gene_id = row.get("gene_id")
+        if gene_id is not None:
+            seen_gene_id = True
+        if row.get("chrom") is not None:
+            seen_chrom = True
+
         gpos = row.get("gpos")
         if gene_id is None or gpos is None:
             continue
@@ -316,6 +359,10 @@ def aggregate_to_gene(
             acc[c] += row.get(c, 0) or 0
         for c in _WT_COLS:
             acc[c] += row.get(c, 0.0) or 0.0
+
+    # Validation: fail if rows existed but none had valid metadata
+    if seen_any_row and (not seen_gene_id or not seen_chrom):
+        _fail_metadata()
 
     # Build output rows
     result: list[dict[str, Any]] = []
@@ -401,33 +448,21 @@ def main(args: argparse.Namespace | None = None) -> None:
     if args is None:
         args = parse_args()
 
-    # ---- 1. Read input ----
+    # ---- 1. Stream input and aggregate in a single pass ----
 
     if args.verbose:
-        print("[mod_gene] Reading input...", file=sys.stderr)
-    rows = read_input(args.input)
+        print("[mod_gene] Reading and aggregating input...", file=sys.stderr)
+
+    gene_rows = aggregate_to_gene(iter_input(args.input))
 
     if args.verbose:
-        print(f"[mod_gene] Read {len(rows)} rows", file=sys.stderr)
-
-    # ---- 2. Validate metadata ----
-
-    validate_input(rows)
-
-    # ---- 3. Aggregate ----
-
-    if args.verbose:
-        print("[mod_gene] Aggregating to gene level...", file=sys.stderr)
-    gene_rows = aggregate_to_gene(rows)
-
-    if args.verbose:
-        n_genes = len({r["gene_id"] for r in gene_rows})
+        n_genes = len({r["gene_id"] for r in gene_rows}) if gene_rows else 0
         print(
             f"[mod_gene] {len(gene_rows)} rows across {n_genes} genes",
             file=sys.stderr,
         )
 
-    # ---- 4. Write output ----
+    # ---- 2. Write output ----
 
     if not gene_rows:
         print(
