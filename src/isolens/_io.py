@@ -41,8 +41,10 @@ def write_tsv(
 ) -> None:
     """Write rows as tab-separated values, optionally gzip-compressed.
 
-    ``None`` values are written as ``"NA"``.  The *path* is used as-is
-    (callers should apply :func:`ensure_gz_suffix` beforehand if needed).
+    ``None`` values and ``NaN`` floats are written as ``"NA"``.  Non-zero
+    float values below ``1e-6`` are written in scientific notation to
+    preserve significant digits.  The *path* is used as-is (callers should
+    apply :func:`ensure_gz_suffix` beforehand if needed).
 
     Args:
         all_rows: List of row dicts.
@@ -53,16 +55,25 @@ def write_tsv(
     """
     import gzip
 
+    import numpy as np
+
+    def _fmt(v: Any) -> str:
+        if v is None:
+            return "NA"
+        if isinstance(v, float):
+            if np.isnan(v):
+                return "NA"
+            if 0.0 < abs(v) < 1e-6:
+                return f"{v:.6e}"
+        return str(v)
+
     open_func = gzip.open if use_gzip else open
     mode = "wt" if use_gzip else "w"
 
     with open_func(path, mode, encoding="utf-8") as f:
         f.write(header + "\n")
         for row in all_rows:
-            f.write(
-                "\t".join("NA" if row[c] is None else str(row[c]) for c in columns)
-                + "\n"
-            )
+            f.write("\t".join(_fmt(row[c]) for c in columns) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +125,11 @@ def write_parquet(
 def format_float(v: float, fmt: str) -> str:
     """Format a float value, returning ``"NA"`` for NaN.
 
+    When *fmt* is a fixed-point specifier (ends with ``"f"``) and the
+    absolute value is non-zero but below ``1e-6``, the format
+    automatically switches to scientific notation with the same
+    precision width to avoid losing all significant digits.
+
     Args:
         v: Float value (may be NaN).
         fmt: Format specifier (e.g. ``".2f"``, ``".5e"``).
@@ -123,4 +139,9 @@ def format_float(v: float, fmt: str) -> str:
     """
     import numpy as np
 
-    return f"{v:{fmt}}" if not np.isnan(v) else "NA"
+    if np.isnan(v):
+        return "NA"
+    if fmt.endswith("f") and 0.0 < abs(v) < 1e-6:
+        width = fmt[:-1]  # e.g. ".6" from ".6f"
+        return f"{v:{width}e}"
+    return f"{v:{fmt}}"

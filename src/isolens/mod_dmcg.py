@@ -436,13 +436,13 @@ def main(args: argparse.Namespace | None = None) -> None:
         p_vals = [r["p_value"] for r in all_rows]
         q_vals = bh_fdr(p_vals)
         for r, qv in zip(all_rows, q_vals):
-            r["q_value"] = round(qv, 6)
+            r["q_value"] = qv
 
         # Weighted p-values
         w_p_vals = [r["w_p_value"] for r in all_rows]
         w_q_vals = bh_fdr(w_p_vals)
         for r, qv in zip(all_rows, w_q_vals):
-            r["w_q_value"] = round(qv, 6)
+            r["w_q_value"] = qv
 
     if args.verbose:
         n_tested = len(all_rows)

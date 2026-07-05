@@ -741,7 +741,7 @@ def main(args: argparse.Namespace | None = None) -> None:
         p_values = [r["p_value"] for r in all_rows]
         q_values = bh_fdr(p_values)
         for r, qv in zip(all_rows, q_values):
-            r["q_value"] = round(qv, 6)
+            r["q_value"] = qv
 
     if args.verbose:
         print(f"[mod_dmc] Total tests: {len(all_rows)}", file=sys.stderr)
