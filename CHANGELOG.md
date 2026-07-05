@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-05
+
+### Fixed
+
+- Missing CHANGELOG update for 0.5.0.
+
+## [0.5.0] - 2026-07-05
+
+### Added
+
+- Parquet output format support across modules.
+- `float32` precision for read weights.
+- Oarfish plain-text (uncompressed) input file support.
+- `_io.py` — shared I/O utilities for reading/writing Parquet and TSV.
+- `_hdf5_helpers.py` — shared HDF5 helper utilities.
+- `polya_gene` module (renamed from `polya_t2g`) for transcript-to-gene aggregation.
+- Weighted statistics in poly(A) output columns.
+- Precise q-value reporting (not capped at significant-digit rounding).
+
+### Changed
+
+- `polya_t2g` renamed to `polya_gene` with simplified CLI args.
+- Major refactor of `mod_dmc`, `mod_dmt`, `mod_dmcg`, `mod_gene`, `polya_bimodal`,
+  `polya_dpc`, `polya_dpt` for improved efficiency and reduced memory usage.
+- `mod_sites`, `mod_corr` refactored for code clarity and reuse.
+- Poly(A) output columns renamed for consistency.
+- `stats.py` merged into `_stats.py` (deduplication).
+- Updated README documentation.
+
+### Removed
+
+- `polya_t2g` module (replaced by `polya_gene`).
+
+### Fixed
+
+- CI and lint issues (UP015, UP035).
+
 ## [0.4.0] - 2026-06-29
 
 ### Added
@@ -198,7 +235,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` with `hatchling` build backend.
 - CI workflow for testing and publishing to PyPI.
 
-[Unreleased]: https://github.com/gxelab/isolens/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/gxelab/isolens/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/gxelab/isolens/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/gxelab/isolens/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gxelab/isolens/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gxelab/isolens/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gxelab/isolens/compare/v0.1.0...v0.2.0
