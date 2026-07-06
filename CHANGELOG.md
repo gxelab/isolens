@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-06
+
+### Added
+
+- `scripts/pq2tsv.py` — general-purpose Parquet-to-TSV converter with optional
+  gzip compression. Formatting conventions match `_io.write_tsv` (NA for null/NaN,
+  scientific notation for tiny floats, comma-joined lists).
+- `scripts/tsv2pq.py` — general-purpose TSV-to-Parquet converter. Auto-detects
+  gzip-compressed input (`.tsv.gz`), infers column types via pyarrow, and handles
+  header-only empty files.
+
 ## [0.5.1] - 2026-07-05
 
 ### Fixed
@@ -235,7 +246,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` with `hatchling` build backend.
 - CI workflow for testing and publishing to PyPI.
 
-[Unreleased]: https://github.com/gxelab/isolens/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/gxelab/isolens/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/gxelab/isolens/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gxelab/isolens/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/gxelab/isolens/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gxelab/isolens/compare/v0.3.0...v0.4.0
