@@ -97,28 +97,29 @@ python -m isolens.polya_calc -a oarfish_out.prob.lz4 -b reads.bam -o polya.tsv.g
 ## Pipeline Overview
 
 ```
-Oarfish (.lz4) ──┐
-                  ├── mod_scan ──► HDF5 ──┬── mod_sites ──► site summary (.parquet/.tsv)
-BAM (alignment) ─┘                        │                  │
-                                          │                  ├── mod_gene ──► gene-level summary (.parquet/.tsv)
-                                          │                  │
-                                          │                  ├── mod_corr ──► correlations (.parquet/.tsv)
-                                          │                  │                  + PDF heatmaps (-d)
-                                          │                  │
-                                          │                  ├── mod_dmc ───► differential modification
-                                          │                  │                  (condition comparison)
-                                          │                  │
-                                          │                  ├── mod_dmt ───► differential modification
-                                          │                  │                  (isoform comparison)
-                                          │                  │
-                                          │                  └── mod_dmcg ──► gene-level differential
-                                          │                                     modification
-                                          │
-Oarfish (.lz4) ────────┐                  │
-                        ├── polya_calc ──► polya TSV ──┬── polya_merge ──► merged TSV
-BAM (reads/alignment) ─┘                               │
-                                                       ├── polya_diff ──► diff TSV
-                                                       └── polya_gene ───► gene-level TSV
+Oarfish assignment ──┐
+                      ├── mod_scan (HDF5) ──┬── mod_sites ──► transcript-level site summary (.parquet/.tsv)
+    BAM (alignment) ─┘       │                     │
+                             │                     ├─► mod_gene ──► gene-level site summary (.parquet/.tsv)
+                             │                     │
+                             │                     │      └── mod_dmcg ──► gene-level differential
+                             │                     │                       modification across conditions
+                             │                     │
+                             │─────────────────────├─► mod_corr ──► intra-transcript site correlations (.parquet/.tsv)
+                             │                     │                + PDF heatmaps (-d)
+                             │                     │
+                             │─────────────────────├─► mod_dmc ───► differential modification
+                             │                     │                across conditions
+                             │                     │
+                             │─────────────────────├─► mod_dmt ───► differential modification
+                                                                    across isoforms of the same gene
+
+Oarfish assignment ────┐ 
+                        ├── polya_calc (.parquet/.tsv) ──┬─► polya_merge ───► pool replicates (.tsv/.parquet)
+BAM (reads/alignment) ─┘                                 ├─► polya_dpc ───► condition diff (.tsv/.parquet)
+                                                         ├─► polya_dpt ───► isoform diff (.tsv/.parquet)
+                                                         ├─► polya_gene ───► gene-level (.tsv/.parquet)
+                                                         └─► polya_bimodal ─► bimodality calls (.tsv/.parquet)
 ```
 
 ### Outputs
@@ -134,8 +135,10 @@ BAM (reads/alignment) ─┘                               │
 | `mod_dmcg` | Gene-level differentially modified sites between conditions |
 | `polya_calc` | Transcript-level poly(A) estimates |
 | `polya_merge` | Merged replicate poly(A) estimates |
-| `polya_diff` | Differential poly(A) comparison |
+| `polya_dpc` | Genome-wide differential poly(A) between conditions |
+| `polya_dpt` | Pairwise differential poly(A) between isoforms |
 | `polya_gene` | Gene-level poly(A) summaries |
+| `polya_bimodal` | Transcript-level bimodal poly(A) tail length detection |
 
 ---
 
@@ -169,7 +172,7 @@ Key options:
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-b, --bam` | Transcriptome BAM alignment | (required) |
-| `-a, --oarfish` | Oarfish assignment probability file (`.lz4`) | (required) |
+| `-a, --oarfish` | Oarfish assignment probability file (`.lz4` or plain text) | (required) |
 | `-o, --output` | Output HDF5 path | (required) |
 | `-c, --mod-cutoff` | Modification probability threshold | 0.95 |
 | `-m, --mod-type` | Modification types to scan for (SAM code suffixes) | `a,m,17596,17802,19228,69426,19229,19227` |
@@ -389,7 +392,7 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-a, --oarfish` | Oarfish assignment probability file (`.lz4`) | (required) |
+| `-a, --oarfish` | Oarfish assignment probability file (`.lz4` or plain text) | (required) |
 | `-b, --bam` | BAM file with `pt:i` poly(A) tags (from Dorado) | (required) |
 | `-o, --output` | Output TSV file | (required) |
 | `-z, --gzip` | Gzip-compress output | off |
@@ -422,15 +425,17 @@ Key options:
 
 ---
 
-### `polya_diff` — Differential poly(A) comparison
+### `polya_dpc` — Genome-wide differential poly(A) by condition
 
-Compares poly(A) length distributions between two conditions using a weighted two-sample Kolmogorov-Smirnov test with Kish's effective sample size correction.
+Compares poly(A) length distributions between two experimental conditions at each shared feature (transcript or gene) using three weighted two-sample tests: Kolmogorov-Smirnov, Welch's t-test, and rank-sum (Mann-Whitney U). P-values are computed with Kish's effective sample size correction, and global Benjamini-Hochberg FDR correction is applied separately per test type.
+
+Accepts both transcript-level (from `polya_calc`) and gene-level (from `polya_gene`) input; the feature ID column is auto-detected from the input header.
 
 ```bash
-python -m isolens.polya_diff \
+python -m isolens.polya_dpc \
   -c1 control.tsv.gz \
   -c2 treatment.tsv.gz \
-  -o diff.tsv.gz -z
+  -o dpc.tsv.gz -z
 ```
 
 Key options:
@@ -440,9 +445,43 @@ Key options:
 | `-c1, --condition1` | Condition 1 TSV/TSV.GZ file | (required) |
 | `-c2, --condition2` | Condition 2 TSV/TSV.GZ file | (required) |
 | `-o, --output` | Output TSV file | (required) |
-| `-z, --gzip` | Gzip-compress output | off |
+| `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
+| `-z, --gzip` | Gzip-compress TSV output | off |
+| `-p, --min-asp` | Minimum assignment probability threshold | 0.0 |
+| `-n, --min-pareads` | Minimum reads with effective poly(A) length | 5 |
 
-**Output columns:** `<feature_id>`, `n_reads_1`, `total_wt_1`, `wmlen_1`, `wmedlen_1`, `n_reads_2`, `total_wt_2`, `wmlen_2`, `wmedlen_2`, `ks_stat`, `ks_p_value`, `ks_q_value`, `wmlen_diff`, `t_stat`, `t_p_value`, `t_q_value`, `wmedlen_diff`, `u_stat`, `u_p_value`, `u_q_value`. The feature ID column header is `transcript_id` for transcript-level input, `gene_id` for gene-level input, or `feature_id` if the two files disagree.
+**Output columns (20):** `feature_id`, `n_reads_1`, `total_wt_1`, `wmlen_1`, `wmedlen_1`, `n_reads_2`, `total_wt_2`, `wmlen_2`, `wmedlen_2`, `ks_stat`, `ks_p_value`, `ks_q_value`, `wmlen_diff`, `t_stat`, `t_p_value`, `t_q_value`, `wmedlen_diff`, `u_stat`, `u_p_value`, `u_q_value`. The feature ID column header is `transcript_id` for transcript-level input, `gene_id` for gene-level input.
+
+**Method:** Weighted KS test, weighted Welch's t-test, and weighted rank-sum test, each with Kish's effective sample size. Global BH FDR correction applied separately to each p-value column.
+
+---
+
+### `polya_dpt` — Pairwise differential poly(A) between isoforms
+
+Compares poly(A) length distributions between all pairs of transcript isoforms within the same gene using the same three weighted two-sample tests as `polya_dpc`. Transcripts are grouped into genes using either a GTF annotation file (`-g`) or an existing `gene_id` column in the input.
+
+```bash
+python -m isolens.polya_dpt \
+  -i polya.tsv.gz \
+  -g annotation.gtf \
+  -o dpt.tsv.gz -z
+```
+
+Key options:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-i, --input` | Transcript-level poly(A) TSV file (gzipped or raw) | (required) |
+| `-g, --gtf` | GTF annotation for transcript-to-gene mapping (gzipped or raw) | none |
+| `-o, --output` | Output TSV file | (required) |
+| `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
+| `-z, --gzip` | Gzip-compress TSV output | off |
+| `-p, --min-asp` | Minimum assignment probability threshold | 0.0 |
+| `-n, --min-pareads` | Minimum reads with effective poly(A) length | 5 |
+
+**Output columns (21):** `gene_id`, `transcript_1`, `transcript_2`, `n_reads_1`, `total_wt_1`, `wmlen_1`, `wmedlen_1`, `n_reads_2`, `total_wt_2`, `wmlen_2`, `wmedlen_2`, `ks_stat`, `ks_p_value`, `ks_q_value`, `wmlen_diff`, `t_stat`, `t_p_value`, `t_q_value`, `wmedlen_diff`, `u_stat`, `u_p_value`, `u_q_value`.
+
+**Method:** Same weighted two-sample test backend as `polya_dpc`. All isoform pairs within each gene are tested. Global BH FDR correction applied separately per test type.
 
 ---
 
@@ -470,6 +509,40 @@ Key options:
 
 ---
 
+### `polya_bimodal` — Bimodal poly(A) tail length detection
+
+Detects transcripts with bimodal poly(A) tail length distributions using a consensus of two independent methods applied to a variance-stabilising log-transform (`log(length + 1)`):
+
+1. **Weighted 1-D Gaussian Mixture Model** — fits both 1-component and 2-component models via EM, then compares them via delta-BIC (ΔBIC > 10 is evidence for two modes).
+2. **Weighted KDE peak detection** — counts density peaks via `scipy.signal.find_peaks` with a configurable prominence threshold.
+
+A transcript is called bimodal only when **both** methods agree.
+
+> **⚠️ Important:** `polya_bimodal` should be run on **transcript-level** input (from `polya_calc`). While gene-level input (from `polya_gene`) is technically accepted, the results are likely misleading — pooling reads across all isoforms of a gene ignores transcript-specific poly(A) length variation. Different isoforms of the same gene can have genuinely distinct poly(A) length distributions; aggregating them at the gene level can create artefactual bimodality or mask true bimodality present in individual isoforms.
+
+```bash
+python -m isolens.polya_bimodal \
+  -i polya.tsv.gz \
+  -o bimodal.tsv.gz -z
+```
+
+Key options:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-i, --input` | Input poly(A) TSV from `polya_calc` (transcript-level recommended) | (required) |
+| `-o, --output` | Output bimodality results file | (required) |
+| `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
+| `-z, --gzip` | Gzip-compress TSV output | off |
+| `-l, --min-length` | Drop reads with poly(A) length below this threshold | 0.0 |
+| `-p, --min-asp` | Drop reads with assignment probability below this threshold | 0.1 |
+| `-e, --min-ess` | Skip feature if effective sample size below this threshold | 30.0 |
+| `-k, --kde-prominence` | Prominence threshold for KDE peak detection | 0.05 |
+
+**Output columns (15):** `feature_id`, `id_type` (`transcript_id` or `gene_id`), `n_reads_raw`, `n_reads_filtered`, `total_wt_raw`, `total_wt_filtered`, `delta_bic`, `bic_k1`, `bic_k2`, `ll_k1`, `ll_k2`, `n_kde_peaks`, `bimodal_gmm`, `bimodal_kde`, `bimodal_call` (consensus: `True` only if both GMM and KDE agree).
+
+---
+
 ## Python API
 
 The core data structures and parsing functions are available for programmatic use:
@@ -491,7 +564,7 @@ tx_names, prob_map, name_to_id = parse_oarfish("assignments.lz4")
 | File | Source | Required tags / format |
 |--------|--------|----------------------|
 | Transcriptome BAM | minimap2 + Dorado | `MM`/`ML` (base modifications), `pt:i` (poly(A) tail length) |
-| Oarfish assignments | Oarfish | LZ4-compressed read-to-transcript probability map |
+| Oarfish assignments | Oarfish | Read-to-transcript probability map (`.lz4` compressed or plain text) |
 
 The BAM should be coordinate-sorted and aligned to a transcriptome reference.
 
