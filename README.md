@@ -12,6 +12,8 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/isolens)](https://pypi.org/project/isolens/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/gxelab/isolens/actions/workflows/ci.yml/badge.svg)](https://github.com/gxelab/isolens/actions/workflows/ci.yml)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/isolens)
+
 
 **IsoLens** is a Python toolkit for isoform-aware analysis of RNA modifications and poly(A) tail lengths from Oxford Nanopore direct RNA sequencing data, explicitly accounting for transcript assignment uncertainty to enable accurate transcript-level profiling.
 
@@ -23,14 +25,15 @@ Most long-read RNA analysis tools either analyze RNA modifications or poly(A) ta
 
 Key capabilities:
 
+- Efficient HDF5 and Parquet outputs for large-scale studies
 - Isoform-aware RNA modification profiling at single-nucleotide resolution
-- Transcript-level poly(A) tail length estimation with uncertainty propagation
 - Modification site co-occurrence and correlation analysis
 - Differential modification testing between conditions, isoforms, and genes
+- Gene-level aggregation of modification sites across isoforms
+- Transcript-level poly(A) tail length estimation with uncertainty propagation
+- Differential poly(A) testing between conditions and isoforms
 - Gene-level aggregation of transcript-level modification and poly(A) data
-- Differential poly(A) testing between conditions
-- Efficient HDF5 and Parquet outputs for large-scale studies
-- Direct integration with Dorado BAM tags and Oarfish assignments
+- Detection of bimodal distribution of poly(A) tail lengths
 
 ---
 
@@ -567,15 +570,6 @@ tx_names, prob_map, name_to_id = parse_oarfish("assignments.lz4")
 | Oarfish assignments | Oarfish | Read-to-transcript probability map (`.lz4` compressed or plain text) |
 
 The BAM should be coordinate-sorted and aligned to a transcriptome reference.
-
-Typical preprocessing:
-
-```bash
-minimap2 --eqx -N 100 -ax map-ont -y transcriptome.fa reads.fastq \
-  | samtools sort -o alignments.bam
-
-samtools index alignments.bam
-```
 
 ---
 
