@@ -67,6 +67,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Compress the output TSV file using gzip",
     )
+    parser.add_argument(
+        "-l",
+        "--log",
+        action="store_true",
+        default=False,
+        help="Apply log-transform (log(L+1)) to poly(A) tail lengths before "
+        "computing weighted averages, then back-transform results. "
+        "This computes a weighted geometric mean.",
+    )
     return parser.parse_args()
 
 
@@ -147,7 +156,9 @@ def main() -> None:
 
         n_reads = len(merged_weights)
         total_wt = sum(merged_weights)
-        wmlen = calc_weighted_pa_len(merged_weights, merged_lengths)
+        wmlen = calc_weighted_pa_len(
+            merged_weights, merged_lengths, use_log=getattr(args, "log", False)
+        )
 
         all_rows.append(
             {

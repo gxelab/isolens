@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-07
+
+### Added
+
+- `-l` / `--log` flag to `polya_calc`, `polya_merge`, `polya_gene`, `polya_dpc`,
+  and `polya_dpt`. When enabled, poly(A) tail lengths are log-transformed
+  (`log(L+1)`) before computing weighted means and medians, then
+  back-transformed (`exp(result)-1`) to yield weighted geometric means/medians.
+  In `polya_dpc` and `polya_dpt`, hypothesis tests (weighted KS, t-test,
+  rank-sum) are run on the log-transformed data.
+
 ## [0.5.2] - 2026-07-06
 
 ### Added
@@ -246,7 +257,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` with `hatchling` build backend.
 - CI workflow for testing and publishing to PyPI.
 
-[Unreleased]: https://github.com/gxelab/isolens/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/gxelab/isolens/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/gxelab/isolens/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/gxelab/isolens/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gxelab/isolens/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/gxelab/isolens/compare/v0.4.0...v0.5.0

@@ -12,7 +12,7 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/isolens)](https://pypi.org/project/isolens/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/gxelab/isolens/actions/workflows/ci.yml/badge.svg)](https://github.com/gxelab/isolens/actions/workflows/ci.yml)
-![PyPI - Downloads](https://img.shields.io/pypi/dm/isolens)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/isolens)](https://pypi.org/project/isolens/)
 
 
 **IsoLens** is a Python toolkit for isoform-aware analysis of RNA modifications and poly(A) tail lengths from Oxford Nanopore direct RNA sequencing data, explicitly accounting for transcript assignment uncertainty to enable accurate transcript-level profiling.
@@ -399,6 +399,7 @@ Key options:
 | `-b, --bam` | BAM file with `pt:i` poly(A) tags (from Dorado) | (required) |
 | `-o, --output` | Output TSV file | (required) |
 | `-z, --gzip` | Gzip-compress output | off |
+| `-l, --log` | Log-transform lengths to compute weighted geometric mean | off |
 
 **Output columns (6):** `transcript_id`, `n_reads`, `total_wt` (sum of assignment probabilities), `wmlen` (weighted mean poly(A) length), `weights` (comma-separated assignment probabilities), `lengths` (comma-separated raw poly(A) lengths).
 
@@ -423,6 +424,7 @@ Key options:
 | `-i2, --input2` | Second input TSV file (gzipped or raw) | (required) |
 | `-o, --output` | Output TSV file | (required) |
 | `-z, --gzip` | Gzip-compress output | off |
+| `-l, --log` | Log-transform lengths to compute weighted geometric mean | off |
 
 **Output columns (6):** Same schema as `polya_calc` — `transcript_id`, `n_reads`, `total_wt`, `wmlen`, `weights`, `lengths`. Per-transcript probability and length lists from both files are concatenated before recalculating `wmlen`.
 
@@ -452,6 +454,7 @@ Key options:
 | `-z, --gzip` | Gzip-compress TSV output | off |
 | `-p, --min-asp` | Minimum assignment probability threshold | 0.0 |
 | `-n, --min-pareads` | Minimum reads with effective poly(A) length | 5 |
+| `-l, --log` | Log-transform lengths for geometric means/medians and hypothesis tests on log-scale | off |
 
 **Output columns (20):** `feature_id`, `n_reads_1`, `total_wt_1`, `wmlen_1`, `wmedlen_1`, `n_reads_2`, `total_wt_2`, `wmlen_2`, `wmedlen_2`, `ks_stat`, `ks_p_value`, `ks_q_value`, `wmlen_diff`, `t_stat`, `t_p_value`, `t_q_value`, `wmedlen_diff`, `u_stat`, `u_p_value`, `u_q_value`. The feature ID column header is `transcript_id` for transcript-level input, `gene_id` for gene-level input.
 
@@ -481,6 +484,7 @@ Key options:
 | `-z, --gzip` | Gzip-compress TSV output | off |
 | `-p, --min-asp` | Minimum assignment probability threshold | 0.0 |
 | `-n, --min-pareads` | Minimum reads with effective poly(A) length | 5 |
+| `-l, --log` | Log-transform lengths for geometric means/medians and hypothesis tests on log-scale | off |
 
 **Output columns (21):** `gene_id`, `transcript_1`, `transcript_2`, `n_reads_1`, `total_wt_1`, `wmlen_1`, `wmedlen_1`, `n_reads_2`, `total_wt_2`, `wmlen_2`, `wmedlen_2`, `ks_stat`, `ks_p_value`, `ks_q_value`, `wmlen_diff`, `t_stat`, `t_p_value`, `t_q_value`, `wmedlen_diff`, `u_stat`, `u_p_value`, `u_q_value`.
 
@@ -504,9 +508,11 @@ Key options:
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-i, --input` | Input transcript poly(A) TSV file (gzipped or raw) | (required) |
-| `-m, --map` | Mapping file with `tx_name` and `gene_id` columns (gzipped or raw TSV) | (required) |
+| `-g, --gtf` | GTF/annotation file for transcript-to-gene mapping (gzipped or raw) | none |
 | `-o, --output` | Output gene-level TSV file | (required) |
+| `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
 | `-z, --gzip` | Gzip-compress output | off |
+| `-l, --log` | Log-transform lengths to compute weighted geometric mean | off |
 
 **Output columns (6):** `gene_id`, `n_reads`, `total_wt` (sum of pooled weights), `wmlen` (recalculated weighted mean), `weights` (comma-separated pooled probabilities), `lengths` (comma-separated pooled lengths).
 

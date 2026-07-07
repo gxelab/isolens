@@ -144,6 +144,15 @@ def parse_args() -> argparse.Namespace:
         help="Minimum number of reads with effective (non-negative) "
         "poly(A) length estimation (default: 5)",
     )
+    parser.add_argument(
+        "-l",
+        "--log",
+        action="store_true",
+        default=False,
+        help="Apply log-transform (log(L+1)) to poly(A) tail lengths before "
+        "computing weighted means, medians, and hypothesis tests, then "
+        "back-transform results for wmlen and wmedlen.",
+    )
     return parser.parse_args()
 
 
@@ -339,22 +348,53 @@ def main(args: argparse.Namespace | None = None) -> None:
                 p_b = d_b["weights"]
                 l_b = d_b["lengths"]
 
+                use_log = getattr(args, "log", False)
+                if use_log:
+                    l_a = np.log(l_a + 1.0)
+                    l_b = np.log(l_b + 1.0)
+
                 row["total_wt_1"] = float(p_a.sum())
                 row["total_wt_2"] = float(p_b.sum())
 
-                row["wmlen_1"] = (
-                    float(np.average(l_a, weights=p_a))
-                    if p_a.sum() > 0
-                    else float("nan")
-                )
-                row["wmlen_2"] = (
-                    float(np.average(l_b, weights=p_b))
-                    if p_b.sum() > 0
-                    else float("nan")
-                )
+                if use_log:
+                    row["wmlen_1"] = (
+                        float(np.exp(np.average(l_a, weights=p_a)) - 1.0)
+                        if p_a.sum() > 0
+                        else float("nan")
+                    )
+                    row["wmlen_2"] = (
+                        float(np.exp(np.average(l_b, weights=p_b)) - 1.0)
+                        if p_b.sum() > 0
+                        else float("nan")
+                    )
+                else:
+                    row["wmlen_1"] = (
+                        float(np.average(l_a, weights=p_a))
+                        if p_a.sum() > 0
+                        else float("nan")
+                    )
+                    row["wmlen_2"] = (
+                        float(np.average(l_b, weights=p_b))
+                        if p_b.sum() > 0
+                        else float("nan")
+                    )
 
-                row["wmedlen_1"] = weighted_median(l_a, p_a)
-                row["wmedlen_2"] = weighted_median(l_b, p_b)
+                if use_log:
+                    wm_a = weighted_median(l_a, p_a)
+                    wm_b = weighted_median(l_b, p_b)
+                    row["wmedlen_1"] = (
+                        float(np.exp(wm_a) - 1.0)
+                        if not np.isnan(wm_a)
+                        else float("nan")
+                    )
+                    row["wmedlen_2"] = (
+                        float(np.exp(wm_b) - 1.0)
+                        if not np.isnan(wm_b)
+                        else float("nan")
+                    )
+                else:
+                    row["wmedlen_1"] = weighted_median(l_a, p_a)
+                    row["wmedlen_2"] = weighted_median(l_b, p_b)
 
                 if not np.isnan(row["wmlen_1"]) and not np.isnan(row["wmlen_2"]):
                     row["wmlen_diff"] = row["wmlen_1"] - row["wmlen_2"]

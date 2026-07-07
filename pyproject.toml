@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "isolens"
-version = "0.5.2"
-description = "Long-Read Kit"
+version = "0.5.3"
+description = "Isoform-resolution epitranscriptome analysis"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Hong Zhang" }]

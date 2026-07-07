@@ -63,6 +63,15 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="GTF annotation file for adding gene_id to output",
     )
+    parser.add_argument(
+        "-l",
+        "--log",
+        action="store_true",
+        default=False,
+        help="Apply log-transform (log(L+1)) to poly(A) tail lengths before "
+        "computing weighted averages, then back-transform results. "
+        "This computes a weighted geometric mean.",
+    )
     return parser.parse_args()
 
 
@@ -158,7 +167,9 @@ def main() -> None:
 
         n_reads = len(data)
         total_wt = sum(weights)
-        wmlen = calc_weighted_pa_len(weights, lengths)
+        wmlen = calc_weighted_pa_len(
+            weights, lengths, use_log=getattr(args, "log", False)
+        )
 
         row = {
             "transcript_id": tx_name,

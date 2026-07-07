@@ -6,6 +6,7 @@ Used by mod_scan.py, polya_calc.py, and downstream analysis modules.
 import gzip
 import hashlib
 import io
+import math
 import sys
 import typing
 import uuid
@@ -124,12 +125,16 @@ def open_by_suffix(path: str, mode: str = "r") -> typing.IO:
     return open(path, mode, encoding="utf-8")
 
 
-def calc_weighted_pa_len(weights: list[float], lengths: list[int]) -> float:
+def calc_weighted_pa_len(
+    weights: list[float], lengths: list[int], use_log: bool = False
+) -> float:
     """Compute the assignment-probability-weighted poly(A) tail length.
 
     Args:
         weights: Oarfish assignment probabilities (one per read).
         lengths: Raw poly(A) tail lengths (one per read, same order).
+        use_log: If True, compute the weighted geometric mean via
+            log-transform (log(L+1)) and back-transform (exp(result)-1).
 
     Returns:
         Weighted average poly(A) length, or 0.0 if the sum of
@@ -140,6 +145,10 @@ def calc_weighted_pa_len(weights: list[float], lengths: list[int]) -> float:
     sum_wt = sum(weights)
     if sum_wt <= 0:
         return 0.0
+    if use_log:
+        log_lengths = [math.log(pl + 1.0) for pl in lengths]
+        log_wm = sum(w * ll for w, ll in zip(weights, log_lengths)) / sum_wt
+        return math.exp(log_wm) - 1.0
     return sum(w * pl for w, pl in zip(weights, lengths)) / sum_wt
 
 
