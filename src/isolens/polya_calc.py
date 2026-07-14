@@ -171,16 +171,15 @@ def main() -> None:
             weights, lengths, use_log=getattr(args, "log", False)
         )
 
-        row = {
-            "transcript_id": tx_name,
-            "n_reads": n_reads,
-            "total_wt": total_wt,
-            "wmlen": wmlen,
-            "weights": weights,
-            "lengths": lengths,
-        }
+        row: dict[str, Any] = {}
         if tx_to_gene is not None:
             row["gene_id"] = tx_to_gene.get(tx_name, "NA")
+        row["transcript_id"] = tx_name
+        row["n_reads"] = n_reads
+        row["total_wt"] = total_wt
+        row["wmlen"] = wmlen
+        row["weights"] = weights
+        row["lengths"] = lengths
         all_rows.append(row)
 
     # Build output structures (conditional gene_id)
@@ -201,8 +200,8 @@ def main() -> None:
         ("lengths", pa.list_(pa.int32())),
     ]
     if tx_to_gene is not None:
-        _OUTPUT_COLS.append("gene_id")
-        _SCHEMA_FIELDS.append(("gene_id", pa.string()))
+        _OUTPUT_COLS.insert(0, "gene_id")
+        _SCHEMA_FIELDS.insert(0, ("gene_id", pa.string()))
     _TSV_HEADER = "\t".join(_OUTPUT_COLS)
     _SCHEMA = pa.schema(_SCHEMA_FIELDS)
 

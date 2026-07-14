@@ -14,6 +14,7 @@ from typing import Any
 
 import lz4.frame
 import numpy as np
+import pyarrow.parquet as pq
 
 
 class TargetAssignment:
@@ -153,31 +154,98 @@ def calc_weighted_pa_len(
 
 
 def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
-    """Parse a poly(A) TSV file and return ``(id_column_name, data_dict)``.
+    """Parse a poly(A) file and return ``(id_column_name, data_dict)``.
 
     Handles both transcript-level (``transcript_id`` column) and gene-level
-    (``gene_id`` column) input formats.  Auto-detects gzip by ``.gz``
-    suffix.
+    (``gene_id`` column) input formats.  Supports TSV (optionally gzipped,
+    auto-detected by ``.gz`` suffix) and Parquet (auto-detected by
+    ``.parquet`` or ``.pq`` suffix).
 
     Args:
-        filename: Path to the input TSV or TSV.GZ file.
+        filename: Path to the input file (TSV, TSV.GZ, or Parquet).
 
     Returns:
         ``(id_col_name, data_dict)`` where *data_dict* maps feature IDs
         to dicts with keys ``n_reads``, ``total_wt``, ``wmlen``,
-        ``weights``, ``lengths``.
+        ``weights``, ``lengths``, and optionally ``gene_id`` (when
+        that column is present in the input).
     """
     print(f"Loading data from {filename}...", file=sys.stderr)
+
+    if filename.endswith((".parquet", ".pq")):
+        return _parse_polyA_parquet(filename)
+    return _parse_polyA_tsv(filename)
+
+
+def _parse_polyA_parquet(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Read a poly(A) Parquet file."""
+    table = pq.read_table(filename)
+    col_names = table.schema.names
+    has_gene_id = "gene_id" in col_names
+
+    id_col_name = "transcript_id" if "transcript_id" in col_names else "gene_id"
+
+    data_dict: dict[str, dict[str, Any]] = {}
+    for row in table.to_pylist():
+        feature_id = row[id_col_name]
+        weights = np.array(row["weights"], dtype=np.float64)
+        lengths = np.array(row["lengths"], dtype=np.int64)
+
+        n_reads = len(weights)
+        total_wt = float(np.sum(weights))
+        wmlen = (
+            float(np.sum(weights * lengths) / total_wt) if total_wt > 0 else 0.0
+        )
+
+        entry: dict[str, Any] = {
+            "n_reads": n_reads,
+            "total_wt": total_wt,
+            "wmlen": wmlen,
+            "weights": weights,
+            "lengths": lengths,
+        }
+        if has_gene_id:
+            entry["gene_id"] = row["gene_id"]
+
+        data_dict[feature_id] = entry
+
+    return id_col_name, data_dict
+
+
+def _parse_polyA_tsv(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Read a poly(A) TSV (or TSV.GZ) file."""
     data_dict: dict[str, dict[str, Any]] = {}
 
     with open_by_suffix(filename, "rt" if filename.endswith(".gz") else "r") as f:
         header = f.readline().strip().split("\t")
 
         # Detect whether transcript-level or gene-level output
-        id_col_name = "transcript_id" if "transcript_id" in header else "gene_id"
+        if "transcript_id" in header:
+            id_col_name = "transcript_id"
+        elif "gene_id" in header:
+            id_col_name = "gene_id"
+        else:
+            print(
+                "Error: Input file must contain 'transcript_id' or "
+                "'gene_id' column.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if "weights" not in header or "lengths" not in header:
+            print(
+                "Error: Input file must contain 'weights' and "
+                "'lengths' columns.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
         id_col = header.index(id_col_name)
         weights_col = header.index("weights")
         lengths_col = header.index("lengths")
+
+        has_gene_id = "gene_id" in header
+        gene_id_col = header.index("gene_id") if has_gene_id else -1
 
         for line in f:
             parts = line.strip().split("\t")
@@ -192,14 +260,24 @@ def parse_polyA_file(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
 
             n_reads = len(weights)
             total_wt = float(np.sum(weights))
-            wmlen = float(np.sum(weights * lengths) / total_wt) if total_wt > 0 else 0.0
+            wmlen = (
+                float(np.sum(weights * lengths) / total_wt)
+                if total_wt > 0
+                else 0.0
+            )
 
-            data_dict[feature_id] = {
+            entry: dict[str, Any] = {
                 "n_reads": n_reads,
                 "total_wt": total_wt,
                 "wmlen": wmlen,
                 "weights": weights,
                 "lengths": lengths,
             }
+            if has_gene_id and len(parts) > gene_id_col:
+                gene_id = parts[gene_id_col]
+                if gene_id not in ("", "NA", "."):
+                    entry["gene_id"] = gene_id
+
+            data_dict[feature_id] = entry
 
     return id_col_name, data_dict

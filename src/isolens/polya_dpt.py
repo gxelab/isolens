@@ -13,7 +13,7 @@ import pyarrow as pa
 try:
     from isolens._gtf import build_tx_to_gene
     from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
-    from isolens._parsing import open_by_suffix
+    from isolens._parsing import parse_polyA_file
     from isolens._stats import (
         bh_fdr,
         weighted_ks_test,
@@ -22,10 +22,9 @@ try:
         weighted_t_test,
     )
 except ImportError:
-    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
-
     from _gtf import build_tx_to_gene  # type: ignore[no-redef]
-    from _parsing import open_by_suffix  # type: ignore[no-redef]
+    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
+    from _parsing import parse_polyA_file  # type: ignore[no-redef]
     from _stats import (  # type: ignore[no-redef]
         bh_fdr,
         weighted_ks_test,
@@ -99,7 +98,7 @@ def parse_args() -> argparse.Namespace:
         "-i",
         "--input",
         required=True,
-        help="Transcript-level poly(A) TSV file (gzipped or raw)",
+        help="Transcript-level poly(A) file (TSV/TSV.GZ or Parquet)",
     )
     parser.add_argument(
         "-g",
@@ -172,97 +171,65 @@ def _load_and_group(
         lists of transcript IDs.  Only genes with ≥ 2 transcripts
         after filtering are included.
     """
+    id_col_name, all_data = parse_polyA_file(filename)
+
+    if not all_data:
+        print("No transcripts found in input file.", file=sys.stderr)
+        sys.exit(0)
+
     # Detect gene_id source
-    tx_to_gene: dict[str, str] | None = None
-    has_gene_id_col = False
+    has_gene_id_in_data = any("gene_id" in v for v in all_data.values())
+    tx_to_gene: dict[str, str] = {}
 
-    read_mode = "rt" if filename.endswith(".gz") else "r"
-    print(f"Loading data from {filename}...", file=sys.stderr)
+    if has_gene_id_in_data:
+        print("Using gene_id column from input file.", file=sys.stderr)
+    elif gtf_path is not None:
+        print(
+            "No gene_id column in input — using GTF annotation.",
+            file=sys.stderr,
+        )
+        tx_to_gene = build_tx_to_gene(gtf_path)
+    else:
+        print(
+            "Error: Input file does not contain a 'gene_id' column "
+            "and no --gtf annotation was provided.  "
+            "Either run polya_calc with --gtf, or provide --gtf "
+            "to polya_dpt.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-    with open_by_suffix(filename, read_mode) as f:
-        header = f.readline().strip().split("\t")
+    # Filter, validate, and group
+    tx_data: dict[str, dict[str, np.ndarray]] = {}
+    gene_groups: dict[str, list[str]] = {}
+    unmapped: set[str] = set()
 
-        if "transcript_id" not in header:
-            print(
-                "Error: Input file must contain 'transcript_id' column.  "
-                "polya_dpt requires transcript-level data.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    for tx_id, info in all_data.items():
+        weights = info["weights"]
+        lengths = info["lengths"]
 
-        if "weights" not in header or "lengths" not in header:
-            print(
-                "Error: Input file must contain 'weights' and 'lengths' columns.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        # Apply min_asp filter and non-negative length filter
+        mask = (weights >= min_asp) & (lengths >= 0)
+        if not np.any(mask):
+            continue
 
-        tx_col = header.index("transcript_id")
-        weights_col = header.index("weights")
-        lengths_col = header.index("lengths")
-
-        has_gene_id_col = "gene_id" in header
-        gene_id_col = header.index("gene_id") if has_gene_id_col else -1
-
-        if has_gene_id_col:
-            print("Using gene_id column from input file.", file=sys.stderr)
-        elif gtf_path is not None:
-            print(
-                "No gene_id column in input — using GTF annotation.",
-                file=sys.stderr,
-            )
-            tx_to_gene = build_tx_to_gene(gtf_path)
+        # Resolve gene_id
+        if has_gene_id_in_data:
+            gene_id = info.get("gene_id")
+            if gene_id is None:
+                unmapped.add(tx_id)
+                continue
         else:
-            print(
-                "Error: Input file does not contain a 'gene_id' column "
-                "and no --gtf annotation was provided.  "
-                "Either run polya_calc with --gtf, or provide --gtf "
-                "to polya_dpt.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        # Parse and group
-        tx_data: dict[str, dict[str, np.ndarray]] = {}
-        gene_groups: dict[str, list[str]] = {}
-
-        unmapped: set[str] = set()
-
-        for line in f:
-            parts = line.strip().split("\t")
-            if len(parts) <= max(weights_col, lengths_col):
+            gene_id = tx_to_gene.get(tx_id, "")
+            if not gene_id:
+                unmapped.add(tx_id)
                 continue
 
-            tx_id = parts[tx_col]
-
-            # Resolve gene_id
-            if has_gene_id_col:
-                if len(parts) <= gene_id_col:
-                    unmapped.add(tx_id)
-                    continue
-                gene_id = parts[gene_id_col]
-                if gene_id in ("", "NA", "."):
-                    unmapped.add(tx_id)
-                    continue
-            else:
-                gene_id = tx_to_gene.get(tx_id, "")  # type: ignore[union-attr]
-                if not gene_id:
-                    unmapped.add(tx_id)
-                    continue
-
-            weights = np.array([float(p) for p in parts[weights_col].split(",")])
-            lengths = np.array([int(pl) for pl in parts[lengths_col].split(",")])
-
-            # Apply min_asp filter and non-negative length filter
-            mask = (weights >= min_asp) & (lengths >= 0)
-            if not np.any(mask):
-                continue
-
-            tx_data[tx_id] = {
-                "weights": weights[mask],
-                "lengths": lengths[mask],
-            }
-            gene_groups.setdefault(gene_id, []).append(tx_id)
+        tx_data[tx_id] = {
+            "weights": weights[mask],
+            "lengths": lengths[mask],
+        }
+        gene_groups.setdefault(gene_id, []).append(tx_id)
 
     if unmapped:
         print(

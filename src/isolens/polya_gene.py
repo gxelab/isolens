@@ -10,15 +10,11 @@ import pyarrow as pa
 try:
     from isolens._gtf import build_tx_to_gene
     from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
-    from isolens._parsing import calc_weighted_pa_len, open_by_suffix
+    from isolens._parsing import calc_weighted_pa_len, parse_polyA_file
 except ImportError:
-    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
-
     from _gtf import build_tx_to_gene  # type: ignore[no-redef]
-    from _parsing import (  # type: ignore[no-redef]
-        calc_weighted_pa_len,
-        open_by_suffix,
-    )
+    from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
+    from _parsing import calc_weighted_pa_len, parse_polyA_file  # type: ignore[no-redef]
 
 
 _OUTPUT_COLS = [
@@ -53,7 +49,7 @@ def parse_args() -> argparse.Namespace:
         "-i",
         "--input",
         required=True,
-        help="Input transcript poly(A) TSV file (gzipped or raw)",
+        help="Input transcript poly(A) file (TSV/TSV.GZ or Parquet)",
     )
     parser.add_argument(
         "-g",
@@ -94,7 +90,7 @@ def parse_args() -> argparse.Namespace:
 def main(args: argparse.Namespace | None = None) -> None:
     """Aggregate per-transcript poly(A) data to gene level.
 
-    Reads a transcript-level poly(A) TSV (from ``polya_calc``).  If the
+    Reads a transcript-level poly(A) file (from ``polya_calc``).  If the
     input already contains a ``gene_id`` column (e.g. from ``polya_calc
     -g``), that column is used directly.  Otherwise a GTF annotation file
     must be provided via ``--gtf`` to map transcript names to gene IDs.
@@ -102,89 +98,59 @@ def main(args: argparse.Namespace | None = None) -> None:
     if args is None:
         args = parse_args()
 
-    # Read header and detect columns
-    print(
-        f"Processing transcript poly(A) lengths from {args.input}...", file=sys.stderr
-    )
-    read_mode = "rt" if args.input.endswith(".gz") else "r"
-    with open_by_suffix(args.input, read_mode) as f:
-        header = f.readline().strip().split("\t")
-        if (
-            "transcript_id" not in header
-            or "weights" not in header
-            or "lengths" not in header
-        ):
-            print(
-                "Error: Input file must contain 'transcript_id', 'weights', "
-                "and 'lengths' headers.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    # Read transcript-level data (supports TSV, TSV.GZ, and Parquet)
+    id_col_name, tx_data = parse_polyA_file(args.input)
 
-        tx_col = header.index("transcript_id")
-        weights_col = header.index("weights")
-        lengths_col = header.index("lengths")
+    if not tx_data:
+        print("No transcripts found in input file.", file=sys.stderr)
+        sys.exit(0)
 
-        has_gene_id_col = "gene_id" in header
-        gene_id_col = header.index("gene_id") if has_gene_id_col else -1
+    # Determine gene-mapping strategy
+    has_gene_id_in_data = any("gene_id" in v for v in tx_data.values())
+    tx_to_gene: dict[str, str] = {}
 
-        # Determine mapping source
-        if has_gene_id_col:
-            # Use gene_id directly from input rows
-            print("Using gene_id column from input file.", file=sys.stderr)
-        elif args.gtf is not None:
-            print(
-                "No gene_id column in input — using GTF annotation.",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                "Error: Input file does not contain a 'gene_id' column "
-                "and no --gtf annotation was provided.  "
-                "Either run polya_calc with --gtf, or provide --gtf "
-                "to polya_gene.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        # Load GTF mapping if needed
-        tx_to_gene: dict[str, str] = {}
-        if not has_gene_id_col:
-            tx_to_gene = build_tx_to_gene(args.gtf)
-
-        # Read transcript data and pool by gene
-        gene_pools: dict[str, dict[str, list]] = defaultdict(
-            lambda: {"weights": [], "lengths": []}
+    if has_gene_id_in_data:
+        print("Using gene_id column from input file.", file=sys.stderr)
+    elif args.gtf is not None:
+        print(
+            "No gene_id column in input — using GTF annotation.",
+            file=sys.stderr,
         )
-        unmapped_transcripts: set[str] = set()
+        tx_to_gene = build_tx_to_gene(args.gtf)
+    else:
+        print(
+            "Error: Input file does not contain a 'gene_id' column "
+            "and no --gtf annotation was provided.  "
+            "Either run polya_calc with --gtf, or provide --gtf "
+            "to polya_gene.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-        for line in f:
-            parts = line.strip().split("\t")
-            if len(parts) <= max(weights_col, lengths_col):
-                continue
+    # Pool reads by gene
+    gene_pools: dict[str, dict[str, list]] = defaultdict(
+        lambda: {"weights": [], "lengths": []}
+    )
+    unmapped_transcripts: set[str] = set()
 
-            if has_gene_id_col and len(parts) <= gene_id_col:
-                continue
+    for tx_name, tx_info in tx_data.items():
+        weights = tx_info["weights"].tolist()
+        lengths = tx_info["lengths"].tolist()
 
-            tx_name = parts[tx_col]
-
-            # Resolve gene_id
-            if has_gene_id_col:
-                gene_id = parts[gene_id_col]
-                if gene_id in ("", "NA", "."):
-                    unmapped_transcripts.add(tx_name)
-                    continue
-            elif tx_name in tx_to_gene:
-                gene_id = tx_to_gene[tx_name]
-            else:
+        # Resolve gene_id
+        if has_gene_id_in_data:
+            gene_id = tx_info.get("gene_id")
+            if gene_id is None:
                 unmapped_transcripts.add(tx_name)
                 continue
+        elif tx_name in tx_to_gene:
+            gene_id = tx_to_gene[tx_name]
+        else:
+            unmapped_transcripts.add(tx_name)
+            continue
 
-            weights = [float(p) for p in parts[weights_col].split(",")]
-            lengths = [int(pa_len) for pa_len in parts[lengths_col].split(",")]
-
-            gene_pools[gene_id]["weights"].extend(weights)
-            gene_pools[gene_id]["lengths"].extend(lengths)
+        gene_pools[gene_id]["weights"].extend(weights)
+        gene_pools[gene_id]["lengths"].extend(lengths)
 
     if unmapped_transcripts:
         print(

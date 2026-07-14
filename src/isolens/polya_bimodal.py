@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         "-i",
         "--input",
         required=True,
-        help="Input poly(A) TSV file (from polya_calc or polya_gene, gzipped or raw)",
+        help="Input poly(A) file (from polya_calc or polya_gene; TSV/TSV.GZ or Parquet)",
     )
     parser.add_argument(
         "-o",

@@ -42,13 +42,13 @@ def parse_args() -> argparse.Namespace:
         "-c1",
         "--condition1",
         required=True,
-        help="Condition 1 TSV/TSV.GZ file",
+        help="Condition 1 file (TSV/TSV.GZ or Parquet)",
     )
     parser.add_argument(
         "-c2",
         "--condition2",
         required=True,
-        help="Condition 2 TSV/TSV.GZ file",
+        help="Condition 2 file (TSV/TSV.GZ or Parquet)",
     )
     parser.add_argument(
         "-o",
