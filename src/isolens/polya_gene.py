@@ -12,9 +12,13 @@ try:
     from isolens._io import ensure_gz_suffix, write_parquet, write_tsv
     from isolens._parsing import calc_weighted_pa_len, parse_polyA_file
 except ImportError:
-    from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
-    from _parsing import calc_weighted_pa_len, parse_polyA_file  # type: ignore[no-redef]
+
+    from _gtf import build_tx_to_gene  # type: ignore[no-redef]
+    from _parsing import (  # type: ignore[no-redef]
+        calc_weighted_pa_len,
+        parse_polyA_file,
+    )
 
 
 _OUTPUT_COLS = [

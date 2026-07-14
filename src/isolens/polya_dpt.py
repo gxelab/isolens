@@ -22,8 +22,9 @@ try:
         weighted_t_test,
     )
 except ImportError:
-    from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _io import ensure_gz_suffix, write_parquet, write_tsv  # type: ignore[no-redef]
+
+    from _gtf import build_tx_to_gene  # type: ignore[no-redef]
     from _parsing import parse_polyA_file  # type: ignore[no-redef]
     from _stats import (  # type: ignore[no-redef]
         bh_fdr,

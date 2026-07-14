@@ -5,6 +5,7 @@ assignments and a Dorado BAM file with ``pt:i`` tags.
 
 import argparse
 import sys
+from typing import Any
 
 import pyarrow as pa
 import pysam
