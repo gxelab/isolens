@@ -258,7 +258,7 @@ Key options:
 | `-x, --transcripts` | Only process specified transcript IDs | all |
 | `-v, --verbose` | Print progress | off |
 
-**Output columns (23):** `transcript_id`, `site1`, `site2`, `mod_type1`, `mod_type2`, `n11`, `n10`, `n01`, `n00` (2×2 contingency counts), `w11`, `w10`, `w01`, `w00` (weighted), `corr`, `pvalue`, `qvalue` (unweighted Pearson + BH FDR), `wcorr`, `wpvalue`, `wqvalue` (weighted Pearson + BH FDR), `mi`, `wmi` (mutual information), `or`, `wor` (log2 odds ratio).
+**Output columns (25):** `transcript_id`, `site1`, `site2`, `mod_type1`, `mod_type2`, `wt_mod_level1`, `wt_mod_level2`, `n11`, `n10`, `n01`, `n00` (2×2 contingency counts), `w11`, `w10`, `w01`, `w00` (weighted), `corr`, `pvalue`, `qvalue` (unweighted Pearson + BH FDR), `wcorr`, `wpvalue`, `wqvalue` (weighted Pearson + BH FDR), `mi`, `wmi` (mutual information), `or`, `wor` (log2 odds ratio).
 
 When `-d` is used, generates rotated triangular heatmap PDFs per transcript showing the correlation matrix and site positions along the transcript body.
 
@@ -316,7 +316,7 @@ Key options:
 | `-x, --transcripts` | Only process specified transcript IDs | all |
 | `-v, --verbose` | Print progress | off |
 
-**Output columns (25):** `transcript_id`, `position`, `mod_type`, `gene_id`, `chrom`, `strand`, `gpos`, `n_modified_1`, `n_unmodified_1`, `n_modified_2`, `n_unmodified_2`, `wt_modified_1`, `wt_unmodified_1`, `wt_modified_2`, `wt_unmodified_2`, `mod_level_1`, `mod_level_2`, `wt_mod_level_1`, `wt_mod_level_2`, `delta_mod_level`, `delta_wt_mod_level`, `log2_or`, `p_value`, `q_value` (BH FDR).
+**Output columns (24):** `transcript_id`, `position`, `mod_type`, `gene_id`, `chrom`, `strand`, `gpos`, `n_modified_1`, `n_unmodified_1`, `n_modified_2`, `n_unmodified_2`, `wt_modified_1`, `wt_unmodified_1`, `wt_modified_2`, `wt_unmodified_2`, `mod_level_1`, `mod_level_2`, `wt_mod_level_1`, `wt_mod_level_2`, `delta_mod_level`, `delta_wt_mod_level`, `log2_or`, `p_value`, `q_value` (BH FDR).
 
 **Method:** Weighted logistic regression with Haldane-Anscombe correction for zero counts. Wald test p-values with global Benjamini-Hochberg FDR correction.
 
@@ -346,7 +346,7 @@ Key options:
 | `-x, --transcripts` | Only consider specified transcript IDs | all |
 | `-v, --verbose` | Print progress | off |
 
-**Output columns (25):** `gene_id`, `chrom`, `gpos`, `strand`, `mod_type`, `transcript_id_1`, `transcript_id_2`, `position_1`, `position_2`, `mod_level_1`, `mod_level_2`, `wt_mod_level_1`, `wt_mod_level_2`, `delta_mod_level`, `delta_wt_mod_level`, `n_modified_1`, `n_unmodified_1`, `n_modified_2`, `n_unmodified_2`, `wt_modified_1`, `wt_unmodified_1`, `wt_modified_2`, `wt_unmodified_2`, `log2_or`, `p_value`, `q_value` (BH FDR).
+**Output columns (26):** `gene_id`, `chrom`, `gpos`, `strand`, `mod_type`, `transcript_id_1`, `transcript_id_2`, `position_1`, `position_2`, `mod_level_1`, `mod_level_2`, `wt_mod_level_1`, `wt_mod_level_2`, `delta_mod_level`, `delta_wt_mod_level`, `n_modified_1`, `n_unmodified_1`, `n_modified_2`, `n_unmodified_2`, `wt_modified_1`, `wt_unmodified_1`, `wt_modified_2`, `wt_unmodified_2`, `log2_or`, `p_value`, `q_value` (BH FDR).
 
 **Method:** Same weighted logistic regression backend as `mod_dmc`. Transcripts are pre-loaded from HDF5 for efficient paired testing. Global BH FDR correction.
 
@@ -397,17 +397,19 @@ Key options:
 |------|-------------|---------|
 | `-a, --oarfish` | Oarfish assignment probability file (`.lz4` or plain text) | (required) |
 | `-b, --bam` | BAM file with `pt:i` poly(A) tags (from Dorado) | (required) |
-| `-o, --output` | Output TSV file | (required) |
-| `-z, --gzip` | Gzip-compress output | off |
+| `-o, --output` | Output file | (required) |
+| `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
+| `-z, --gzip` | Gzip-compress TSV output | off |
+| `-g, --gtf` | GTF annotation for transcript-to-gene mapping (adds `gene_id` column) | off |
 | `-l, --log` | Log-transform lengths to compute weighted geometric mean | off |
 
-**Output columns (6):** `transcript_id`, `n_reads`, `total_wt` (sum of assignment probabilities), `wmlen` (weighted mean poly(A) length), `weights` (comma-separated assignment probabilities), `lengths` (comma-separated raw poly(A) lengths).
+**Output columns (6):** `transcript_id`, `n_reads`, `total_wt` (sum of assignment probabilities), `wmlen` (weighted mean poly(A) length), `weights` (comma-separated assignment probabilities), `lengths` (comma-separated raw poly(A) lengths). When `--gtf` is provided, `gene_id` is added as the first column.
 
 ---
 
 ### `polya_merge` — Merge poly(A) replicates
 
-Combines two poly(A) TSV files from separate replicates, recomputing weighted average tail lengths from the pooled per-read data.
+Combines two poly(A) files from separate replicates, recomputing weighted average tail lengths from the pooled per-read data. Accepts TSV/TSV.GZ or Parquet input and preserves the `gene_id` column when present in both inputs.
 
 ```bash
 python -m isolens.polya_merge \
@@ -420,13 +422,14 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-i1, --input1` | First input TSV file (gzipped or raw) | (required) |
-| `-i2, --input2` | Second input TSV file (gzipped or raw) | (required) |
-| `-o, --output` | Output TSV file | (required) |
-| `-z, --gzip` | Gzip-compress output | off |
+| `-i1, --input1` | First input file (TSV/TSV.GZ or Parquet) | (required) |
+| `-i2, --input2` | Second input file (TSV/TSV.GZ or Parquet) | (required) |
+| `-o, --output` | Output file | (required) |
+| `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
+| `-z, --gzip` | Gzip-compress TSV output | off |
 | `-l, --log` | Log-transform lengths to compute weighted geometric mean | off |
 
-**Output columns (6):** Same schema as `polya_calc` — `transcript_id`, `n_reads`, `total_wt`, `wmlen`, `weights`, `lengths`. Per-transcript probability and length lists from both files are concatenated before recalculating `wmlen`.
+**Output columns (6):** Same schema as `polya_calc` — `transcript_id`, `n_reads`, `total_wt`, `wmlen`, `weights`, `lengths`. When inputs contain a `gene_id` column, it is preserved as the first output column. Per-transcript probability and length lists from both files are concatenated before recalculating `wmlen`.
 
 ---
 
@@ -434,7 +437,7 @@ Key options:
 
 Compares poly(A) length distributions between two experimental conditions at each shared feature (transcript or gene) using three weighted two-sample tests: Kolmogorov-Smirnov, Welch's t-test, and rank-sum (Mann-Whitney U). P-values are computed with Kish's effective sample size correction, and global Benjamini-Hochberg FDR correction is applied separately per test type.
 
-Accepts both transcript-level (from `polya_calc`) and gene-level (from `polya_gene`) input; the feature ID column is auto-detected from the input header.
+Accepts both transcript-level (from `polya_calc`) and gene-level (from `polya_gene`) input in TSV/TSV.GZ or Parquet format; the feature ID column is auto-detected from the input header.
 
 ```bash
 python -m isolens.polya_dpc \
@@ -447,8 +450,8 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-c1, --condition1` | Condition 1 TSV/TSV.GZ file | (required) |
-| `-c2, --condition2` | Condition 2 TSV/TSV.GZ file | (required) |
+| `-c1, --condition1` | Condition 1 file (TSV/TSV.GZ or Parquet) | (required) |
+| `-c2, --condition2` | Condition 2 file (TSV/TSV.GZ or Parquet) | (required) |
 | `-o, --output` | Output TSV file | (required) |
 | `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
 | `-z, --gzip` | Gzip-compress TSV output | off |
@@ -477,7 +480,7 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-i, --input` | Transcript-level poly(A) TSV file (gzipped or raw) | (required) |
+| `-i, --input` | Transcript-level poly(A) file (TSV/TSV.GZ or Parquet) | (required) |
 | `-g, --gtf` | GTF annotation for transcript-to-gene mapping (gzipped or raw) | none |
 | `-o, --output` | Output TSV file | (required) |
 | `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
@@ -486,7 +489,7 @@ Key options:
 | `-n, --min-pareads` | Minimum reads with effective poly(A) length | 5 |
 | `-l, --log` | Log-transform lengths for geometric means/medians and hypothesis tests on log-scale | off |
 
-**Output columns (21):** `gene_id`, `transcript_1`, `transcript_2`, `n_reads_1`, `total_wt_1`, `wmlen_1`, `wmedlen_1`, `n_reads_2`, `total_wt_2`, `wmlen_2`, `wmedlen_2`, `ks_stat`, `ks_p_value`, `ks_q_value`, `wmlen_diff`, `t_stat`, `t_p_value`, `t_q_value`, `wmedlen_diff`, `u_stat`, `u_p_value`, `u_q_value`.
+**Output columns (22):** `gene_id`, `transcript_1`, `transcript_2`, `n_reads_1`, `total_wt_1`, `wmlen_1`, `wmedlen_1`, `n_reads_2`, `total_wt_2`, `wmlen_2`, `wmedlen_2`, `ks_stat`, `ks_p_value`, `ks_q_value`, `wmlen_diff`, `t_stat`, `t_p_value`, `t_q_value`, `wmedlen_diff`, `u_stat`, `u_p_value`, `u_q_value`.
 
 **Method:** Same weighted two-sample test backend as `polya_dpc`. All isoform pairs within each gene are tested. Global BH FDR correction applied separately per test type.
 
@@ -494,12 +497,12 @@ Key options:
 
 ### `polya_gene` — Transcript-to-gene aggregation
 
-Aggregates transcript-level poly(A) estimates to the gene level using a user-provided `tx_name → gene_id` mapping file. Per-transcript probability and length lists are pooled before recalculating the weighted average.
+Aggregates transcript-level poly(A) estimates to the gene level. If the input already contains a `gene_id` column (e.g. from `polya_calc -g`), it is used directly; otherwise a GTF annotation file must be provided via `-g/--gtf`. Per-transcript probability and length lists are pooled before recalculating the weighted average.
 
 ```bash
 python -m isolens.polya_gene \
   -i polya.tsv.gz \
-  -m tx2gene.tsv \
+  -g annotation.gtf \
   -o gene_polya.tsv.gz -z
 ```
 
@@ -507,11 +510,11 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-i, --input` | Input transcript poly(A) TSV file (gzipped or raw) | (required) |
-| `-g, --gtf` | GTF/annotation file for transcript-to-gene mapping (gzipped or raw) | none |
-| `-o, --output` | Output gene-level TSV file | (required) |
+| `-i, --input` | Input transcript poly(A) file (TSV/TSV.GZ or Parquet) | (required) |
+| `-g, --gtf` | GTF annotation for transcript-to-gene mapping (gzipped or raw). Not needed if input already has a `gene_id` column. | none |
+| `-o, --output` | Output gene-level file | (required) |
 | `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
-| `-z, --gzip` | Gzip-compress output | off |
+| `-z, --gzip` | Gzip-compress TSV output | off |
 | `-l, --log` | Log-transform lengths to compute weighted geometric mean | off |
 
 **Output columns (6):** `gene_id`, `n_reads`, `total_wt` (sum of pooled weights), `wmlen` (recalculated weighted mean), `weights` (comma-separated pooled probabilities), `lengths` (comma-separated pooled lengths).
@@ -539,7 +542,7 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-i, --input` | Input poly(A) TSV from `polya_calc` (transcript-level recommended) | (required) |
+| `-i, --input` | Input poly(A) file from `polya_calc` or `polya_gene` (TSV/TSV.GZ or Parquet; transcript-level recommended) | (required) |
 | `-o, --output` | Output bimodality results file | (required) |
 | `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
 | `-z, --gzip` | Gzip-compress TSV output | off |
