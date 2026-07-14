@@ -262,6 +262,10 @@ Key options:
 
 When `-d` is used, generates rotated triangular heatmap PDFs per transcript showing the correlation matrix and site positions along the transcript body.
 
+<p align="center">
+  <img src="figures/mod_corr_example.png" alt="mod_corr example heatmap" width="720">
+</p>
+
 ---
 
 ### `mod_gene` — Gene-level modification aggregation
