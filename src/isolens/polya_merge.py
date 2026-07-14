@@ -48,11 +48,15 @@ def parse_args() -> argparse.Namespace:
         "and recalculate weighted lengths."
     )
     parser.add_argument(
-        "-i1", "--input1", required=True,
+        "-i1",
+        "--input1",
+        required=True,
         help="First input file (TSV/TSV.GZ or Parquet)",
     )
     parser.add_argument(
-        "-i2", "--input2", required=True,
+        "-i2",
+        "--input2",
+        required=True,
         help="Second input file (TSV/TSV.GZ or Parquet)",
     )
     parser.add_argument("-o", "--output", required=True, help="Output file path")
@@ -128,9 +132,7 @@ def main() -> None:
 
     # Detect whether gene_id is present in either input
     has_gene_id = any(
-        "gene_id" in d
-        for data in (file1_data, file2_data)
-        for d in data.values()
+        "gene_id" in d for data in (file1_data, file2_data) for d in data.values()
     )
 
     # Build output structures (conditional gene_id)

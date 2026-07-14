@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-07-14
+
+### Added
+
+- Parquet input support for all poly(A) modules (`polya_gene`, `polya_dpc`,
+  `polya_dpt`, `polya_bimodal`, `polya_merge`). Input format is auto-detected
+  by `.parquet` / `.pq` suffix via the shared `parse_polyA_file()` function
+  in `_parsing.py`.
+- `gene_id` extraction in `parse_polyA_file()` — the column is included in
+  returned data dicts when present, enabling downstream modules to use
+  gene mappings without re-parsing.
+- `polya_merge` now preserves the `gene_id` column through the merge when
+  present in input files.
+
+### Changed
+
+- `polya_gene`, `polya_dpt`, and `polya_merge` refactored to use the shared
+  `parse_polyA_file()` reader instead of inline TSV parsing.
+- `polya_calc`: `gene_id` is now the first output column (before
+  `transcript_id`) when `--gtf` is provided.
+- `polya_calc`: added `-f` / `--format` flag for Parquet output.
+
+### Fixed
+
+- `scripts/tsv2pq.py`: "straddling object" crash on TSV files with very wide
+  rows (e.g. polya_calc output with hundreds of comma-separated weights).
+  Now retries with a larger `block_size` when the error is detected.
+- README column counts corrected for `mod_corr` (23→25), `mod_dmc` (25→24),
+  `mod_dmt` (25→26), and `polya_dpt` (21→22).
+- README: `polya_gene` example command fixed (`-m` → `-g`).
+- README: missing `-f`/`--format` and `-g`/`--gtf` flags added to `polya_calc`
+  and `polya_merge` option tables.
+- README: input format descriptions updated to mention Parquet support across
+  all poly(A) modules.
+
 ## [0.5.3] - 2026-07-07
 
 ### Added
@@ -257,7 +292,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` with `hatchling` build backend.
 - CI workflow for testing and publishing to PyPI.
 
-[Unreleased]: https://github.com/gxelab/isolens/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/gxelab/isolens/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/gxelab/isolens/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/gxelab/isolens/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/gxelab/isolens/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/gxelab/isolens/compare/v0.5.0...v0.5.1

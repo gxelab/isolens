@@ -193,9 +193,7 @@ def _parse_polyA_parquet(filename: str) -> tuple[str, dict[str, dict[str, Any]]]
 
         n_reads = len(weights)
         total_wt = float(np.sum(weights))
-        wmlen = (
-            float(np.sum(weights * lengths) / total_wt) if total_wt > 0 else 0.0
-        )
+        wmlen = float(np.sum(weights * lengths) / total_wt) if total_wt > 0 else 0.0
 
         entry: dict[str, Any] = {
             "n_reads": n_reads,
@@ -226,16 +224,14 @@ def _parse_polyA_tsv(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
             id_col_name = "gene_id"
         else:
             print(
-                "Error: Input file must contain 'transcript_id' or "
-                "'gene_id' column.",
+                "Error: Input file must contain 'transcript_id' or 'gene_id' column.",
                 file=sys.stderr,
             )
             sys.exit(1)
 
         if "weights" not in header or "lengths" not in header:
             print(
-                "Error: Input file must contain 'weights' and "
-                "'lengths' columns.",
+                "Error: Input file must contain 'weights' and 'lengths' columns.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -260,11 +256,7 @@ def _parse_polyA_tsv(filename: str) -> tuple[str, dict[str, dict[str, Any]]]:
 
             n_reads = len(weights)
             total_wt = float(np.sum(weights))
-            wmlen = (
-                float(np.sum(weights * lengths) / total_wt)
-                if total_wt > 0
-                else 0.0
-            )
+            wmlen = float(np.sum(weights * lengths) / total_wt) if total_wt > 0 else 0.0
 
             entry: dict[str, Any] = {
                 "n_reads": n_reads,
