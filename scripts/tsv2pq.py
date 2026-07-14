@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import gzip
 import os
 import sys
 
@@ -37,6 +38,42 @@ def parse_args():
     return parser.parse_args()
 
 
+def _max_line_length(path: str) -> int:
+    """Return the length (in bytes) of the longest line in *path*.
+
+    Handles gzip-compressed files (detected by ``.gz`` suffix).
+    """
+    open_fn = gzip.open if path.endswith(".gz") else open
+    max_len = 0
+    with open_fn(path, "rb") as fh:
+        for line in fh:
+            if len(line) > max_len:
+                max_len = len(line)
+    return max_len
+
+
+def _read_csv_with_retry(path: str, parse_options: csv.ParseOptions) -> pa.Table:
+    """Read *path* as CSV, retrying with a larger block size if a field
+    straddles PyArrow's default block boundary.
+    """
+    try:
+        return csv.read_csv(path, parse_options=parse_options)
+    except pa.lib.ArrowInvalid as exc:
+        if "straddling object" not in str(exc):
+            raise
+        # Find the widest row so we can size the block to fit it.
+        max_line = _max_line_length(path)
+        block_size = max(64 * 1024 * 1024, max_line * 2)
+        print(
+            f"Retrying with block_size={block_size // (1024 * 1024)} MiB "
+            f"(max line length={max_line} bytes)",
+            file=sys.stderr,
+        )
+        read_options = csv.ReadOptions(block_size=block_size)
+        return csv.read_csv(path, parse_options=parse_options,
+                            read_options=read_options)
+
+
 def main():
     args = parse_args()
 
@@ -46,7 +83,7 @@ def main():
         sys.exit(1)
 
     parse_options = csv.ParseOptions(delimiter="\t")
-    table = csv.read_csv(args.input, parse_options=parse_options)
+    table = _read_csv_with_retry(args.input, parse_options)
 
     # Header-only TSV: pyarrow infers every column as null type.
     # Promote null columns to string so ParquetWriter doesn't choke.
