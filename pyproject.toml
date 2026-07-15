@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "isolens"
-version = "0.5.4"
+version = "0.6.1"
 description = "Isoform-resolution epitranscriptome analysis"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -78,4 +78,3 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.15.17",
 ]
-
