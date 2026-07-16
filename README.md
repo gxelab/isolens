@@ -405,6 +405,7 @@ Key options:
 | `-f, --format` | Output format: `parquet` or `tsv` | `tsv` |
 | `-z, --gzip` | Gzip-compress TSV output | off |
 | `-g, --gtf` | GTF annotation for transcript-to-gene mapping (adds `gene_id` column) | off |
+| `-p, --min-asp` | Minimum assignment probability filter | 0.0 |
 | `-l, --log` | Log-transform lengths to compute weighted geometric mean | off |
 
 **Output columns (6):** `transcript_id`, `n_reads`, `total_wt` (sum of assignment probabilities), `wmlen` (weighted mean poly(A) length), `weights` (comma-separated assignment probabilities), `lengths` (comma-separated raw poly(A) lengths). When `--gtf` is provided, `gene_id` is added as the first column.

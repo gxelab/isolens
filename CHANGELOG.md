@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `-p` / `--min-asp` flag to `polya_calc` for filtering reads by minimum
+  Oarfish assignment probability (matching the existing filter in `mod_scan`
+  and other modules).
+
 ## [0.6.1] - to be released
 
 ### Added

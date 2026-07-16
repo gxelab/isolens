@@ -59,6 +59,14 @@ def parse_args() -> argparse.Namespace:
         help="Compress the output TSV file using gzip",
     )
     parser.add_argument(
+        "-p",
+        "--min-asp",
+        type=float,
+        default=0.0,
+        help="Minimum Oarfish assignment probability for a read to be "
+        "included [default: 0.0 (no filter)]",
+    )
+    parser.add_argument(
         "-g",
         "--gtf",
         default=None,
@@ -143,6 +151,8 @@ def main() -> None:
                         processed_reads.add(read_id_int)
 
                         for assignment in prob_map[read_id_int]:
+                            if args.min_asp > 0.0 and assignment.prob < args.min_asp:
+                                continue
                             tx_data[assignment.tx_id].append((assignment.prob, pt_val))
 
     print(
