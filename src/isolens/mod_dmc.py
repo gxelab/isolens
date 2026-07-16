@@ -23,12 +23,11 @@ import pyarrow.parquet as pq
 try:
     from isolens._hdf5_helpers import (
         extract_site_reads,
-        load_transcript_data,
         nullable_float,
         nullable_str,
+        pool_transcript_data,
         read_mod_codes,
         validate_mod_codes,
-        validate_tx_lengths,
     )
     from isolens._io import write_parquet, write_tsv
     from isolens._stats import bh_fdr, weighted_logistic_test
@@ -37,12 +36,11 @@ except ImportError:
 
     from _hdf5_helpers import (  # type: ignore[no-redef]
         extract_site_reads,
-        load_transcript_data,
         nullable_float,
         nullable_str,
+        pool_transcript_data,
         read_mod_codes,
         validate_mod_codes,
-        validate_tx_lengths,
     )
     from _stats import bh_fdr, weighted_logistic_test  # type: ignore[no-redef]
 
@@ -415,45 +413,6 @@ def read_site_summary_full(path: str) -> dict[str, TxSiteData]:
     return _read_sites_tsv_grouped(path)
 
 
-def _pool_transcript_data(
-    h5_files: list[h5py.File],
-    tx_name: str,
-    min_asp: float,
-    label: str = "",
-) -> tuple[np.ndarray, np.ndarray, int] | None:
-    """Load and pool matrix/weights for a transcript across HDF5 files.
-
-    Returns ``(matrix, weights, tx_length)`` or ``None`` if the
-    transcript has no reads in any file.
-    """
-    matrices: list[np.ndarray] = []
-    weights_list: list[np.ndarray] = []
-    tx_lengths_found: list[int | None] = []
-
-    for h5 in h5_files:
-        result = load_transcript_data(h5, tx_name, min_asp)
-        if result is not None:
-            m, w = result
-            matrices.append(m)
-            weights_list.append(w)
-            tx_lengths_found.append(m.shape[1])
-        else:
-            tx_lengths_found.append(None)
-
-    if not matrices:
-        return None
-
-    validate_tx_lengths(tx_name, tx_lengths_found, [f.filename for f in h5_files])
-
-    if len(matrices) == 1:
-        return matrices[0], weights_list[0], matrices[0].shape[1]
-    return (
-        np.vstack(matrices),
-        np.concatenate(weights_list),
-        matrices[0].shape[1],
-    )
-
-
 # ---------- per-transcript processing ----------
 
 
@@ -690,8 +649,8 @@ def main(args: argparse.Namespace | None = None) -> None:
 
         for tx_name in common_tx:
             # Pool reads within each condition
-            pooled_1 = _pool_transcript_data(h5_1, tx_name, args.min_asp, "cond1")
-            pooled_2 = _pool_transcript_data(h5_2, tx_name, args.min_asp, "cond2")
+            pooled_1 = pool_transcript_data(h5_1, tx_name, args.min_asp)
+            pooled_2 = pool_transcript_data(h5_2, tx_name, args.min_asp)
 
             if pooled_1 is None or pooled_2 is None:
                 processed += 1

@@ -22,12 +22,11 @@ import pyarrow as pa
 try:
     from isolens._hdf5_helpers import (
         extract_site_reads,
-        load_transcript_data,
         nullable_float,
         nullable_str,
+        pool_transcript_data,
         read_mod_codes,
         validate_mod_codes,
-        validate_tx_lengths,
     )
     from isolens._io import write_parquet, write_tsv
     from isolens._stats import bh_fdr, weighted_logistic_test
@@ -37,12 +36,11 @@ except ImportError:
 
     from _hdf5_helpers import (  # type: ignore[no-redef]
         extract_site_reads,
-        load_transcript_data,
         nullable_float,
         nullable_str,
+        pool_transcript_data,
         read_mod_codes,
         validate_mod_codes,
-        validate_tx_lengths,
     )
     from _stats import bh_fdr, weighted_logistic_test  # type: ignore[no-redef]
     from mod_dmc import read_site_summary_full  # type: ignore[no-redef]
@@ -249,81 +247,14 @@ def validate_input(groups: dict[_LocusKey, list[dict[str, Any]]]) -> None:
         sys.exit(1)
 
 
-def _load_all_transcripts(
-    h5_files: list[h5py.File],
-    tx_names: set[str],
-    min_asp: float,
-    verbose: bool = False,
-) -> dict[str, tuple[np.ndarray, np.ndarray, int]]:
-    """Pre-load pooled transcript data for all needed transcripts.
-
-    Loads and pools matrices and weights across multiple HDF5 files for
-    every transcript in *tx_names*.
-
-    Returns
-    -------
-    dict
-        ``{tx_name: (matrix, weights, tx_length)}``.
-        Transcripts with zero reads after filtering are excluded.
-    """
-    h5_data: dict[str, tuple[np.ndarray, np.ndarray, int]] = {}
-    loaded = 0
-
-    for tx_name in sorted(tx_names):
-        matrices: list[np.ndarray] = []
-        wlists: list[np.ndarray] = []
-        tx_lengths_found: list[int | None] = []
-
-        for h5 in h5_files:
-            result = load_transcript_data(h5, tx_name, min_asp)
-            if result is not None:
-                m, w = result
-                matrices.append(m)
-                wlists.append(w)
-                tx_lengths_found.append(m.shape[1])
-            else:
-                tx_lengths_found.append(None)
-
-        if not matrices:
-            continue
-
-        validate_tx_lengths(
-            tx_name,
-            tx_lengths_found,
-            [f.filename for f in h5_files],
-        )
-
-        if len(matrices) == 1:
-            h5_data[tx_name] = (matrices[0], wlists[0], matrices[0].shape[1])
-        else:
-            h5_data[tx_name] = (
-                np.vstack(matrices),
-                np.concatenate(wlists),
-                matrices[0].shape[1],
-            )
-
-        loaded += 1
-        if verbose and loaded % 1000 == 0:
-            print(
-                f"[mod_dmt] Pre-loaded {loaded} transcripts...",
-                file=sys.stderr,
-            )
-
-    if verbose:
-        print(
-            f"[mod_dmt] Pre-loaded {len(h5_data)} transcripts",
-            file=sys.stderr,
-        )
-    return h5_data
-
-
 # ---------- per-locus processing ----------
 
 
 def process_locus_group(
     group_key: _LocusKey,
     tx_site_list: list[dict[str, Any]],
-    h5_data: dict[str, tuple[np.ndarray, np.ndarray, int]],
+    h5_files: list[h5py.File],
+    min_asp: float,
     mod_code_map: dict[str, int],
 ) -> list[dict[str, Any]]:
     """Process one genomic locus group for DMT.
@@ -331,14 +262,19 @@ def process_locus_group(
     Enumerates all isoform pairs and fits a weighted logistic regression
     per pair.
 
+    Transcript data is loaded lazily from *h5_files* as needed and
+    cached within the group to avoid redundant loads.
+
     Parameters
     ----------
     group_key : tuple
         ``(gene_id, chrom, gpos, strand, mod_type)``.
     tx_site_list : list of dict
         Site-summary rows for transcripts at this locus.
-    h5_data : dict
-        Pre-loaded ``{tx_name: (matrix, weights, tx_length)}`` mapping.
+    h5_files : list of h5py.File
+        Open HDF5 file handles.
+    min_asp : float
+        Minimum assignment probability filter.
     mod_code_map : dict
         ``{mod_type_str: integer_code}``.
 
@@ -352,8 +288,21 @@ def process_locus_group(
     if mod_code is None:
         return []
 
+    # Lazy-loading cache: one transcript per group call
+    loaded: dict[str, tuple[np.ndarray, np.ndarray, int] | None] = {}
+
+    def _get_tx(tx_name: str) -> tuple[np.ndarray, np.ndarray, int] | None:
+        """Load and cache transcript data from HDF5 files."""
+        if tx_name not in loaded:
+            loaded[tx_name] = pool_transcript_data(h5_files, tx_name, min_asp)
+        return loaded[tx_name]
+
     # Filter to transcripts present in HDF5
-    available = [s for s in tx_site_list if s["transcript_id"] in h5_data]
+    available: list[dict[str, Any]] = []
+    for s in tx_site_list:
+        if _get_tx(s["transcript_id"]) is not None:
+            available.append(s)
+
     if len(available) < 2:
         return []
 
@@ -365,8 +314,8 @@ def process_locus_group(
         pos_a = site_a["position"]
         pos_b = site_b["position"]
 
-        matrix_a, weights_a, _len_a = h5_data[tx_a]
-        matrix_b, weights_b, _len_b = h5_data[tx_b]
+        matrix_a, weights_a, _len_a = loaded[tx_a]  # type: ignore[misc]
+        matrix_b, weights_b, _len_b = loaded[tx_b]  # type: ignore[misc]
 
         reads_a = extract_site_reads(matrix_a, weights_a, pos_a, mod_code)
         reads_b = extract_site_reads(matrix_b, weights_b, pos_b, mod_code)
@@ -498,13 +447,7 @@ def main(args: argparse.Namespace | None = None) -> None:
             file=sys.stderr,
         )
 
-    # ---- 2. Collect transcript names from locus groups ----
-    site_tx_names: set[str] = set()
-    for group_rows in locus_groups.values():
-        for r in group_rows:
-            site_tx_names.add(r["transcript_id"])
-
-    # ---- 3. Open HDF5 files ----
+    # ---- 2. Open HDF5 files ----
     with ExitStack() as stack:
         h5_files = [stack.enter_context(h5py.File(f, "r")) for f in args.h5]
 
@@ -514,7 +457,7 @@ def main(args: argparse.Namespace | None = None) -> None:
                 file=sys.stderr,
             )
 
-        # ---- 4. Validate modification codes ----
+        # ---- 3. Validate modification codes ----
         all_mod_maps = [read_mod_codes(h5) for h5 in h5_files]
         try:
             mod_code_map = validate_mod_codes(all_mod_maps, list(args.h5))
@@ -529,32 +472,32 @@ def main(args: argparse.Namespace | None = None) -> None:
                 file=sys.stderr,
             )
 
-        # ---- 5. Determine transcript set ----
-        h5_tx_union = set.union(*[set(h["transcripts"].keys()) for h in h5_files])
-        tx_to_load = h5_tx_union & site_tx_names
-
+        # ---- 4. Apply transcript filter from CLI ----
         if args.transcripts is not None:
             requested = set(args.transcripts)
-            tx_to_load &= requested
+            filtered: dict[_LocusKey, list[dict[str, Any]]] = {}
+            for key, group_rows in locus_groups.items():
+                filtered_rows = [
+                    r for r in group_rows if r["transcript_id"] in requested
+                ]
+                unique_tx = {r["transcript_id"] for r in filtered_rows}
+                if len(unique_tx) >= 2:
+                    filtered[key] = filtered_rows
+            locus_groups = filtered
+            if args.verbose:
+                print(
+                    f"[mod_dmt] Filtered to {len(locus_groups)} groups "
+                    f"with requested transcripts",
+                    file=sys.stderr,
+                )
 
-        if args.verbose:
-            print(
-                f"[mod_dmt] {len(tx_to_load)} transcripts to load",
-                file=sys.stderr,
-            )
-
-        # ---- 6. Pre-load transcript data ----
-        h5_data = _load_all_transcripts(
-            h5_files, tx_to_load, args.min_asp, args.verbose
-        )
-
-        # ---- 7. Process each locus group ----
+        # ---- 5. Process each locus group ----
         all_rows: list[dict[str, Any]] = []
         groups_processed = 0
 
         for group_key, group_rows in locus_groups.items():
             pair_rows = process_locus_group(
-                group_key, group_rows, h5_data, mod_code_map
+                group_key, group_rows, h5_files, args.min_asp, mod_code_map
             )
             all_rows.extend(pair_rows)
             groups_processed += 1

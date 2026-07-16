@@ -344,7 +344,7 @@ class TestExtractSiteReads:
 class TestProcessLocusGroup:
     """Tests for process_locus_group()."""
 
-    def test_two_transcripts_different_mod(self):
+    def test_two_transcripts_different_mod(self, tmp_path):
         """Two transcripts with clearly different modification patterns."""
         # TX1 at pos 1: all unmodified
         matrix_1 = np.array([[CODE_CANONICAL]] * 5, dtype=np.uint8)
@@ -354,22 +354,26 @@ class TestProcessLocusGroup:
         matrix_2 = np.array([[4]] * 5, dtype=np.uint8)
         weights_2 = np.ones(5, dtype=np.float32)
 
-        h5_data = {
-            "TX1": (matrix_1, weights_1, 50),
-            "TX2": (matrix_2, weights_2, 50),
-        }
+        h5_path = str(tmp_path / "test.h5")
+        _make_h5(
+            h5_path,
+            {"TX1": (matrix_1, weights_1), "TX2": (matrix_2, weights_2)},
+            {"a": 4},
+        )
 
         tx_site_list = [
             _make_site("TX1", 1, "a", 0, 5, 0.0),
             _make_site("TX2", 1, "a", 5, 0, 1.0),
         ]
 
-        rows = process_locus_group(
-            ("G1", "2L", 100, "+", "a"),
-            tx_site_list,
-            h5_data,
-            {"a": 4},
-        )
+        with h5py.File(h5_path, "r") as h5:
+            rows = process_locus_group(
+                ("G1", "2L", 100, "+", "a"),
+                tx_site_list,
+                [h5],
+                0.0,
+                {"a": 4},
+            )
 
         assert len(rows) == 1
         r = rows[0]
@@ -383,16 +387,21 @@ class TestProcessLocusGroup:
         assert r["log2_or"] > 0
         assert r["p_value"] < 0.05
 
-    def test_three_transcripts_three_pairs(self):
+    def test_three_transcripts_three_pairs(self, tmp_path):
         """Three transcripts → 3 choose 2 = 3 pairs."""
         matrix = np.array([[4]] * 3, dtype=np.uint8)
         weights = np.ones(3, dtype=np.float32)
 
-        h5_data = {
-            "TX1": (matrix, weights, 50),
-            "TX2": (matrix, weights, 50),
-            "TX3": (matrix, weights, 50),
-        }
+        h5_path = str(tmp_path / "test.h5")
+        _make_h5(
+            h5_path,
+            {
+                "TX1": (matrix, weights),
+                "TX2": (matrix, weights),
+                "TX3": (matrix, weights),
+            },
+            {"a": 4},
+        )
 
         tx_site_list = [
             _make_site("TX1", 1, "a", 3, 0, 1.0),
@@ -400,12 +409,14 @@ class TestProcessLocusGroup:
             _make_site("TX3", 1, "a", 3, 0, 1.0),
         ]
 
-        rows = process_locus_group(
-            ("G1", "2L", 100, "+", "a"),
-            tx_site_list,
-            h5_data,
-            {"a": 4},
-        )
+        with h5py.File(h5_path, "r") as h5:
+            rows = process_locus_group(
+                ("G1", "2L", 100, "+", "a"),
+                tx_site_list,
+                [h5],
+                0.0,
+                {"a": 4},
+            )
 
         assert len(rows) == 3
         # All pairs should have both transcripts' info
@@ -414,106 +425,120 @@ class TestProcessLocusGroup:
         assert ("TX1", "TX3") in transcript_pairs
         assert ("TX2", "TX3") in transcript_pairs
 
-    def test_transcript_not_in_h5_data(self):
+    def test_transcript_not_in_h5_data(self, tmp_path):
         """Transcript missing from HDF5 → excluded from pairs."""
         matrix = np.array([[4]] * 3, dtype=np.uint8)
         weights = np.ones(3, dtype=np.float32)
 
-        h5_data = {
-            "TX1": (matrix, weights, 50),
-            # TX2 not loaded
-        }
+        h5_path = str(tmp_path / "test.h5")
+        _make_h5(
+            h5_path,
+            {"TX1": (matrix, weights)},
+            {"a": 4},
+        )
 
         tx_site_list = [
             _make_site("TX1", 1, "a", 3, 0, 1.0),
             _make_site("TX2", 1, "a", 3, 0, 1.0),
         ]
 
-        rows = process_locus_group(
-            ("G1", "2L", 100, "+", "a"),
-            tx_site_list,
-            h5_data,
-            {"a": 4},
-        )
+        with h5py.File(h5_path, "r") as h5:
+            rows = process_locus_group(
+                ("G1", "2L", 100, "+", "a"),
+                tx_site_list,
+                [h5],
+                0.0,
+                {"a": 4},
+            )
 
         # Only 1 transcript available → no pairs
         assert rows == []
 
-    def test_zero_valid_reads_skips_pair(self):
+    def test_zero_valid_reads_skips_pair(self, tmp_path):
         """Transcript with no valid reads at its position → pair skipped."""
         matrix_1 = np.array([[CODE_FAIL]] * 5, dtype=np.uint8)
         weights_1 = np.ones(5, dtype=np.float32)
         matrix_2 = np.array([[4]] * 5, dtype=np.uint8)
         weights_2 = np.ones(5, dtype=np.float32)
 
-        h5_data = {
-            "TX1": (matrix_1, weights_1, 50),
-            "TX2": (matrix_2, weights_2, 50),
-        }
+        h5_path = str(tmp_path / "test.h5")
+        _make_h5(
+            h5_path,
+            {"TX1": (matrix_1, weights_1), "TX2": (matrix_2, weights_2)},
+            {"a": 4},
+        )
 
         tx_site_list = [
             _make_site("TX1", 1, "a", 0, 0, 0.0),
             _make_site("TX2", 1, "a", 5, 0, 1.0),
         ]
 
-        rows = process_locus_group(
-            ("G1", "2L", 100, "+", "a"),
-            tx_site_list,
-            h5_data,
-            {"a": 4},
-        )
+        with h5py.File(h5_path, "r") as h5:
+            rows = process_locus_group(
+                ("G1", "2L", 100, "+", "a"),
+                tx_site_list,
+                [h5],
+                0.0,
+                {"a": 4},
+            )
 
         assert rows == []
 
-    def test_unknown_mod_type_skipped(self):
+    def test_unknown_mod_type_skipped(self, tmp_path):
         """mod_type not in mod_code_map → no testing."""
         matrix = np.array([[4]] * 3, dtype=np.uint8)
         weights = np.ones(3, dtype=np.float32)
 
-        h5_data = {
-            "TX1": (matrix, weights, 50),
-            "TX2": (matrix, weights, 50),
-        }
+        h5_path = str(tmp_path / "test.h5")
+        _make_h5(
+            h5_path,
+            {"TX1": (matrix, weights), "TX2": (matrix, weights)},
+            {"a": 4},
+        )
 
         tx_site_list = [
             _make_site("TX1", 1, "unknown", 3, 0, 1.0),
             _make_site("TX2", 1, "unknown", 3, 0, 1.0),
         ]
 
-        rows = process_locus_group(
-            ("G1", "2L", 100, "+", "unknown"),
-            tx_site_list,
-            h5_data,
-            {"a": 4},  # "unknown" not in map
-        )
+        with h5py.File(h5_path, "r") as h5:
+            rows = process_locus_group(
+                ("G1", "2L", 100, "+", "unknown"),
+                tx_site_list,
+                [h5],
+                0.0,
+                {"a": 4},  # "unknown" not in map
+            )
 
         assert rows == []
 
-    def test_output_columns_complete(self):
+    def test_output_columns_complete(self, tmp_path):
         """All expected output columns are present."""
-        matrix = np.array([[4]] * 3, dtype=np.uint8)
-        weights = np.ones(3, dtype=np.float32)
+        matrix_1 = np.array([[4]] * 3, dtype=np.uint8)
+        weights_1 = np.ones(3, dtype=np.float32)
+        matrix_2 = np.array([[CODE_CANONICAL]] * 3, dtype=np.uint8)
+        weights_2 = np.ones(3, dtype=np.float32)
 
-        h5_data = {
-            "TX1": (matrix, weights, 50),
-            "TX2": (
-                np.array([[CODE_CANONICAL]] * 3, dtype=np.uint8),
-                np.ones(3, dtype=np.float32),
-                50,
-            ),
-        }
+        h5_path = str(tmp_path / "test.h5")
+        _make_h5(
+            h5_path,
+            {"TX1": (matrix_1, weights_1), "TX2": (matrix_2, weights_2)},
+            {"a": 4},
+        )
 
         tx_site_list = [
             _make_site("TX1", 1, "a", 3, 0, 1.0),
             _make_site("TX2", 1, "a", 0, 3, 0.0),
         ]
 
-        rows = process_locus_group(
-            ("G1", "2L", 100, "+", "a"),
-            tx_site_list,
-            h5_data,
-            {"a": 4},
-        )
+        with h5py.File(h5_path, "r") as h5:
+            rows = process_locus_group(
+                ("G1", "2L", 100, "+", "a"),
+                tx_site_list,
+                [h5],
+                0.0,
+                {"a": 4},
+            )
 
         assert len(rows) == 1
         expected_cols = {

@@ -122,6 +122,66 @@ def validate_tx_lengths(
     return ref_length
 
 
+def pool_transcript_data(
+    h5_files: list[h5py.File],
+    tx_name: str,
+    min_asp: float,
+) -> tuple[np.ndarray, np.ndarray, int] | None:
+    """Load and pool matrix/weights for a transcript across HDF5 files.
+
+    Loads the transcript from each HDF5 file, validates consistent
+    transcript length across files, and vstacks/concatentates matrices
+    and weights respectively when multiple files contribute reads.
+
+    Parameters
+    ----------
+    h5_files : list of h5py.File
+        Open HDF5 file handles.
+    tx_name : str
+        Transcript name.
+    min_asp : float
+        Minimum assignment probability filter (passed to
+        ``load_transcript_data``).
+
+    Returns
+    -------
+    tuple of (ndarray, ndarray, int) or None
+        ``(matrix, weights, tx_length)`` with reads pooled across all
+        files, or ``None`` if the transcript has no reads in any file
+        (absent from all files or zero reads after ASP filtering).
+    """
+    matrices: list[np.ndarray] = []
+    weights_list: list[np.ndarray] = []
+    tx_lengths_found: list[int | None] = []
+
+    for h5 in h5_files:
+        result = load_transcript_data(h5, tx_name, min_asp)
+        if result is not None:
+            m, w = result
+            matrices.append(m)
+            weights_list.append(w)
+            tx_lengths_found.append(m.shape[1])
+        else:
+            tx_lengths_found.append(None)
+
+    if not matrices:
+        return None
+
+    validate_tx_lengths(
+        tx_name,
+        tx_lengths_found,
+        [f.filename for f in h5_files],
+    )
+
+    if len(matrices) == 1:
+        return matrices[0], weights_list[0], matrices[0].shape[1]
+    return (
+        np.vstack(matrices),
+        np.concatenate(weights_list),
+        matrices[0].shape[1],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Per-site read extraction (for mod_dmc and mod_dmt)
 # ---------------------------------------------------------------------------

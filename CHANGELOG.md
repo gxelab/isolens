@@ -17,9 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-## Changed
+### Changed
 
-## Fixed
+- `mod_dmt`: refactored from bulk pre-loading to lazy per-locus-group transcript
+  loading, fixing excessive memory usage (~100G for 7.5G of HDF5 data).
+- Consolidated duplicate transcript-pooling logic from `mod_dmc._pool_transcript_data`
+  and `mod_dmt._load_all_transcripts` into a shared `pool_transcript_data()` in
+  `_hdf5_helpers.py`.
+
+### Fixed
 
 ## [0.5.4] - 2026-07-14
 
