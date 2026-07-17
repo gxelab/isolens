@@ -28,10 +28,9 @@ import pyarrow as pa
 try:
     from isolens._gtf import load_gtf
     from isolens._hdf5_helpers import (
-        load_transcript_data,
+        pool_transcript_data,
         read_mod_codes,
         validate_mod_codes,
-        validate_tx_lengths,
     )
     from isolens._io import write_parquet, write_tsv
     from isolens.mod_scan import (
@@ -45,10 +44,9 @@ except ImportError:
 
     from _gtf import load_gtf  # type: ignore[no-redef]
     from _hdf5_helpers import (  # type: ignore[no-redef]
-        load_transcript_data,
+        pool_transcript_data,
         read_mod_codes,
         validate_mod_codes,
-        validate_tx_lengths,
     )
     from mod_scan import (  # type: ignore[no-redef]
         CODE_CANONICAL,
@@ -178,7 +176,7 @@ def compute_transcript_stats(
     weights: np.ndarray,
     mod_codes: list[tuple[str, int]],
     predefined_positions: set[int] | None = None,
-) -> list[dict]:
+) -> dict[str, np.ndarray] | None:
     """Compute per-position statistics for a single transcript.
 
     For each (position, modification_type) pair the following columns
@@ -214,8 +212,8 @@ def compute_transcript_stats(
             for the focal modification type are emitted.
 
     Returns:
-        ``list[dict]`` — one dict per (position, modification_type) with
-        all columns listed above.
+        ``dict[str, np.ndarray]`` mapping column names to 1-D arrays,
+        or ``None`` if no positions meet the emission criteria.
     """
     n_reads, tx_length = matrix.shape
     w64 = weights.astype(np.float64)  # (n_reads,) float64
@@ -238,18 +236,38 @@ def compute_transcript_stats(
     n_canonical = np.sum(canonical_mask, axis=0, dtype=np.int32)
     w_canonical = w64 @ canonical_mask
 
+    # ---- pre-compute mask shared across all mod types ----
+    any_mod_mask = (matrix >= 4) & (matrix != CODE_FAIL)
+
     # ---- per-modification-type stats ----
 
-    rows: list[dict] = []
+    # Accumulate column arrays across mod types
+    col_positions: list[np.ndarray] = []
+    col_mod_type: list[np.ndarray] = []
+    col_n_mod: list[np.ndarray] = []
+    col_w_mod: list[np.ndarray] = []
+    col_n_unmod: list[np.ndarray] = []
+    col_w_unmod: list[np.ndarray] = []
+    col_n_canon: list[np.ndarray] = []
+    col_w_canon: list[np.ndarray] = []
+    col_n_other: list[np.ndarray] = []
+    col_w_other: list[np.ndarray] = []
+    col_n_mm: list[np.ndarray] = []
+    col_w_mm: list[np.ndarray] = []
+    col_n_del: list[np.ndarray] = []
+    col_w_del: list[np.ndarray] = []
+    col_n_fail: list[np.ndarray] = []
+    col_w_fail: list[np.ndarray] = []
+    col_ml: list[np.ndarray] = []
+    col_wml: list[np.ndarray] = []
 
     for mod_str, code in mod_codes:
         mod_mask = matrix == code  # bool (n_reads, tx_length)
         n_mod = np.sum(mod_mask, axis=0, dtype=np.int32)
         w_mod = w64 @ mod_mask
 
-        # Other modifications: any mod code (≥4) that is not the focal
-        # type and not CODE_FAIL
-        othermod_mask = (matrix >= 4) & (matrix != code) & (matrix != CODE_FAIL)
+        # Other modifications: any mod except the focal type
+        othermod_mask = any_mod_mask & (matrix != code)
         n_othermod = np.sum(othermod_mask, axis=0, dtype=np.int32)
         w_othermod = w64 @ othermod_mask
 
@@ -259,7 +277,6 @@ def compute_transcript_stats(
 
         # Determine which positions to emit
         if predefined_positions is not None:
-            # Only emit predefined positions (within transcript bounds)
             positions_0b = sorted(
                 p - 1 for p in predefined_positions if 1 <= p <= tx_length
             )
@@ -267,76 +284,71 @@ def compute_transcript_stats(
                 continue
             positions = np.array(positions_0b, dtype=np.intp)
         else:
-            # Emit all positions with at least one focal modification call
             positions = np.flatnonzero(n_mod > 0)
             if len(positions) == 0:
                 continue
 
-        n_mod_pos = n_mod[positions]
-        w_mod_pos = w_mod[positions]
+        n_pos = len(positions)
 
-        n_unmod_pos = n_unmod[positions]
-        w_unmod_pos = w_unmod[positions]
-
-        n_canonical_pos = n_canonical[positions]
-        w_canonical_pos = w_canonical[positions]
-
-        n_othermod_pos = n_othermod[positions]
-        w_othermod_pos = w_othermod[positions]
-
-        n_mismatch_pos = n_mismatch[positions]
-        w_mismatch_pos = w_mismatch[positions]
-
-        n_del_pos = n_del[positions]
-        w_del_pos = w_del[positions]
-
-        n_failed_pos = n_failed[positions]
-        w_failed_pos = w_failed[positions]
-
-        # Modification level denominator: modified + unmodified only
-        # (failed, mismatch, deletion are excluded)
-        denom = n_mod_pos + n_unmod_pos
-        w_denom = w_mod_pos + w_unmod_pos
+        # Modification level denominator
+        denom = n_mod[positions] + n_unmod[positions]
+        w_denom = w_mod[positions] + w_unmod[positions]
 
         ml = np.divide(
-            n_mod_pos,
-            denom,
+            n_mod[positions].astype(np.float64),
+            denom.astype(np.float64),
             where=denom > 0,
-            out=np.zeros_like(n_mod_pos, dtype=np.float64),
+            out=np.zeros(n_pos, dtype=np.float64),
         )
         w_ml = np.divide(
-            w_mod_pos,
+            w_mod[positions],
             w_denom,
             where=w_denom > 0,
-            out=np.zeros_like(w_mod_pos, dtype=np.float64),
+            out=np.zeros(n_pos, dtype=np.float64),
         )
 
-        for i in range(len(positions)):
-            rows.append(
-                {
-                    "transcript_id": "",  # filled by caller
-                    "position": int(positions[i]) + 1,  # 1-based
-                    "mod_type": mod_str,
-                    "n_modified": int(n_mod_pos[i]),
-                    "wt_modified": float(round(w_mod_pos[i], 4)),
-                    "n_unmodified": int(n_unmod_pos[i]),
-                    "wt_unmodified": float(round(w_unmod_pos[i], 4)),
-                    "n_canonical": int(n_canonical_pos[i]),
-                    "wt_canonical": float(round(w_canonical_pos[i], 4)),
-                    "n_othermod": int(n_othermod_pos[i]),
-                    "wt_othermod": float(round(w_othermod_pos[i], 4)),
-                    "n_mismatch": int(n_mismatch_pos[i]),
-                    "wt_mismatch": float(round(w_mismatch_pos[i], 4)),
-                    "n_deletion": int(n_del_pos[i]),
-                    "wt_deletion": float(round(w_del_pos[i], 4)),
-                    "n_failed": int(n_failed_pos[i]),
-                    "wt_failed": float(round(w_failed_pos[i], 4)),
-                    "mod_level": float(round(ml[i], 6)),
-                    "wt_mod_level": float(round(w_ml[i], 6)),
-                }
-            )
+        col_positions.append(positions + 1)  # 1-based
+        col_mod_type.append(np.full(n_pos, mod_str, dtype=object))
+        col_n_mod.append(n_mod[positions])
+        col_w_mod.append(w_mod[positions])
+        col_n_unmod.append(n_unmod[positions])
+        col_w_unmod.append(w_unmod[positions])
+        col_n_canon.append(n_canonical[positions])
+        col_w_canon.append(w_canonical[positions])
+        col_n_other.append(n_othermod[positions])
+        col_w_other.append(w_othermod[positions])
+        col_n_mm.append(n_mismatch[positions])
+        col_w_mm.append(w_mismatch[positions])
+        col_n_del.append(n_del[positions])
+        col_w_del.append(w_del[positions])
+        col_n_fail.append(n_failed[positions])
+        col_w_fail.append(w_failed[positions])
+        col_ml.append(ml)
+        col_wml.append(w_ml)
 
-    return rows
+    if not col_positions:
+        return None
+
+    return {
+        "position": np.concatenate(col_positions),
+        "mod_type": np.concatenate(col_mod_type),
+        "n_modified": np.concatenate(col_n_mod),
+        "wt_modified": np.round(np.concatenate(col_w_mod), 4),
+        "n_unmodified": np.concatenate(col_n_unmod),
+        "wt_unmodified": np.round(np.concatenate(col_w_unmod), 4),
+        "n_canonical": np.concatenate(col_n_canon),
+        "wt_canonical": np.round(np.concatenate(col_w_canon), 4),
+        "n_othermod": np.concatenate(col_n_other),
+        "wt_othermod": np.round(np.concatenate(col_w_other), 4),
+        "n_mismatch": np.concatenate(col_n_mm),
+        "wt_mismatch": np.round(np.concatenate(col_w_mm), 4),
+        "n_deletion": np.concatenate(col_n_del),
+        "wt_deletion": np.round(np.concatenate(col_w_del), 4),
+        "n_failed": np.concatenate(col_n_fail),
+        "wt_failed": np.round(np.concatenate(col_w_fail), 4),
+        "mod_level": np.round(np.concatenate(col_ml), 6),
+        "wt_mod_level": np.round(np.concatenate(col_wml), 6),
+    }
 
 
 # ---------- main ----------
@@ -434,58 +446,25 @@ def main(args: argparse.Namespace | None = None) -> None:
 
         # ---- 3. Process each transcript (pooling across files) ----
 
-        all_rows: list[dict] = []
+        all_tables: list[pa.Table] = []
         processed = 0
 
         for tx_name in tx_names:
-            # Load data from each file that contains this transcript
-            matrices: list[np.ndarray] = []
-            weights_list: list[np.ndarray] = []
-            tx_lengths_found: list[int | None] = []
-
-            for h5 in h5_files:
-                result = load_transcript_data(h5, tx_name, args.min_asp)
-                if result is not None:
-                    matrix_f, weights_f = result
-                    matrices.append(matrix_f)
-                    weights_list.append(weights_f)
-                    tx_lengths_found.append(matrix_f.shape[1])
-                else:
-                    tx_lengths_found.append(None)
-
-            if not matrices:
-                # No reads after filtering in any file
+            pooled = pool_transcript_data(h5_files, tx_name, args.min_asp)
+            if pooled is None:
                 processed += 1
                 continue
 
-            # Validate transcript length consistency
-            try:
-                validate_tx_lengths(tx_name, tx_lengths_found, list(args.h5))
-            except ValueError as exc:
-                print(
-                    f"[mod_sites] Warning: {exc} — skipping transcript",
-                    file=sys.stderr,
-                )
-                processed += 1
-                continue
+            matrix, weights, _tx_len = pooled
 
-            # Pool reads across files
-            if len(matrices) == 1:
-                matrix = matrices[0]
-                weights = weights_list[0]
-            else:
-                matrix = np.vstack(matrices)
-                weights = np.concatenate(weights_list)
-
-            if args.verbose and len(matrices) > 1:
-                n_from = ", ".join(f"{m.shape[0]}" for m in matrices)
+            if args.verbose and len(h5_files) > 1:
                 print(
                     f"[mod_sites] {tx_name}: {matrix.shape[0]} reads "
-                    f"pooled from {len(matrices)} file(s) ({n_from})",
+                    f"pooled from {len(h5_files)} file(s)",
                     file=sys.stderr,
                 )
 
-            tx_rows = compute_transcript_stats(
+            col_arrays = compute_transcript_stats(
                 matrix,
                 weights,
                 mod_codes,
@@ -495,8 +474,15 @@ def main(args: argparse.Namespace | None = None) -> None:
                     else None
                 ),
             )
-            for row in tx_rows:
-                row["transcript_id"] = tx_name
+
+            if col_arrays is None:
+                processed += 1
+                continue
+
+            n_rows = len(col_arrays["position"])
+
+            # Add transcript_id column
+            col_arrays["transcript_id"] = np.full(n_rows, tx_name, dtype=object)
 
             # ---- Enrich with genomic coordinates (if GTF provided) ----
             if gtf is not None:
@@ -507,29 +493,54 @@ def main(args: argparse.Namespace | None = None) -> None:
                             f"[mod_sites] Warning: {tx_name} not found in GTF",
                             file=sys.stderr,
                         )
-                    for row in tx_rows:
-                        row["gene_id"] = None
-                        row["chrom"] = None
-                        row["strand"] = None
-                        row["gpos"] = None
+                    col_arrays["gene_id"] = np.full(n_rows, None, dtype=object)
+                    col_arrays["chrom"] = np.full(n_rows, None, dtype=object)
+                    col_arrays["strand"] = np.full(n_rows, None, dtype=object)
+                    col_arrays["gpos"] = np.full(n_rows, -1, dtype=np.int32)
                 else:
                     gene_id = tx_gtf.gene.gene_id
                     chrom = tx_gtf.gene.chrom
                     strand = tx_gtf.gene.strand
-                    for row in tx_rows:
-                        gpos = tx_gtf.tpos_to_gpos(row["position"])
-                        row["gene_id"] = gene_id
-                        row["chrom"] = chrom
-                        row["strand"] = strand
-                        row["gpos"] = gpos if gpos > 0 else None
+                    gpos_vals = np.array(
+                        [tx_gtf.tpos_to_gpos(int(p)) for p in col_arrays["position"]],
+                        dtype=np.int32,
+                    )
+                    gpos_vals[gpos_vals <= 0] = -1
+                    col_arrays["gene_id"] = np.full(n_rows, gene_id, dtype=object)
+                    col_arrays["chrom"] = np.full(n_rows, chrom, dtype=object)
+                    col_arrays["strand"] = np.full(n_rows, strand, dtype=object)
+                    col_arrays["gpos"] = gpos_vals
             else:
-                for row in tx_rows:
-                    row["gene_id"] = None
-                    row["chrom"] = None
-                    row["strand"] = None
-                    row["gpos"] = None
+                col_arrays["gene_id"] = np.full(n_rows, None, dtype=object)
+                col_arrays["chrom"] = np.full(n_rows, None, dtype=object)
+                col_arrays["strand"] = np.full(n_rows, None, dtype=object)
+                col_arrays["gpos"] = np.full(n_rows, -1, dtype=np.int32)
 
-            all_rows.extend(tx_rows)
+            # Build pa.Table from column arrays
+            pa_arrays = {}
+            for col_name in _TSV_COLS:
+                arr = col_arrays[col_name]
+                pa_type = _SITES_SCHEMA.field(col_name).type
+                if col_name == "gpos":
+                    # Convert -1 sentinel back to None/null
+                    mask = arr == -1
+                    pa_arrays[col_name] = pa.array(
+                        [None if m else int(v) for m, v in zip(mask, arr)],
+                        type=pa.int32(),
+                    )
+                elif pa_type == pa.string():
+                    pa_arrays[col_name] = pa.array(
+                        [None if v is None else str(v) for v in arr],
+                        type=pa.string(),
+                    )
+                elif pa_type == pa.int32():
+                    pa_arrays[col_name] = pa.array(arr, type=pa.int32())
+                elif pa_type == pa.float64():
+                    pa_arrays[col_name] = pa.array(arr, type=pa.float64())
+                else:
+                    pa_arrays[col_name] = pa.array(arr, type=pa_type)
+
+            all_tables.append(pa.table(pa_arrays))
 
             processed += 1
             if args.verbose and processed % 1000 == 0:
@@ -538,21 +549,30 @@ def main(args: argparse.Namespace | None = None) -> None:
                     file=sys.stderr,
                 )
 
-    if args.verbose:
-        print(f"[mod_sites] Total rows to write: {len(all_rows)}", file=sys.stderr)
+    # ---- 4. Combine and write output ----
+    if all_tables:
+        combined = pa.concat_tables(all_tables)
+        # Reorder columns to match schema
+        combined = combined.select(_TSV_COLS)
+    else:
+        combined = _SITES_SCHEMA.empty_table()
 
-    if not all_rows:
+    if args.verbose:
+        print(
+            f"[mod_sites] Total rows to write: {len(combined)}",
+            file=sys.stderr,
+        )
+
+    if len(combined) == 0:
         print(
             "[mod_sites] No modification sites found — writing empty file.",
             file=sys.stderr,
         )
 
-    # ---- 4. Write output ----
-
     if args.format == "tsv":
-        write_tsv(all_rows, args.output, _TSV_HEADER, _TSV_COLS, args.gzip)
+        write_tsv(combined, args.output, _TSV_HEADER, _TSV_COLS, args.gzip)
     else:
-        write_parquet(all_rows, args.output, _SITES_SCHEMA, _TSV_COLS)
+        write_parquet(combined, args.output, _SITES_SCHEMA, _TSV_COLS)
 
     if args.verbose:
         print(f"[mod_sites] Done. Output written to {args.output}", file=sys.stderr)

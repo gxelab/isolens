@@ -33,7 +33,7 @@ def ensure_gz_suffix(path: str, use_gzip: bool) -> str:
 
 
 def write_tsv(
-    all_rows: list[dict[str, Any]],
+    all_rows: list[dict[str, Any]] | pa.Table,
     path: str,
     header: str,
     columns: list[str],
@@ -47,7 +47,7 @@ def write_tsv(
     apply :func:`ensure_gz_suffix` beforehand if needed).
 
     Args:
-        all_rows: List of row dicts.
+        all_rows: List of row dicts or a ``pa.Table``.
         path: Output file path.
         header: Tab-separated header line (e.g. ``"col1\\tcol2"``).
         columns: Ordered column names defining the output field order.
@@ -72,10 +72,19 @@ def write_tsv(
     open_func = gzip.open if use_gzip else open
     mode = "wt" if use_gzip else "w"
 
-    with open_func(path, mode, encoding="utf-8") as f:
-        f.write(header + "\n")
-        for row in all_rows:
-            f.write("\t".join(_fmt(row[c]) for c in columns) + "\n")
+    if isinstance(all_rows, pa.Table):
+        # Extract columns as Python lists for row-wise writing
+        col_data = {c: all_rows.column(c).to_pylist() for c in columns}
+        n_rows = len(all_rows)
+        with open_func(path, mode, encoding="utf-8") as f:
+            f.write(header + "\n")
+            for i in range(n_rows):
+                f.write("\t".join(_fmt(col_data[c][i]) for c in columns) + "\n")
+    else:
+        with open_func(path, mode, encoding="utf-8") as f:
+            f.write(header + "\n")
+            for row in all_rows:
+                f.write("\t".join(_fmt(row[c]) for c in columns) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +93,7 @@ def write_tsv(
 
 
 def write_parquet(
-    all_rows: list[dict[str, Any]],
+    all_rows: list[dict[str, Any]] | pa.Table,
     path: str,
     schema: pa.Schema,
     columns: list[str],
@@ -96,12 +105,22 @@ def write_parquet(
     source of truth for column types (both empty and non-empty paths).
 
     Args:
-        all_rows: List of row dicts.
+        all_rows: List of row dicts or a ``pa.Table``.
         path: Output file path.
         schema: PyArrow schema with field names matching dict keys.
         columns: Ordered column names defining the output field order
-            (used for the non-empty path).
+            (used for the ``list[dict]`` path).
     """
+    if isinstance(all_rows, pa.Table):
+        if len(all_rows) == 0:
+            with pq.ParquetWriter(path, schema) as writer:
+                writer.write_table(schema.empty_table())
+            return
+        # Ensure columns are in the order specified by the schema
+        table = all_rows.select(schema.names)
+        pq.write_table(table, path)
+        return
+
     if not all_rows:
         with pq.ParquetWriter(path, schema) as writer:
             writer.write_table(

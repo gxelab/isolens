@@ -59,13 +59,37 @@ except ImportError:
 class TestComputeTranscriptStats:
     """Tests for compute_transcript_stats()."""
 
+    @staticmethod
+    def _to_rows(col_arrays):
+        """Convert column arrays to list of dicts for readable assertions."""
+        if col_arrays is None:
+            return []
+        n = len(col_arrays["position"])
+        cols = list(col_arrays.keys())
+        rows = []
+        for i in range(n):
+            row = {}
+            for c in cols:
+                v = col_arrays[c][i]
+                if isinstance(v, (np.integer,)):
+                    row[c] = int(v)
+                elif isinstance(v, (np.floating,)):
+                    row[c] = float(v)
+                elif isinstance(v, np.bool_):
+                    row[c] = bool(v)
+                else:
+                    row[c] = v
+            rows.append(row)
+        return rows
+
     def test_single_mod_single_read(self):
         """One read, one modification type at position 1."""
         matrix = np.array([[4, CODE_CANONICAL, CODE_CANONICAL]], dtype=np.uint8)
         weights = np.array([0.5], dtype=np.float32)
         mod_codes = [("a", 4)]
 
-        rows = compute_transcript_stats(matrix, weights, mod_codes)
+        result = compute_transcript_stats(matrix, weights, mod_codes)
+        rows = self._to_rows(result)
 
         assert len(rows) == 1
         r = rows[0]
@@ -91,7 +115,8 @@ class TestComputeTranscriptStats:
         weights = np.array([1.0, 1.0], dtype=np.float32)
         mod_codes = [("a", 4)]
 
-        rows = compute_transcript_stats(matrix, weights, mod_codes)
+        result = compute_transcript_stats(matrix, weights, mod_codes)
+        rows = self._to_rows(result)
 
         # Only position 2 has n_modified > 0
         assert len(rows) == 1
@@ -113,7 +138,8 @@ class TestComputeTranscriptStats:
         weights = np.array([1.0, 1.0], dtype=np.float32)
         mod_codes = [("a", 4)]
 
-        rows = compute_transcript_stats(matrix, weights, mod_codes)
+        result = compute_transcript_stats(matrix, weights, mod_codes)
+        rows = self._to_rows(result)
 
         # Position 3 (1-based): has FAIL in row 0, 4 (mod 'a') in row 1
         r = [r for r in rows if r["position"] == 3][0]
@@ -128,7 +154,8 @@ class TestComputeTranscriptStats:
         weights = np.array([1.0], dtype=np.float32)
         mod_codes = [("a", 4), ("m", 5)]
 
-        rows = compute_transcript_stats(matrix, weights, mod_codes)
+        result = compute_transcript_stats(matrix, weights, mod_codes)
+        rows = self._to_rows(result)
 
         # Position 1 → mod 'a' wins, Position 2 → mod 'm' wins
         assert len(rows) == 2
@@ -142,12 +169,13 @@ class TestComputeTranscriptStats:
         mod_codes = [("a", 4), ("m", 5)]
 
         # Use predefined positions to force emission for mod 'a' at pos 2
-        rows = compute_transcript_stats(
+        result = compute_transcript_stats(
             matrix,
             weights,
             mod_codes,
             predefined_positions={1, 2},
         )
+        rows = self._to_rows(result)
 
         # For mod 'a' at position 2: the entry is 'm' (5) → othermod = 1
         r_a_pos2 = [r for r in rows if r["mod_type"] == "a" and r["position"] == 2][0]
@@ -160,12 +188,13 @@ class TestComputeTranscriptStats:
         weights = np.array([1.0], dtype=np.float32)
         mod_codes = [("a", 4)]
 
-        rows = compute_transcript_stats(
+        result = compute_transcript_stats(
             matrix,
             weights,
             mod_codes,
             predefined_positions={1, 3},  # only positions 1 and 3
         )
+        rows = self._to_rows(result)
 
         positions = {r["position"] for r in rows}
         assert positions == {1, 3}
@@ -176,12 +205,13 @@ class TestComputeTranscriptStats:
         weights = np.array([1.0], dtype=np.float32)
         mod_codes = [("a", 4)]
 
-        rows = compute_transcript_stats(
+        result = compute_transcript_stats(
             matrix,
             weights,
             mod_codes,
             predefined_positions={1, 100},  # 100 > tx_length=2
         )
+        rows = self._to_rows(result)
 
         positions = {r["position"] for r in rows}
         assert positions == {1}
@@ -192,8 +222,8 @@ class TestComputeTranscriptStats:
         weights = np.empty((0,), dtype=np.float32)
         mod_codes = [("a", 4)]
 
-        rows = compute_transcript_stats(matrix, weights, mod_codes)
-        assert rows == []
+        result = compute_transcript_stats(matrix, weights, mod_codes)
+        assert result is None
 
     def test_no_mods_found(self):
         """When no positions have any modification calls, output is empty."""
@@ -204,8 +234,8 @@ class TestComputeTranscriptStats:
         weights = np.array([1.0, 1.0], dtype=np.float32)
         mod_codes = [("a", 4)]
 
-        rows = compute_transcript_stats(matrix, weights, mod_codes)
-        assert rows == []
+        result = compute_transcript_stats(matrix, weights, mod_codes)
+        assert result is None
 
     def test_mod_level_calculation(self):
         """Modification level = n_modified / (n_modified + n_unmodified)."""
@@ -216,7 +246,8 @@ class TestComputeTranscriptStats:
         weights = np.array([1.0], dtype=np.float32)
         mod_codes = [("a", 4)]
 
-        rows = compute_transcript_stats(matrix, weights, mod_codes)
+        result = compute_transcript_stats(matrix, weights, mod_codes)
+        rows = self._to_rows(result)
         r1 = [r for r in rows if r["position"] == 1][0]
         r2 = [r for r in rows if r["position"] == 2][0]
 

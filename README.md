@@ -181,7 +181,7 @@ Key options:
 | `-m, --mod-type` | Modification types to scan for (SAM code suffixes) | `a,m,17596,17802,19228,69426,19229,19227` |
 | `-p, --min-asp` | Minimum assignment probability filter | 0.0 |
 | `-d, --max-depth` | Max reads per transcript | 5000 |
-| `-t, --threads` | Worker threads for parallel processing | 1 |
+| `-t, --threads` | Worker threads for parallel processing | 2 |
 | `-v, --verbose` | Print progress to stderr | off |
 
 **HDF5 structure:** `/transcripts/<tx_name>/matrix` (uint8), `read_ids` (string), `read_weights` (float32); `/modification_codes` (attrs); `/metadata` (attrs).

@@ -7,6 +7,7 @@ Part of the isolens toolkit. See notebooks/01_mod.md for the full specification.
 import argparse
 import concurrent.futures
 import functools
+import os
 import sys
 import uuid
 from typing import Any
@@ -326,14 +327,12 @@ def parse_modifications(
     if seq is None:
         return
 
-    # ---- Pass 1: collect modification instances, grouped by read position ----
-    # Uses an outer dict for natural O(1) position grouping (no sort needed)
-    # and inner lists of pre-computed integer tuples instead of inner dicts
-    # with string keys.  This eliminates all inner-dict hashing overhead while
-    # preserving the natural position grouping that the flat-list+sorted
-    # approach loses.
+    # ---- Pass 1: aggregate modification instances in-place per position ----
+    # Each entry is [sum_raw, max_prob, winning_code, winning_tracked].
+    # Aggregating during collection avoids storing per-instance tuples and
+    # eliminates the inner aggregation loop in Pass 2.
 
-    per_position: dict[int, list[tuple[int, float, int, bool]]] = {}
+    per_position: dict[int, list] = {}
     total_mod_instance_idx = 0
 
     base_positions_cache: dict[str, list[int]] = {}
@@ -387,17 +386,20 @@ def parse_modifications(
                 prob = (raw_byte + 0.5) / 256.0
 
             # Assign integer code and record whether this type is tracked.
-            # Pre-computing is_tracked avoids the ``mod_type in tracked_mod_types``
-            # lookup in Pass 2.
             mod_type_code = _ensure_mod_code(mod_type, mod_code_map)
             is_tracked = mod_type in tracked_mod_types
 
-            # Append to position-grouped list.  ``setdefault`` creates a new
-            # empty list for first occurrence at each position; subsequent
-            # modifications at the same position append to the existing list.
-            per_position.setdefault(read_pos_0, []).append(
-                (mod_type_code, prob, raw_byte, is_tracked)
-            )
+            # Aggregate in-place: first instance at a position creates the
+            # entry; subsequent instances update max_prob and sum_raw.
+            entry = per_position.get(read_pos_0)
+            if entry is None:
+                per_position[read_pos_0] = [raw_byte, prob, mod_type_code, is_tracked]
+            else:
+                entry[0] += raw_byte
+                if prob > entry[1]:
+                    entry[1] = prob
+                    entry[2] = mod_type_code
+                    entry[3] = is_tracked
 
             total_mod_instance_idx += 1
             occ_idx += 1  # move past the marked occurrence
@@ -414,7 +416,7 @@ def parse_modifications(
     row_len = len(row)
     tx_map_len = len(read_to_tx_map)
 
-    for read_pos_0, instances in per_position.items():
+    for read_pos_0, entry in per_position.items():
         # Map read position to transcript position.
         if read_pos_0 >= tx_map_len:
             continue
@@ -430,18 +432,11 @@ def parse_modifications(
         if row[tx_pos_0] == CODE_MISMATCH:
             continue
 
-        # ---- Aggregate all modifications at this position ----
-        sum_raw = 0
-        max_prob = 0.0
-        winning_code = -1  # -1 sentinel for "canonical"
-        winning_tracked = False
-
-        for mod_code, prob, raw_byte, is_tracked in instances:
-            sum_raw += raw_byte
-            if prob > max_prob:
-                max_prob = prob
-                winning_code = mod_code
-                winning_tracked = is_tracked
+        # ---- Pre-aggregated values from Pass 1 ----
+        sum_raw = entry[0]
+        max_prob = entry[1]
+        winning_code = entry[2]  # -1 sentinel if we override to canonical
+        winning_tracked = entry[3]
 
         # Step 3: Calculate canonical remainder (raw-byte space,
         #         matching modkit's canonical_qual = 255 - Σq_i).
@@ -719,9 +714,9 @@ def parse_args() -> argparse.Namespace:
         "-t",
         "--threads",
         type=int,
-        default=1,
-        help="Number of worker threads for parallel transcript processing "
-        "[default: 1 (sequential)]",
+        default=min(2, os.cpu_count() or 1),
+        help="Number of worker processes for parallel transcript processing "
+        "[default: 2]",
     )
     parser.add_argument(
         "-m",
