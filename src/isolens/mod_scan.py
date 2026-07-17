@@ -21,6 +21,7 @@ try:
     from isolens._parsing import parse_oarfish
 except ImportError:
     from _parsing import parse_oarfish  # running as standalone script
+
     __version__ = "0.0.0"
 
 # ---------- matrix encoding constants ----------
@@ -1124,7 +1125,7 @@ def _run_parallel(
 # ---------- main dispatcher ----------
 
 
-def main() -> None:
+def main(args: argparse.Namespace | None = None) -> None:
     """Scan a transcriptome BAM for base modifications and write HDF5 output.
 
     Steps:
@@ -1135,7 +1136,8 @@ def main() -> None:
        transcript read × position matrices.
     5. Write global metadata (modification codes, pipeline version, counts).
     """
-    args = parse_args()
+    if args is None:
+        args = parse_args()
     filter_threshold = args.mod_cutoff
 
     # ---- 1. Load Oarfish assignments ----

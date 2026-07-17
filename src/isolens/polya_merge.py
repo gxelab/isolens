@@ -111,14 +111,15 @@ def _read_polya_to_dict(filename: str) -> dict[str, dict[str, Any]]:
     return data_dict
 
 
-def main() -> None:
+def main(args: argparse.Namespace | None = None) -> None:
     """Merge two poly(A) TSV files and recompute weighted averages.
 
     Reads two poly(A) output files (from ``polya_calc``), pools reads
     per transcript across both files, and writes a merged TSV with
     recalculated per-transcript weighted average poly(A) lengths.
     """
-    args = parse_args()
+    if args is None:
+        args = parse_args()
 
     # Load data from both files (auto-detecting gzip)
     file1_data = _read_polya_to_dict(args.input1)

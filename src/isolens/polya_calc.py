@@ -84,7 +84,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+def main(args: argparse.Namespace | None = None) -> None:
     """Extract per-transcript poly(A) lengths from Dorado BAM + Oarfish.
 
     Reads the Oarfish assignment probability file to map reads to
@@ -92,7 +92,8 @@ def main() -> None:
     length estimates emitted by Dorado).  Writes a TSV with per-transcript
     weighted-average poly(A) lengths.
     """
-    args = parse_args()
+    if args is None:
+        args = parse_args()
 
     print(f"Parsing Oarfish assignments from {args.oarfish}...", file=sys.stderr)
     tx_names, prob_map, name_to_id = parse_oarfish(args.oarfish)
