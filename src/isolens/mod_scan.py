@@ -17,9 +17,11 @@ import numpy as np
 import pysam
 
 try:
+    from isolens import __version__
     from isolens._parsing import parse_oarfish
 except ImportError:
     from _parsing import parse_oarfish  # running as standalone script
+    __version__ = "0.0.0"
 
 # ---------- matrix encoding constants ----------
 # Each position in the read × transcript matrix is encoded as a uint8:
@@ -768,7 +770,7 @@ def _write_global_metadata(
     meta = h5.create_group("metadata")
     meta.attrs["mod_cutoff"] = mod_cutoff
     meta.attrs["min_asp"] = min_asp
-    meta.attrs["pipeline_version"] = "0.1.0"
+    meta.attrs["pipeline_version"] = __version__
     meta.attrs["n_transcripts"] = n_transcripts
     meta.attrs["n_assignments"] = n_assignments
     meta.attrs["modification_codes"] = str(
