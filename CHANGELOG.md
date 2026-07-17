@@ -9,23 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `-p` / `--min-asp` flag to `polya_calc` for filtering reads by minimum
-  Oarfish assignment probability (matching the existing filter in `mod_scan`
-  and other modules).
-
-## [0.6.1] - to be released
+## [0.6.1] - 2026-07-17
 
 ### Added
 
+- Subcommand-based CLI via [click](https://click.palletsprojects.com/):
+  `isolens mod_scan`, `isolens mod_sites`, etc. — 13 subcommands covering the
+  full modification and poly(A) analysis pipelines (`#1`).
+- `-h` / `--help` on the root group and every subcommand; `-V` / `--version`.
+- `__main__.py` so `python -m isolens` invokes the new CLI.
+- `[project.scripts]` entry point (`isolens` console script).
+- `click>=8.1` runtime dependency.
+- `tests/test_cli.py` — smoke tests for CLI help, version, and validation.
+- Shared click option decorators in `_cli_utils.py` reduce argument definition
+  duplication across subcommands.
+
 ### Changed
 
-- `mod_dmt`: refactored from bulk pre-loading to lazy per-locus-group transcript
-  loading, fixing excessive memory usage (~100G for 7.5G of HDF5 data).
-- Consolidated duplicate transcript-pooling logic from `mod_dmc._pool_transcript_data`
-  and `mod_dmt._load_all_transcripts` into a shared `pool_transcript_data()` in
-  `_hdf5_helpers.py`.
-
-### Fixed
+- `mod_scan`, `polya_calc`, `polya_merge`: `main()` signatures normalized from
+  `main()` to `main(args: argparse.Namespace | None = None)` for programmatic
+  reuse via the click wrapper.
+- **Backward compatible:** `python -m isolens.<module>` continues to work
+  alongside the new `isolens <subcommand>` interface.
 
 ## [0.5.4] - 2026-07-14
 
@@ -312,7 +317,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` with `hatchling` build backend.
 - CI workflow for testing and publishing to PyPI.
 
-[Unreleased]: https://github.com/gxelab/isolens/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/gxelab/isolens/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/gxelab/isolens/compare/v0.5.4...v0.6.1
 [0.5.4]: https://github.com/gxelab/isolens/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/gxelab/isolens/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/gxelab/isolens/compare/v0.5.1...v0.5.2

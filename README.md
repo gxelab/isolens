@@ -67,20 +67,22 @@ samtools index alignments.sorted.bam
 Build transcript-level modification matrices:
 
 ```bash
-python -m isolens.mod_scan -b alignments.sorted.bam -a oarfish_out.prob.lz4 -o mod_scan.h5
+isolens mod_scan -b alignments.sorted.bam -a oarfish_out.prob.lz4 -o mod_scan.h5
 ```
 
 Summarize modification sites per transcript:
 
 ```bash
-python -m isolens.mod_sites -i mod_scan.h5 -o sites.parquet
+isolens mod_sites -i mod_scan.h5 -o sites.parquet
 ```
 
 Estimate transcript-level poly(A) lengths:
 
 ```bash
-python -m isolens.polya_calc -a oarfish_out.prob.lz4 -b reads.bam -o polya.tsv.gz -z
+isolens polya_calc -a oarfish_out.prob.lz4 -b reads.bam -o polya.tsv.gz -z
 ```
+
+> **Note:** The legacy `python -m isolens.<module>` invocation style continues to work for backward compatibility.
 
 ---
 
@@ -162,7 +164,7 @@ Generates a single HDF5 file containing transcript-specific read-by-position mod
 **Encoding:** 0 = uncovered, 1 = canonical match, 2 = mismatch, 3 = deletion, 4+ = tracked modification types, 254 = untracked modification, 255 = failed (all states below probability threshold).
 
 ```bash
-python -m isolens.mod_scan \
+isolens mod_scan \
   -b alignments.bam \
   -a oarfish.lz4 \
   -o mod_scan.h5 \
@@ -197,12 +199,12 @@ When the same modification probability threshold is used (`--mod-cutoff` in `mod
 Multiple HDF5 files can be provided — reads for the same transcript are pooled across all files before computing statistics.
 
 ```bash
-python -m isolens.mod_sites \
+isolens mod_sites \
   -i mod_scan.h5 \
   -o sites.parquet
 
 # With genomic coordinate mapping
-python -m isolens.mod_sites \
+isolens mod_sites \
   -i mod_scan.h5 \
   -o sites.parquet \
   -g annotations.gtf
@@ -233,7 +235,7 @@ Identifies cooperative or antagonistic relationships between modification sites 
 **Metrics:** Phi coefficient (Pearson's r for binary variables), odds ratio with Haldane-Anscombe correction, p-value via t-distribution, Benjamini-Hochberg FDR q-value (per-transcript), and mutual information. Both unweighted and assignment-probability-weighted variants are computed for every metric.
 
 ```bash
-python -m isolens.mod_corr \
+isolens mod_corr \
   -i mod_scan.h5 \
   -s sites.parquet \
   -o correlations.parquet \
@@ -273,7 +275,7 @@ When `-d` is used, generates rotated triangular heatmap PDFs per transcript show
 Aggregates transcript-level modification site summaries to the gene level by summing per-position counts grouped by `(gene_id, chrom, strand, gpos, mod_type)`. Requires the site summary to have been generated with `--gtf` so that genomic coordinate columns are present.
 
 ```bash
-python -m isolens.mod_gene \
+isolens mod_gene \
   -i sites.parquet \
   -o gene_sites.parquet
 ```
@@ -297,11 +299,11 @@ Key options:
 Compares modification levels between two experimental conditions at each `(transcript, position, mod_type)` site using read-level weighted logistic regression. Reads from multiple HDF5 files are pooled within each condition before testing.
 
 ```bash
-python -m isolens.mod_dmc \
-  --h5-1 cond1_rep1.h5 cond1_rep2.h5 \
-  --h5-2 cond2_rep1.h5 cond2_rep2.h5 \
-  --sites-1 cond1_sites.parquet \
-  --sites-2 cond2_sites.parquet \
+isolens mod_dmc \
+  -i1 cond1_rep1.h5 -i1 cond1_rep2.h5 \
+  -i2 cond2_rep1.h5 -i2 cond2_rep2.h5 \
+  -s1 cond1_sites.parquet \
+  -s2 cond2_sites.parquet \
   -o dmc_results.parquet -v
 ```
 
@@ -309,10 +311,10 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--h5-1` | HDF5 file(s) for condition 1 | (required) |
-| `--h5-2` | HDF5 file(s) for condition 2 | (required) |
-| `--sites-1` | Site summary for condition 1 | (required) |
-| `--sites-2` | Site summary for condition 2 | (required) |
+| `-i1, --h5-1` | HDF5 file(s) for condition 1 (repeatable) | (required) |
+| `-i2, --h5-2` | HDF5 file(s) for condition 2 (repeatable) | (required) |
+| `-s1, --sites-1` | Site summary for condition 1 | (required) |
+| `-s2, --sites-2` | Site summary for condition 2 | (required) |
 | `-o, --output` | Output file | (required) |
 | `-f, --format` | Output format: `parquet` or `tsv` | `parquet` |
 | `-z, --gzip` | Gzip-compress TSV output | off |
@@ -331,7 +333,7 @@ Key options:
 Compares modification levels between transcript isoforms that share a genomic locus, using read-level weighted logistic regression. Transcripts are grouped by `(gene_id, chrom, gpos, strand, mod_type)` and all isoform pairs within each group are tested.
 
 ```bash
-python -m isolens.mod_dmt \
+isolens mod_dmt \
   -i pooled.h5 \
   -s sites_with_gtf.parquet \
   -o dmt_results.parquet -v
@@ -361,9 +363,9 @@ Key options:
 Compares modification levels between two conditions at the gene level using Fisher's exact test. Takes gene-level site summaries from `mod_gene` as input — no HDF5 or read-level data required.
 
 ```bash
-python -m isolens.mod_dmcg \
-  --sites-1 cond1_genes.parquet \
-  --sites-2 cond2_genes.parquet \
+isolens mod_dmcg \
+  -s1 cond1_genes.parquet \
+  -s2 cond2_genes.parquet \
   -o dmcg_results.parquet -v
 ```
 
@@ -371,8 +373,8 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--sites-1` | Gene-level summary for condition 1 (from `mod_gene`) | (required) |
-| `--sites-2` | Gene-level summary for condition 2 (from `mod_gene`) | (required) |
+| `-s1, --sites-1` | Gene-level summary for condition 1 (from `mod_gene`) | (required) |
+| `-s2, --sites-2` | Gene-level summary for condition 2 (from `mod_gene`) | (required) |
 | `-o, --output` | Output file | (required) |
 | `-f, --format` | Output format: `parquet` or `tsv` | `parquet` |
 | `-z, --gzip` | Gzip-compress TSV output | off |
@@ -389,7 +391,7 @@ Key options:
 Extracts poly(A) tail lengths from Dorado's `pt:i` BAM tags, weighted by Oarfish assignment probabilities.
 
 ```bash
-python -m isolens.polya_calc \
+isolens polya_calc \
   -a oarfish.lz4 \
   -b reads.bam \
   -o polya.tsv.gz -z
@@ -417,7 +419,7 @@ Key options:
 Combines two poly(A) files from separate replicates, recomputing weighted average tail lengths from the pooled per-read data. Accepts TSV/TSV.GZ or Parquet input and preserves the `gene_id` column when present in both inputs.
 
 ```bash
-python -m isolens.polya_merge \
+isolens polya_merge \
   -i1 rep1.tsv.gz \
   -i2 rep2.tsv.gz \
   -o merged.tsv.gz -z
@@ -445,7 +447,7 @@ Compares poly(A) length distributions between two experimental conditions at eac
 Accepts both transcript-level (from `polya_calc`) and gene-level (from `polya_gene`) input in TSV/TSV.GZ or Parquet format; the feature ID column is auto-detected from the input header.
 
 ```bash
-python -m isolens.polya_dpc \
+isolens polya_dpc \
   -c1 control.tsv.gz \
   -c2 treatment.tsv.gz \
   -o dpc.tsv.gz -z
@@ -475,7 +477,7 @@ Key options:
 Compares poly(A) length distributions between all pairs of transcript isoforms within the same gene using the same three weighted two-sample tests as `polya_dpc`. Transcripts are grouped into genes using either a GTF annotation file (`-g`) or an existing `gene_id` column in the input.
 
 ```bash
-python -m isolens.polya_dpt \
+isolens polya_dpt \
   -i polya.tsv.gz \
   -g annotation.gtf \
   -o dpt.tsv.gz -z
@@ -505,7 +507,7 @@ Key options:
 Aggregates transcript-level poly(A) estimates to the gene level. If the input already contains a `gene_id` column (e.g. from `polya_calc -g`), it is used directly; otherwise a GTF annotation file must be provided via `-g/--gtf`. Per-transcript probability and length lists are pooled before recalculating the weighted average.
 
 ```bash
-python -m isolens.polya_gene \
+isolens polya_gene \
   -i polya.tsv.gz \
   -g annotation.gtf \
   -o gene_polya.tsv.gz -z
@@ -538,7 +540,7 @@ A transcript is called bimodal only when **both** methods agree.
 > **⚠️ Important:** `polya_bimodal` should be run on **transcript-level** input (from `polya_calc`). While gene-level input (from `polya_gene`) is technically accepted, the results are likely misleading — pooling reads across all isoforms of a gene ignores transcript-specific poly(A) length variation. Different isoforms of the same gene can have genuinely distinct poly(A) length distributions; aggregating them at the gene level can create artefactual bimodality or mask true bimodality present in individual isoforms.
 
 ```bash
-python -m isolens.polya_bimodal \
+isolens polya_bimodal \
   -i polya.tsv.gz \
   -o bimodal.tsv.gz -z
 ```
@@ -598,10 +600,11 @@ pip install -e ".[dev]"
 Run without installing:
 
 ```bash
-uv run python -m isolens.mod_scan \
-  -b ... \
-  -a ... \
-  -o ...
+# Using the unified CLI
+uv run python -m isolens mod_scan -b ... -a ... -o ...
+
+# Or directly (legacy, still supported)
+uv run python -m isolens.mod_scan -b ... -a ... -o ...
 ```
 
 Run tests:
@@ -624,17 +627,17 @@ ruff format src tests
 The `examples/` directory contains a small test dataset (subset of two *Drosophila* transcripts) suitable for verifying changes.
 
 ```bash
-python -m isolens.mod_scan \
+isolens mod_scan \
   -b examples/example.txmap.bam \
   -a examples/example.lz4 \
   -o example.mod_scan.h5 \
   -c 0.95 -v
 
-python -m isolens.mod_sites \
+isolens mod_sites \
   -i example.mod_scan.h5 \
   -o example.sites.parquet
 
-python -m isolens.polya_calc \
+isolens polya_calc \
   -a examples/example.lz4 \
   -b examples/example.txmap.bam \
   -o example.polya.tsv.gz -z
