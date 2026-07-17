@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="IsoLens logo" width="320">
+  <img src="logo.svg" alt="IsoLens logo" width="320">
 </p>
 
 <p align="center">
