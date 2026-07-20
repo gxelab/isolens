@@ -145,7 +145,7 @@ def mod_scan(
     "-s",
     "--sites",
     default=None,
-    help="Predefined modification sites TSV (columns: tx_name, posn)",
+    help="Predefined modification sites TSV (headerless: transcript_id, posn, [mod_type])",
 )
 @opt_min_asp()
 @opt_transcripts()

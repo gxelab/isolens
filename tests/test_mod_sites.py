@@ -23,6 +23,7 @@ try:
         _SITES_SCHEMA,
         _TSV_COLS,
         _TSV_HEADER,
+        _make_zero_rows,
         compute_transcript_stats,
         main,
         read_predefined_sites,
@@ -47,6 +48,7 @@ except ImportError:
         _SITES_SCHEMA,
         _TSV_COLS,
         _TSV_HEADER,
+        _make_zero_rows,
         compute_transcript_stats,
         main,
         read_predefined_sites,
@@ -168,12 +170,12 @@ class TestComputeTranscriptStats:
         weights = np.array([1.0], dtype=np.float32)
         mod_codes = [("a", 4), ("m", 5)]
 
-        # Use predefined positions to force emission for mod 'a' at pos 2
+        # Use predefined mods to force emission for mod 'a' at pos 2
         result = compute_transcript_stats(
             matrix,
             weights,
             mod_codes,
-            predefined_positions={1, 2},
+            predefined_mods={1: None, 2: None},
         )
         rows = self._to_rows(result)
 
@@ -182,8 +184,8 @@ class TestComputeTranscriptStats:
         assert r_a_pos2["n_modified"] == 0
         assert r_a_pos2["n_othermod"] == 1
 
-    def test_predefined_positions(self):
-        """When predefined_positions is given, only those are emitted."""
+    def test_predefined_mods(self):
+        """When predefined_mods is given, only those are emitted."""
         matrix = np.array([[4, 4, CODE_CANONICAL, 4]], dtype=np.uint8)
         weights = np.array([1.0], dtype=np.float32)
         mod_codes = [("a", 4)]
@@ -192,7 +194,7 @@ class TestComputeTranscriptStats:
             matrix,
             weights,
             mod_codes,
-            predefined_positions={1, 3},  # only positions 1 and 3
+            predefined_mods={1: None, 3: None},  # only positions 1 and 3
         )
         rows = self._to_rows(result)
 
@@ -209,12 +211,78 @@ class TestComputeTranscriptStats:
             matrix,
             weights,
             mod_codes,
-            predefined_positions={1, 100},  # 100 > tx_length=2
+            predefined_mods={1: None, 100: None},  # 100 > tx_length=2
         )
         rows = self._to_rows(result)
 
         positions = {r["position"] for r in rows}
         assert positions == {1}
+
+    def test_predefined_mods_all_types(self):
+        """None value emits all modification types at that position."""
+        matrix = np.array([[4, 5, CODE_CANONICAL]], dtype=np.uint8)
+        weights = np.array([1.0], dtype=np.float32)
+        mod_codes = [("a", 4), ("m", 5)]
+
+        result = compute_transcript_stats(
+            matrix,
+            weights,
+            mod_codes,
+            predefined_mods={1: None},
+        )
+        rows = self._to_rows(result)
+        # Both "a" and "m" at position 1
+        types_at_pos1 = {r["mod_type"] for r in rows if r["position"] == 1}
+        assert types_at_pos1 == {"a", "m"}
+        assert len(rows) == 2
+
+    def test_predefined_mods_single_type(self):
+        """Specific mod_type set emits only that type."""
+        matrix = np.array([[4, 5, CODE_CANONICAL]], dtype=np.uint8)
+        weights = np.array([1.0], dtype=np.float32)
+        mod_codes = [("a", 4), ("m", 5)]
+
+        result = compute_transcript_stats(
+            matrix,
+            weights,
+            mod_codes,
+            predefined_mods={2: {"m"}},
+        )
+        rows = self._to_rows(result)
+        assert len(rows) == 1
+        assert rows[0]["position"] == 2
+        assert rows[0]["mod_type"] == "m"
+
+    def test_predefined_mods_combined(self):
+        """Mix of all-types and specific-type positions."""
+        matrix = np.array([[4, 5, CODE_CANONICAL]], dtype=np.uint8)
+        weights = np.array([1.0], dtype=np.float32)
+        mod_codes = [("a", 4), ("m", 5)]
+
+        result = compute_transcript_stats(
+            matrix,
+            weights,
+            mod_codes,
+            predefined_mods={1: None, 2: {"a"}},
+        )
+        rows = self._to_rows(result)
+        # Position 1: both types; Position 2: only "a"
+        assert len(rows) == 3
+
+    def test_predefined_mods_unknown_type(self):
+        """Mod type not in H5 mod_codes is silently skipped."""
+        matrix = np.array([[4, CODE_CANONICAL]], dtype=np.uint8)
+        weights = np.array([1.0], dtype=np.float32)
+        mod_codes = [("a", 4)]
+
+        result = compute_transcript_stats(
+            matrix,
+            weights,
+            mod_codes,
+            predefined_mods={1: {"unknown"}},
+        )
+        # Unknown mod_type not in code_map → no rows emitted
+        assert result is None
 
     def test_empty_matrix(self):
         """Zero reads produces empty output."""
@@ -259,37 +327,163 @@ class TestComputeTranscriptStats:
 
 
 class TestReadPredefinedSites:
-    """Tests for read_predefined_sites()."""
+    """Tests for read_predefined_sites() — headerless TSV format."""
 
-    def test_valid_tsv(self, tmp_path):
+    def test_two_col_no_mod_type(self, tmp_path):
+        """Two columns, no mod_type → None (all types)."""
         path = tmp_path / "sites.tsv"
-        path.write_text(
-            "tx_name\tposn\textra\nTX1\t42\tignored\nTX1\t100\tignored\nTX2\t5\tignored\n"
-        )
-
+        path.write_text("TX1\t42\nTX2\t5\n")
         sites = read_predefined_sites(str(path))
-        assert sites == {"TX1": {42, 100}, "TX2": {5}}
+        assert sites == {"TX1": {42: None}, "TX2": {5: None}}
 
-    def test_missing_columns(self, tmp_path):
-        path = tmp_path / "bad.tsv"
-        path.write_text("tx_name\textra\nTX1\t42\n")
+    def test_three_col_with_mod_type(self, tmp_path):
+        """Three columns with mod_type → specific set."""
+        path = tmp_path / "sites.tsv"
+        path.write_text("TX1\t42\tm\nTX1\t100\ta\n")
+        sites = read_predefined_sites(str(path))
+        assert sites == {"TX1": {42: {"m"}, 100: {"a"}}}
 
-        with pytest.raises(ValueError, match="must have 'tx_name' and 'posn'"):
-            read_predefined_sites(str(path))
+    def test_empty_mod_type_col(self, tmp_path):
+        """Empty third column → None (all types)."""
+        path = tmp_path / "sites.tsv"
+        path.write_text("TX1\t42\t\nTX1\t43\tm\n")
+        sites = read_predefined_sites(str(path))
+        assert sites == {"TX1": {42: None, 43: {"m"}}}
+
+    def test_extra_columns_ignored(self, tmp_path):
+        """Columns beyond the 3rd are ignored."""
+        path = tmp_path / "sites.tsv"
+        path.write_text("TX1\t42\tm\textra1\textra2\n")
+        sites = read_predefined_sites(str(path))
+        assert sites == {"TX1": {42: {"m"}}}
+
+    def test_same_pos_specific_then_all(self, tmp_path):
+        """Specific entry + all-types entry at same pos → all wins."""
+        path = tmp_path / "sites.tsv"
+        path.write_text("TX1\t42\tm\nTX1\t42\n")
+        sites = read_predefined_sites(str(path))
+        assert sites == {"TX1": {42: None}}
+
+    def test_multiple_specific_same_pos(self, tmp_path):
+        """Multiple specific mod_types at same position accumulate."""
+        path = tmp_path / "sites.tsv"
+        path.write_text("TX1\t42\ta\nTX1\t42\tm\n")
+        sites = read_predefined_sites(str(path))
+        assert sites == {"TX1": {42: {"a", "m"}}}
+
+    def test_all_then_specific_same_pos(self, tmp_path):
+        """All-types entry first then specific → all still wins."""
+        path = tmp_path / "sites.tsv"
+        path.write_text("TX1\t42\nTX1\t42\tm\n")
+        sites = read_predefined_sites(str(path))
+        assert sites == {"TX1": {42: None}}
 
     def test_empty_file(self, tmp_path):
         path = tmp_path / "empty.tsv"
-        path.write_text("tx_name\tposn\n")
-
+        path.write_text("")
         sites = read_predefined_sites(str(path))
         assert sites == {}
 
-    def test_non_integer_posn(self, tmp_path):
-        path = tmp_path / "bad_pos.tsv"
-        path.write_text("tx_name\tposn\nTX1\tnot_a_number\n")
-
+    def test_non_int_position_skipped(self, tmp_path):
+        path = tmp_path / "bad.tsv"
+        path.write_text("TX1\tnot_a_number\tm\nTX1\t42\ta\n")
         sites = read_predefined_sites(str(path))
-        assert sites == {}
+        assert sites == {"TX1": {42: {"a"}}}
+
+    def test_too_few_columns_skipped(self, tmp_path):
+        path = tmp_path / "few.tsv"
+        path.write_text("TX1\t42\ta\nonly_one_col\nTX2\t5\n")
+        sites = read_predefined_sites(str(path))
+        assert sites == {"TX1": {42: {"a"}}, "TX2": {5: None}}
+
+
+# ---------- _make_zero_rows ----------
+
+
+class TestMakeZeroRows:
+    """Tests for _make_zero_rows()."""
+
+    @staticmethod
+    def _to_rows(col_arrays):
+        """Convert column arrays to list of dicts for readable assertions."""
+        if col_arrays is None:
+            return []
+        n = len(col_arrays["position"])
+        cols = list(col_arrays.keys())
+        rows = []
+        for i in range(n):
+            row = {}
+            for c in cols:
+                v = col_arrays[c][i]
+                if isinstance(v, (np.integer,)):
+                    row[c] = int(v)
+                elif isinstance(v, (np.floating,)):
+                    row[c] = float(v)
+                else:
+                    row[c] = v
+            rows.append(row)
+        return rows
+
+    def test_basic_single_type(self):
+        """Single position with specific mod_type → one zero row."""
+        result = _make_zero_rows(
+            "TX1",
+            predefined_mods={1: {"m"}},
+            mod_codes=[("a", 4), ("m", 5)],
+        )
+        rows = self._to_rows(result)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["transcript_id"] == "TX1"
+        assert r["position"] == 1
+        assert r["mod_type"] == "m"
+        assert r["n_modified"] == 0
+        assert r["wt_modified"] == 0.0
+        assert r["n_unmodified"] == 0
+        assert r["mod_level"] == 0.0
+        assert r["wt_mod_level"] == 0.0
+
+    def test_all_types(self):
+        """None → all modification types get zero rows."""
+        result = _make_zero_rows(
+            "TX1",
+            predefined_mods={1: None},
+            mod_codes=[("a", 4), ("m", 5)],
+        )
+        rows = self._to_rows(result)
+        assert len(rows) == 2
+        mod_types = {r["mod_type"] for r in rows}
+        assert mod_types == {"a", "m"}
+
+    def test_multiple_positions(self):
+        """Multiple positions with different mod_types."""
+        result = _make_zero_rows(
+            "TX2",
+            predefined_mods={5: {"a"}, 10: {"m"}},
+            mod_codes=[("a", 4), ("m", 5)],
+        )
+        rows = self._to_rows(result)
+        assert len(rows) == 2
+        positions = {r["position"] for r in rows}
+        assert positions == {5, 10}
+
+    def test_unknown_mod_type_skipped(self):
+        """Mod type not in mod_codes is not emitted."""
+        result = _make_zero_rows(
+            "TX1",
+            predefined_mods={1: {"unknown"}},
+            mod_codes=[("a", 4)],
+        )
+        assert result is None
+
+    def test_empty_mods(self):
+        """Empty predefined_mods returns None."""
+        result = _make_zero_rows(
+            "TX1",
+            predefined_mods={},
+            mod_codes=[("a", 4)],
+        )
+        assert result is None
 
 
 # ---------- write_parquet ----------
@@ -962,3 +1156,169 @@ class TestMainMultiFile:
         table = pq.read_table(out_path)
         txs = set(table.column("transcript_id").to_pylist())
         assert txs == {"TX1", "TX3"}
+
+    def test_sites_two_col_no_mod_type(self, tmp_path):
+        """Sites file (2 cols, no mod_type) emits all mod types."""
+        h5_path = str(tmp_path / "test.h5")
+        out_path = str(tmp_path / "out.parquet")
+        sites_path = str(tmp_path / "sites.tsv")
+
+        matrix = np.array([[4, 5, 1]], dtype=np.uint8)
+        weights = np.array([0.8], dtype=np.float32)
+        self._make_h5(h5_path, {"TX1": (matrix, weights)}, {"a": 4, "m": 5})
+        with open(sites_path, "w") as f:
+            f.write("TX1\t1\n")
+
+        args = argparse.Namespace(
+            h5=[h5_path], output=out_path, format="parquet",
+            gzip=False, sites=sites_path, min_asp=0.0,
+            transcripts=None, gtf=None, verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        rows = table.to_pylist()
+        mod_types = {r["mod_type"] for r in rows}
+        assert mod_types == {"a", "m"}
+        assert all(r["position"] == 1 for r in rows)
+
+    def test_sites_with_mod_type_filter(self, tmp_path):
+        """Sites file with mod_type emits only that type."""
+        h5_path = str(tmp_path / "test.h5")
+        out_path = str(tmp_path / "out.parquet")
+        sites_path = str(tmp_path / "sites.tsv")
+
+        matrix = np.array([[4, 5, 1]], dtype=np.uint8)
+        weights = np.array([0.8], dtype=np.float32)
+        self._make_h5(h5_path, {"TX1": (matrix, weights)}, {"a": 4, "m": 5})
+        with open(sites_path, "w") as f:
+            f.write("TX1\t2\tm\n")
+
+        args = argparse.Namespace(
+            h5=[h5_path], output=out_path, format="parquet",
+            gzip=False, sites=sites_path, min_asp=0.0,
+            transcripts=None, gtf=None, verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        rows = table.to_pylist()
+        assert len(rows) == 1
+        assert rows[0]["position"] == 2
+        assert rows[0]["mod_type"] == "m"
+        assert rows[0]["n_modified"] == 1
+
+    def test_sites_missing_transcript(self, tmp_path):
+        """Transcript in sites file but absent from H5 → zero rows."""
+        h5_path = str(tmp_path / "test.h5")
+        out_path = str(tmp_path / "out.parquet")
+        sites_path = str(tmp_path / "sites.tsv")
+
+        self._make_h5(
+            h5_path,
+            {"TX1": (np.array([[4]], dtype=np.uint8),
+                      np.array([0.8], dtype=np.float32))},
+            {"a": 4},
+        )
+        with open(sites_path, "w") as f:
+            f.write("MissingTX\t42\ta\n")
+
+        args = argparse.Namespace(
+            h5=[h5_path], output=out_path, format="parquet",
+            gzip=False, sites=sites_path, min_asp=0.0,
+            transcripts=None, gtf=None, verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        rows = table.to_pylist()
+        assert len(rows) == 1
+        assert rows[0]["transcript_id"] == "MissingTX"
+        assert rows[0]["position"] == 42
+        assert rows[0]["mod_type"] == "a"
+        assert rows[0]["n_modified"] == 0
+        assert rows[0]["n_unmodified"] == 0
+
+    def test_sites_mixed_present_and_absent(self, tmp_path):
+        """Both present and absent transcripts appear in output."""
+        h5_path = str(tmp_path / "test.h5")
+        out_path = str(tmp_path / "out.parquet")
+        sites_path = str(tmp_path / "sites.tsv")
+
+        self._make_h5(
+            h5_path,
+            {"TX1": (np.array([[4]], dtype=np.uint8),
+                      np.array([0.8], dtype=np.float32))},
+            {"a": 4},
+        )
+        with open(sites_path, "w") as f:
+            f.write("TX1\t1\ta\nMissingTX\t5\ta\n")
+
+        args = argparse.Namespace(
+            h5=[h5_path], output=out_path, format="parquet",
+            gzip=False, sites=sites_path, min_asp=0.0,
+            transcripts=None, gtf=None, verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        rows = table.to_pylist()
+        txs = {r["transcript_id"] for r in rows}
+        assert txs == {"TX1", "MissingTX"}
+        # TX1 has real data
+        tx1_row = [r for r in rows if r["transcript_id"] == "TX1"][0]
+        assert tx1_row["n_modified"] == 1
+        # MissingTX has zero rows
+        missing_row = [r for r in rows if r["transcript_id"] == "MissingTX"][0]
+        assert missing_row["n_modified"] == 0
+
+    def test_sites_with_transcripts_filter(self, tmp_path):
+        """--transcripts filter applied to sites file transcripts."""
+        h5_path = str(tmp_path / "test.h5")
+        out_path = str(tmp_path / "out.parquet")
+        sites_path = str(tmp_path / "sites.tsv")
+
+        self._make_h5(
+            h5_path,
+            {"TX1": (np.array([[4]], dtype=np.uint8),
+                      np.array([0.8], dtype=np.float32))},
+            {"a": 4},
+        )
+        with open(sites_path, "w") as f:
+            f.write("TX1\t1\ta\nTX2\t5\ta\n")
+
+        args = argparse.Namespace(
+            h5=[h5_path], output=out_path, format="parquet",
+            gzip=False, sites=sites_path, min_asp=0.0,
+            transcripts=["TX1"], gtf=None, verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        txs = set(table.column("transcript_id").to_pylist())
+        assert txs == {"TX1"}
+
+    def test_sites_empty_file(self, tmp_path):
+        """Empty sites file produces empty output."""
+        h5_path = str(tmp_path / "test.h5")
+        out_path = str(tmp_path / "out.parquet")
+        sites_path = str(tmp_path / "sites.tsv")
+
+        self._make_h5(
+            h5_path,
+            {"TX1": (np.array([[4]], dtype=np.uint8),
+                      np.array([0.8], dtype=np.float32))},
+            {"a": 4},
+        )
+        with open(sites_path, "w") as f:
+            f.write("")
+
+        args = argparse.Namespace(
+            h5=[h5_path], output=out_path, format="parquet",
+            gzip=False, sites=sites_path, min_asp=0.0,
+            transcripts=None, gtf=None, verbose=False,
+        )
+        main(args)
+
+        table = pq.read_table(out_path)
+        assert len(table) == 0
