@@ -3,4 +3,4 @@
 A toolkit for analysis of long-read sequencing data.
 """
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"

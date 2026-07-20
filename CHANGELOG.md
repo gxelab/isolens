@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+## [0.6.2] - 2026-07-17
+
+### Changed
+
+- `mod_sites`: significant performance refactor for large HDF5 files.
+  Eliminated redundant boolean mask creation in `compute_transcript_stats()`
+  by deriving `n_othermod` / `w_othermod` via subtraction from pre-computed
+  `n_any_mod` / `w_any_mod`, and parallelized transcript processing with a
+  `ThreadPoolExecutor` (`-t` / `--threads`, default 4).  Per-transcript
+  PyArrow table construction is now deferred — results accumulate as numpy
+  arrays and a single `pa.Table` is built at the end.  Output is 100%
+  identical to the previous version.  Expected speedup: 3–10× depending on
+  core count.
+
+### Added
+
+- `-t` / `--threads` option to `mod_sites` for configuring the number of
+  worker threads (default: `min(4, cpu_count)`).  Set to 1 for serial
+  (deterministic transcript ordering).
+
 ## [0.6.1] - 2026-07-17
 
 ### Added
@@ -317,7 +337,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` with `hatchling` build backend.
 - CI workflow for testing and publishing to PyPI.
 
-[Unreleased]: https://github.com/gxelab/isolens/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/gxelab/isolens/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/gxelab/isolens/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/gxelab/isolens/compare/v0.5.4...v0.6.1
 [0.5.4]: https://github.com/gxelab/isolens/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/gxelab/isolens/compare/v0.5.2...v0.5.3

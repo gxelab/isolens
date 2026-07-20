@@ -12,7 +12,8 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/isolens)](https://pypi.org/project/isolens/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/gxelab/isolens/actions/workflows/ci.yml/badge.svg)](https://github.com/gxelab/isolens/actions/workflows/ci.yml)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/isolens)](https://pypi.org/project/isolens/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/isolens)](https://pypistats.org/packages/isolens)
+![Static Badge](https://img.shields.io/badge/lifecycle-experimental-brightgreen?label=lifecycle)
 
 
 **IsoLens** is a Python toolkit for isoform-aware analysis of RNA modifications and poly(A) tail lengths from Oxford Nanopore direct RNA sequencing data, explicitly accounting for transcript assignment uncertainty to enable accurate transcript-level profiling.
@@ -220,6 +221,7 @@ Key options:
 | `-z, --gzip` | Gzip-compress TSV output | off |
 | `-s, --sites` | Predefined modification sites TSV (`tx_name`, `posn`) | all sites |
 | `-p, --min-asp` | Minimum assignment probability filter | 0.0 |
+| `-t, --threads` | Worker threads for parallel processing | `min(4, cpu_count)` |
 | `-x, --transcripts` | Only process specified transcript IDs | all |
 | `-g, --gtf` | GTF annotation for genomic coordinate mapping | off |
 | `-v, --verbose` | Print progress | off |

@@ -18,6 +18,8 @@ See notebooks/01_mod.md for the full specification.
 """
 
 import argparse
+import concurrent.futures
+import os
 import sys
 from contextlib import ExitStack
 
@@ -122,6 +124,15 @@ def parse_args() -> argparse.Namespace:
         help="GTF annotation file for mapping transcript coordinates "
         "to genomic coordinates. When provided, three additional "
         "columns (chrom, strand, gpos) are appended to the output.",
+    )
+    parser.add_argument(
+        "-t",
+        "--threads",
+        type=int,
+        default=min(4, os.cpu_count() or 1),
+        help="Number of worker threads for parallel transcript "
+        "processing [default: min(4, cpu_count)]. Set to 1 for "
+        "serial (deterministic transcript ordering).",
     )
     parser.add_argument(
         "-v",
@@ -238,6 +249,8 @@ def compute_transcript_stats(
 
     # ---- pre-compute mask shared across all mod types ----
     any_mod_mask = (matrix >= 4) & (matrix != CODE_FAIL)
+    n_any_mod = np.sum(any_mod_mask, axis=0, dtype=np.int32)
+    w_any_mod = w64 @ any_mod_mask
 
     # ---- per-modification-type stats ----
 
@@ -266,10 +279,13 @@ def compute_transcript_stats(
         n_mod = np.sum(mod_mask, axis=0, dtype=np.int32)
         w_mod = w64 @ mod_mask
 
-        # Other modifications: any mod except the focal type
-        othermod_mask = any_mod_mask & (matrix != code)
-        n_othermod = np.sum(othermod_mask, axis=0, dtype=np.int32)
-        w_othermod = w64 @ othermod_mask
+        # Other modifications: any mod except the focal type (derived by
+        # subtraction — n_othermod = n_any_mod - n_mod is exact integer
+        # arithmetic; w_othermod may differ by ≤ 1.1e-12 from the true
+        # sum due to float64 cancellation, but this is erased by the
+        # np.round(..., 4) applied before output.)
+        n_othermod = n_any_mod - n_mod
+        w_othermod = w_any_mod - w_mod
 
         # Unmodified = canonical + othermod
         n_unmod = n_canonical + n_othermod
@@ -349,6 +365,41 @@ def compute_transcript_stats(
         "mod_level": np.round(np.concatenate(col_ml), 6),
         "wt_mod_level": np.round(np.concatenate(col_wml), 6),
     }
+
+
+def _compute_transcript(
+    tx_name: str,
+    matrix: np.ndarray,
+    weights: np.ndarray,
+    mod_codes: list[tuple[str, int]],
+    predefined_positions: set[int] | None,
+) -> dict[str, np.ndarray] | None:
+    """Compute stats for one transcript with transcript_id prepopulated.
+
+    Thin wrapper around :func:`compute_transcript_stats` that also
+    adds the ``transcript_id`` column.  This function only does pure
+    NumPy work (no HDF5 I/O, no GTF lookups, no PyArrow) and is safe
+    to call from worker threads.
+
+    Args:
+        tx_name: Transcript identifier.
+        matrix: ``(n_reads, tx_length)`` uint8 array.
+        weights: ``(n_reads,)`` float32 assignment probabilities.
+        mod_codes: ``list[(mod_str, code)]`` sorted by code.
+        predefined_positions: Optional set of 1-based positions.
+
+    Returns:
+        Dict of column→array, or ``None`` if no positions emitted.
+    """
+    col_arrays = compute_transcript_stats(
+        matrix, weights, mod_codes, predefined_positions=predefined_positions
+    )
+    if col_arrays is None:
+        return None
+    col_arrays["transcript_id"] = np.full(
+        len(col_arrays["position"]), tx_name, dtype=object
+    )
+    return col_arrays
 
 
 # ---------- main ----------
@@ -446,45 +497,14 @@ def main(args: argparse.Namespace | None = None) -> None:
 
         # ---- 3. Process each transcript (pooling across files) ----
 
-        all_tables: list[pa.Table] = []
+        all_results: list[dict[str, np.ndarray]] = []
         processed = 0
 
-        for tx_name in tx_names:
-            pooled = pool_transcript_data(h5_files, tx_name, args.min_asp)
-            if pooled is None:
-                processed += 1
-                continue
-
-            matrix, weights, _tx_len = pooled
-
-            if args.verbose and len(h5_files) > 1:
-                print(
-                    f"[mod_sites] {tx_name}: {matrix.shape[0]} reads "
-                    f"pooled from {len(h5_files)} file(s)",
-                    file=sys.stderr,
-                )
-
-            col_arrays = compute_transcript_stats(
-                matrix,
-                weights,
-                mod_codes,
-                predefined_positions=(
-                    predefined_sites.get(tx_name)
-                    if predefined_sites is not None
-                    else None
-                ),
-            )
-
-            if col_arrays is None:
-                processed += 1
-                continue
-
+        # Helper to enrich a result dict with GTF / sentinel columns.
+        def _add_gtf_columns(
+            col_arrays: dict[str, np.ndarray], tx_name: str
+        ) -> None:
             n_rows = len(col_arrays["position"])
-
-            # Add transcript_id column
-            col_arrays["transcript_id"] = np.full(n_rows, tx_name, dtype=object)
-
-            # ---- Enrich with genomic coordinates (if GTF provided) ----
             if gtf is not None:
                 tx_gtf = gtf.get(tx_name)
                 if tx_gtf is None:
@@ -498,17 +518,23 @@ def main(args: argparse.Namespace | None = None) -> None:
                     col_arrays["strand"] = np.full(n_rows, None, dtype=object)
                     col_arrays["gpos"] = np.full(n_rows, -1, dtype=np.int32)
                 else:
-                    gene_id = tx_gtf.gene.gene_id
-                    chrom = tx_gtf.gene.chrom
-                    strand = tx_gtf.gene.strand
+                    col_arrays["gene_id"] = np.full(
+                        n_rows, tx_gtf.gene.gene_id, dtype=object
+                    )
+                    col_arrays["chrom"] = np.full(
+                        n_rows, tx_gtf.gene.chrom, dtype=object
+                    )
+                    col_arrays["strand"] = np.full(
+                        n_rows, tx_gtf.gene.strand, dtype=object
+                    )
                     gpos_vals = np.array(
-                        [tx_gtf.tpos_to_gpos(int(p)) for p in col_arrays["position"]],
+                        [
+                            tx_gtf.tpos_to_gpos(int(p))
+                            for p in col_arrays["position"]
+                        ],
                         dtype=np.int32,
                     )
                     gpos_vals[gpos_vals <= 0] = -1
-                    col_arrays["gene_id"] = np.full(n_rows, gene_id, dtype=object)
-                    col_arrays["chrom"] = np.full(n_rows, chrom, dtype=object)
-                    col_arrays["strand"] = np.full(n_rows, strand, dtype=object)
                     col_arrays["gpos"] = gpos_vals
             else:
                 col_arrays["gene_id"] = np.full(n_rows, None, dtype=object)
@@ -516,56 +542,170 @@ def main(args: argparse.Namespace | None = None) -> None:
                 col_arrays["strand"] = np.full(n_rows, None, dtype=object)
                 col_arrays["gpos"] = np.full(n_rows, -1, dtype=np.int32)
 
-            # Build pa.Table from column arrays
-            pa_arrays = {}
-            for col_name in _TSV_COLS:
-                arr = col_arrays[col_name]
-                pa_type = _SITES_SCHEMA.field(col_name).type
-                if col_name == "gpos":
-                    # Convert -1 sentinel back to None/null
-                    mask = arr == -1
-                    pa_arrays[col_name] = pa.array(
-                        [None if m else int(v) for m, v in zip(mask, arr)],
-                        type=pa.int32(),
-                    )
-                elif pa_type == pa.string():
-                    pa_arrays[col_name] = pa.array(
-                        [None if v is None else str(v) for v in arr],
-                        type=pa.string(),
-                    )
-                elif pa_type == pa.int32():
-                    pa_arrays[col_name] = pa.array(arr, type=pa.int32())
-                elif pa_type == pa.float64():
-                    pa_arrays[col_name] = pa.array(arr, type=pa.float64())
-                else:
-                    pa_arrays[col_name] = pa.array(arr, type=pa_type)
+        if getattr(args, "threads", 1) <= 1:
+            # ---- Serial path (--threads 1, deterministic) ----
+            for tx_name in tx_names:
+                pooled = pool_transcript_data(h5_files, tx_name, args.min_asp)
+                if pooled is None:
+                    processed += 1
+                    continue
 
-            all_tables.append(pa.table(pa_arrays))
+                matrix, weights, _tx_len = pooled
 
-            processed += 1
-            if args.verbose and processed % 1000 == 0:
-                print(
-                    f"[mod_sites] Processed {processed}/{n_transcripts} transcripts...",
-                    file=sys.stderr,
+                col_arrays = _compute_transcript(
+                    tx_name,
+                    matrix,
+                    weights,
+                    mod_codes,
+                    predefined_positions=(
+                        predefined_sites.get(tx_name)
+                        if predefined_sites is not None
+                        else None
+                    ),
                 )
 
-    # ---- 4. Combine and write output ----
-    if all_tables:
-        combined = pa.concat_tables(all_tables)
-        # Reorder columns to match schema
-        combined = combined.select(_TSV_COLS)
-    else:
-        combined = _SITES_SCHEMA.empty_table()
+                if col_arrays is None:
+                    processed += 1
+                    continue
+
+                _add_gtf_columns(col_arrays, tx_name)
+                all_results.append(col_arrays)
+
+                processed += 1
+                if args.verbose and processed % 1000 == 0:
+                    print(
+                        f"[mod_sites] Processed {processed}/{n_transcripts} "
+                        f"transcripts...",
+                        file=sys.stderr,
+                    )
+        else:
+            # ---- Parallel path (ThreadPoolExecutor) ----
+            max_workers = getattr(args, "threads", 1)
+            max_pending = max_workers * 2
+
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max_workers
+            ) as executor:
+                future_to_tx: dict[
+                    concurrent.futures.Future, str
+                ] = {}
+                tx_iter = iter(tx_names)
+                tx_iter_exhausted = False
+
+                while future_to_tx or not tx_iter_exhausted:
+                    # Submit new work while below limit
+                    while (
+                        len(future_to_tx) < max_pending
+                        and not tx_iter_exhausted
+                    ):
+                        try:
+                            tx_name = next(tx_iter)
+                        except StopIteration:
+                            tx_iter_exhausted = True
+                            break
+                        pooled = pool_transcript_data(
+                            h5_files, tx_name, args.min_asp
+                        )
+                        if pooled is None:
+                            processed += 1
+                            continue
+                        matrix, weights, _tx_len = pooled
+                        future = executor.submit(
+                            _compute_transcript,
+                            tx_name,
+                            matrix,
+                            weights,
+                            mod_codes,
+                            predefined_sites.get(tx_name)
+                            if predefined_sites is not None
+                            else None,
+                        )
+                        future_to_tx[future] = tx_name
+
+                    if not future_to_tx:
+                        break
+
+                    # Wait for at least one completion
+                    done, _ = concurrent.futures.wait(
+                        future_to_tx,
+                        return_when=concurrent.futures.FIRST_COMPLETED,
+                    )
+                    for future in done:
+                        tx_name = future_to_tx.pop(future)
+                        try:
+                            col_arrays = future.result()
+                        except Exception:
+                            for f in future_to_tx:
+                                f.cancel()
+                            raise
+                        processed += 1
+                        if col_arrays is None:
+                            continue
+
+                        # Enrich with GTF / sentinel columns (main thread)
+                        _add_gtf_columns(col_arrays, tx_name)
+                        all_results.append(col_arrays)
+
+                        if args.verbose and processed % 1000 == 0:
+                            print(
+                                f"[mod_sites] Processed {processed}/"
+                                f"{n_transcripts} transcripts...",
+                                file=sys.stderr,
+                            )
+
+    # ---- 4. Build output and write ----
+
+    if not all_results:
+        # No modification sites found — write empty output
+        empty_table = _SITES_SCHEMA.empty_table()
+        print(
+            "[mod_sites] No modification sites found — writing empty file.",
+            file=sys.stderr,
+        )
+        if args.format == "tsv":
+            write_tsv(empty_table, args.output, _TSV_HEADER, _TSV_COLS, args.gzip)
+        else:
+            write_parquet(empty_table, args.output, _SITES_SCHEMA, _TSV_COLS)
+        if args.verbose:
+            print(
+                f"[mod_sites] Done. Output written to {args.output}",
+                file=sys.stderr,
+            )
+        return
+
+    # Concatenate numpy arrays across all transcripts (one pass per column)
+    combined_arrays: dict[str, np.ndarray] = {}
+    for col_name in _TSV_COLS:
+        combined_arrays[col_name] = np.concatenate(
+            [r[col_name] for r in all_results]
+        )
+
+    # Build a single pa.Table from the combined arrays
+    pa_arrays: dict[str, pa.Array] = {}
+    for col_name in _TSV_COLS:
+        arr = combined_arrays[col_name]
+        pa_type = _SITES_SCHEMA.field(col_name).type
+        if col_name == "gpos":
+            # Use pyarrow mask for vectorized null handling
+            null_mask = arr == -1
+            pa_arrays[col_name] = pa.array(
+                arr, type=pa.int32(), mask=null_mask
+            )
+        elif pa_type == pa.string():
+            # pa.array handles None → null in object arrays natively
+            pa_arrays[col_name] = pa.array(arr, type=pa.string())
+        elif pa_type == pa.int32():
+            pa_arrays[col_name] = pa.array(arr, type=pa.int32())
+        elif pa_type == pa.float64():
+            pa_arrays[col_name] = pa.array(arr, type=pa.float64())
+        else:
+            pa_arrays[col_name] = pa.array(arr, type=pa_type)
+
+    combined = pa.table(pa_arrays)
 
     if args.verbose:
         print(
             f"[mod_sites] Total rows to write: {len(combined)}",
-            file=sys.stderr,
-        )
-
-    if len(combined) == 0:
-        print(
-            "[mod_sites] No modification sites found — writing empty file.",
             file=sys.stderr,
         )
 
