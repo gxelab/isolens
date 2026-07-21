@@ -1,12 +1,4 @@
-<p align="center">
-  <img src="logo.svg" alt="IsoLens logo" width="320">
-</p>
-
-<p align="center">
-  <strong>Isoform-aware RNA modification and poly(A) tail analysis for direct RNA sequencing data.</strong>
-</p>
-
-# IsoLens
+# IsoLens <a href="https://pypi.org/project/isolens/"><img src="logo.svg" align="right" height="138" alt="IsoLens Logo" /></a>
 
 [![PyPI - Version](https://img.shields.io/pypi/v/isolens)](https://pypi.org/project/isolens/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/isolens)](https://pypi.org/project/isolens/)
@@ -16,7 +8,7 @@
 ![Static Badge](https://img.shields.io/badge/lifecycle-experimental-brightgreen?label=lifecycle)
 
 
-**IsoLens** is a Python toolkit for isoform-aware analysis of RNA modifications and poly(A) tail lengths from Oxford Nanopore direct RNA sequencing data, explicitly accounting for transcript assignment uncertainty to enable accurate transcript-level profiling.
+**IsoLens** is a Python toolkit for isoform-aware analysis of RNA modifications and poly(A) tail lengths from direct RNA sequencing data, explicitly accounting for transcript assignment uncertainty to enable accurate transcript-level profiling.
 
 ---
 

@@ -1,5 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 350" width="300" height="350">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 340" width="300" height="340">
   <defs>
+    <!-- Pointy-top hexagon, center (150,165), r=155 -->
+    <clipPath id="hexClip">
+      <polygon points="150,10 284.2,87.5 284.2,242.5 150,320 15.8,242.5 15.8,87.5"/>
+    </clipPath>
     <clipPath id="lensClip">
       <circle cx="150" cy="130" r="88"/>
     </clipPath>
@@ -13,64 +17,75 @@
     </linearGradient>
   </defs>
 
-  <!-- mRNA strand behind lens — left side (purple → teal) -->
-  <g transform="translate(5, 108)">
-    <path d="M0,22 Q12,12 24,22 Q36,32 48,22 Q54,17 58,22" stroke="url(#leftWave)" stroke-width="2.2" fill="none"/>
-    <line x1="6"  y1="12" x2="6"  y2="24" stroke="#7B2D8E" stroke-width="2"/>
-    <line x1="14" y1="14" x2="14" y2="26" stroke="#743090" stroke-width="2"/>
-    <line x1="22" y1="17" x2="22" y2="29" stroke="#6A3888" stroke-width="2"/>
-    <line x1="30" y1="20" x2="30" y2="32" stroke="#5A4888" stroke-width="2"/>
-    <line x1="38" y1="26" x2="38" y2="34" stroke="#4A5888" stroke-width="2"/>
-    <line x1="46" y1="24" x2="46" y2="30" stroke="#3A6888" stroke-width="2"/>
-    <line x1="54" y1="18" x2="54" y2="28" stroke="#2E8B8B" stroke-width="2"/>
+  <!-- Hexagon background -->
+  <polygon points="150,10 284.2,87.5 284.2,242.5 150,320 15.8,242.5 15.8,87.5" fill="white"/>
+
+  <!-- All content scaled down for more breathing room inside hex -->
+  <g transform="translate(18, 19.8) scale(0.88)">
+
+    <!-- mRNA strand — left side (purple → teal) -->
+    <g transform="translate(5, 108)">
+      <path d="M0,22 Q12,12 24,22 Q36,32 48,22 Q54,17 58,22" stroke="url(#leftWave)" stroke-width="2.2" fill="none"/>
+      <line x1="6"  y1="12" x2="6"  y2="24" stroke="#7B2D8E" stroke-width="2"/>
+      <line x1="14" y1="14" x2="14" y2="26" stroke="#743090" stroke-width="2"/>
+      <line x1="22" y1="17" x2="22" y2="29" stroke="#6A3888" stroke-width="2"/>
+      <line x1="30" y1="20" x2="30" y2="32" stroke="#5A4888" stroke-width="2"/>
+      <line x1="38" y1="26" x2="38" y2="34" stroke="#4A5888" stroke-width="2"/>
+      <line x1="46" y1="24" x2="46" y2="30" stroke="#3A6888" stroke-width="2"/>
+      <line x1="54" y1="18" x2="54" y2="28" stroke="#2E8B8B" stroke-width="2"/>
+    </g>
+
+    <!-- mRNA strand — right side (teal → green) -->
+    <g transform="translate(238, 108)">
+      <path d="M2,22 Q8,17 14,22 Q26,32 38,22 Q50,12 58,22" stroke="url(#rightWave)" stroke-width="2.2" fill="none"/>
+      <line x1="6"  y1="18" x2="6"  y2="28" stroke="#2E8B8B" stroke-width="2"/>
+      <line x1="14" y1="17" x2="14" y2="29" stroke="#2E9B7B" stroke-width="2"/>
+      <line x1="22" y1="20" x2="22" y2="32" stroke="#2EAB6B" stroke-width="2"/>
+      <line x1="30" y1="26" x2="30" y2="34" stroke="#3CB371" stroke-width="2"/>
+      <line x1="38" y1="24" x2="38" y2="30" stroke="#3CC361" stroke-width="2"/>
+      <line x1="46" y1="18" x2="46" y2="28" stroke="#3CB371" stroke-width="2"/>
+      <line x1="54" y1="16" x2="54" y2="26" stroke="#3CB371" stroke-width="2"/>
+    </g>
+
+    <!-- Magnifying glass ring -->
+    <circle cx="150" cy="130" r="95" stroke="#0D2F5F" stroke-width="6.5" fill="#F4F7FB"/>
+
+    <!-- Handle -->
+    <line x1="215" y1="198" x2="258" y2="248" stroke="#0D2F5F" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- Inside lens: isoform diagrams -->
+    <g clip-path="url(#lensClip)">
+      <!-- Isoform 1: E1-E2-E3-E4-E5 (5 exons) -->
+      <line x1="100" y1="95" x2="215" y2="95" stroke="#CFD8DC" stroke-width="2"/>
+      <rect x="85"  y="88" width="18" height="14" rx="3" fill="#7B2D8E"/>
+      <rect x="112" y="88" width="18" height="14" rx="3" fill="#1565C0"/>
+      <rect x="139" y="88" width="18" height="14" rx="3" fill="#00897B"/>
+      <rect x="166" y="88" width="18" height="14" rx="3" fill="#F57C00"/>
+      <rect x="193" y="88" width="18" height="14" rx="3" fill="#C62828"/>
+
+      <!-- Isoform 2: E1-E3-E4 (3 exons) -->
+      <line x1="100" y1="133" x2="190" y2="133" stroke="#CFD8DC" stroke-width="2"/>
+      <rect x="85"  y="126" width="18" height="14" rx="3" fill="#7B2D8E"/>
+      <rect x="139" y="126" width="18" height="14" rx="3" fill="#00897B"/>
+      <rect x="166" y="126" width="18" height="14" rx="3" fill="#F57C00"/>
+
+      <!-- Isoform 3: E2-E4-E5 (3 exons) -->
+      <line x1="127" y1="171" x2="215" y2="171" stroke="#CFD8DC" stroke-width="2"/>
+      <rect x="112" y="164" width="18" height="14" rx="3" fill="#1565C0"/>
+      <rect x="166" y="164" width="18" height="14" rx="3" fill="#F57C00"/>
+      <rect x="193" y="164" width="18" height="14" rx="3" fill="#C62828"/>
+    </g>
+
+    <!-- Glass highlight -->
+    <ellipse cx="122" cy="96" rx="24" ry="11" fill="white" opacity="0.22" transform="rotate(-35, 122, 96)"/>
+
+    <!-- IsoLens text -->
+    <text x="150" y="275" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="40" letter-spacing="1">
+      <tspan fill="#2E8B8B">Iso</tspan><tspan fill="#0D2F5F">Lens</tspan>
+    </text>
   </g>
 
-  <!-- mRNA strand behind lens — right side (teal → green) -->
-  <g transform="translate(238, 108)">
-    <path d="M2,22 Q8,17 14,22 Q26,32 38,22 Q50,12 58,22" stroke="url(#rightWave)" stroke-width="2.2" fill="none"/>
-    <line x1="6"  y1="18" x2="6"  y2="28" stroke="#2E8B8B" stroke-width="2"/>
-    <line x1="14" y1="17" x2="14" y2="29" stroke="#2E9B7B" stroke-width="2"/>
-    <line x1="22" y1="20" x2="22" y2="32" stroke="#2EAB6B" stroke-width="2"/>
-    <line x1="30" y1="26" x2="30" y2="34" stroke="#3CB371" stroke-width="2"/>
-    <line x1="38" y1="24" x2="38" y2="30" stroke="#3CC361" stroke-width="2"/>
-    <line x1="46" y1="18" x2="46" y2="28" stroke="#3CB371" stroke-width="2"/>
-    <line x1="54" y1="16" x2="54" y2="26" stroke="#3CB371" stroke-width="2"/>
-  </g>
-
-  <!-- Magnifying glass ring (drawn on top, covers strand overlap) -->
-  <circle cx="150" cy="130" r="95" stroke="#0D2F5F" stroke-width="6.5" fill="#F4F7FB"/>
-
-  <!-- Handle -->
-  <line x1="215" y1="198" x2="258" y2="248" stroke="#0D2F5F" stroke-width="10" stroke-linecap="round"/>
-
-  <!-- Inside lens: isoform diagrams with straight intron lines -->
-  <g clip-path="url(#lensClip)">
-    <!-- Isoform 1: E1-E2-E3-E4-E5 (5 exons) -->
-    <line x1="100" y1="95" x2="215" y2="95" stroke="#CFD8DC" stroke-width="2"/>
-    <rect x="85"  y="88" width="18" height="14" rx="3" fill="#7B2D8E"/>
-    <rect x="112" y="88" width="18" height="14" rx="3" fill="#1565C0"/>
-    <rect x="139" y="88" width="18" height="14" rx="3" fill="#00897B"/>
-    <rect x="166" y="88" width="18" height="14" rx="3" fill="#F57C00"/>
-    <rect x="193" y="88" width="18" height="14" rx="3" fill="#C62828"/>
-
-    <!-- Isoform 2: E1-E3-E4 (3 exons) -->
-    <line x1="100" y1="133" x2="190" y2="133" stroke="#CFD8DC" stroke-width="2"/>
-    <rect x="85"  y="126" width="18" height="14" rx="3" fill="#7B2D8E"/>
-    <rect x="139" y="126" width="18" height="14" rx="3" fill="#00897B"/>
-    <rect x="166" y="126" width="18" height="14" rx="3" fill="#F57C00"/>
-
-    <!-- Isoform 3: E2-E4-E5 (3 exons) -->
-    <line x1="127" y1="171" x2="215" y2="171" stroke="#CFD8DC" stroke-width="2"/>
-    <rect x="112" y="164" width="18" height="14" rx="3" fill="#1565C0"/>
-    <rect x="166" y="164" width="18" height="14" rx="3" fill="#F57C00"/>
-    <rect x="193" y="164" width="18" height="14" rx="3" fill="#C62828"/>
-  </g>
-
-  <!-- Glass highlight -->
-  <ellipse cx="122" cy="96" rx="24" ry="11" fill="white" opacity="0.22" transform="rotate(-35, 122, 96)"/>
-
-  <!-- IsoLens text -->
-  <text x="150" y="293" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="40" letter-spacing="1">
-    <tspan fill="#2E8B8B">Iso</tspan><tspan fill="#0D2F5F">Lens</tspan>
-  </text>
+  <!-- Hexagon border (drawn on top for clean edge) -->
+  <polygon points="150,10 284.2,87.5 284.2,242.5 150,320 15.8,242.5 15.8,87.5"
+           fill="none" stroke="black" stroke-width="8" stroke-linejoin="round"/>
 </svg>
