@@ -1170,9 +1170,15 @@ class TestMainMultiFile:
             f.write("TX1\t1\n")
 
         args = argparse.Namespace(
-            h5=[h5_path], output=out_path, format="parquet",
-            gzip=False, sites=sites_path, min_asp=0.0,
-            transcripts=None, gtf=None, verbose=False,
+            h5=[h5_path],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=sites_path,
+            min_asp=0.0,
+            transcripts=None,
+            gtf=None,
+            verbose=False,
         )
         main(args)
 
@@ -1195,9 +1201,15 @@ class TestMainMultiFile:
             f.write("TX1\t2\tm\n")
 
         args = argparse.Namespace(
-            h5=[h5_path], output=out_path, format="parquet",
-            gzip=False, sites=sites_path, min_asp=0.0,
-            transcripts=None, gtf=None, verbose=False,
+            h5=[h5_path],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=sites_path,
+            min_asp=0.0,
+            transcripts=None,
+            gtf=None,
+            verbose=False,
         )
         main(args)
 
@@ -1216,17 +1228,27 @@ class TestMainMultiFile:
 
         self._make_h5(
             h5_path,
-            {"TX1": (np.array([[4]], dtype=np.uint8),
-                      np.array([0.8], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         with open(sites_path, "w") as f:
             f.write("MissingTX\t42\ta\n")
 
         args = argparse.Namespace(
-            h5=[h5_path], output=out_path, format="parquet",
-            gzip=False, sites=sites_path, min_asp=0.0,
-            transcripts=None, gtf=None, verbose=False,
+            h5=[h5_path],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=sites_path,
+            min_asp=0.0,
+            transcripts=None,
+            gtf=None,
+            verbose=False,
         )
         main(args)
 
@@ -1247,17 +1269,27 @@ class TestMainMultiFile:
 
         self._make_h5(
             h5_path,
-            {"TX1": (np.array([[4]], dtype=np.uint8),
-                      np.array([0.8], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         with open(sites_path, "w") as f:
             f.write("TX1\t1\ta\nMissingTX\t5\ta\n")
 
         args = argparse.Namespace(
-            h5=[h5_path], output=out_path, format="parquet",
-            gzip=False, sites=sites_path, min_asp=0.0,
-            transcripts=None, gtf=None, verbose=False,
+            h5=[h5_path],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=sites_path,
+            min_asp=0.0,
+            transcripts=None,
+            gtf=None,
+            verbose=False,
         )
         main(args)
 
@@ -1280,17 +1312,27 @@ class TestMainMultiFile:
 
         self._make_h5(
             h5_path,
-            {"TX1": (np.array([[4]], dtype=np.uint8),
-                      np.array([0.8], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         with open(sites_path, "w") as f:
             f.write("TX1\t1\ta\nTX2\t5\ta\n")
 
         args = argparse.Namespace(
-            h5=[h5_path], output=out_path, format="parquet",
-            gzip=False, sites=sites_path, min_asp=0.0,
-            transcripts=["TX1"], gtf=None, verbose=False,
+            h5=[h5_path],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=sites_path,
+            min_asp=0.0,
+            transcripts=["TX1"],
+            gtf=None,
+            verbose=False,
         )
         main(args)
 
@@ -1306,17 +1348,27 @@ class TestMainMultiFile:
 
         self._make_h5(
             h5_path,
-            {"TX1": (np.array([[4]], dtype=np.uint8),
-                      np.array([0.8], dtype=np.float32))},
+            {
+                "TX1": (
+                    np.array([[4]], dtype=np.uint8),
+                    np.array([0.8], dtype=np.float32),
+                )
+            },
             {"a": 4},
         )
         with open(sites_path, "w") as f:
             f.write("")
 
         args = argparse.Namespace(
-            h5=[h5_path], output=out_path, format="parquet",
-            gzip=False, sites=sites_path, min_asp=0.0,
-            transcripts=None, gtf=None, verbose=False,
+            h5=[h5_path],
+            output=out_path,
+            format="parquet",
+            gzip=False,
+            sites=sites_path,
+            min_asp=0.0,
+            transcripts=None,
+            gtf=None,
+            verbose=False,
         )
         main(args)
 

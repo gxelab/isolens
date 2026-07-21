@@ -715,9 +715,7 @@ def main(args: argparse.Namespace | None = None) -> None:
                         predefined_mods=mods_for_tx,
                     )
                 else:
-                    col_arrays = _make_zero_rows(
-                        tx_name, mods_for_tx, mod_codes
-                    )
+                    col_arrays = _make_zero_rows(tx_name, mods_for_tx, mod_codes)
 
                 if col_arrays is None:
                     processed += 1

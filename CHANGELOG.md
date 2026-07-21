@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-## [0.6.2] - 2026-07-17
+### Changed
+
+## [0.6.2] - 2026-07-21
 
 ### Changed
 
@@ -21,7 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PyArrow table construction is now deferred — results accumulate as numpy
   arrays and a single `pa.Table` is built at the end.  Output is 100%
   identical to the previous version.  Expected speedup: 3–10× depending on
-  core count.
+- `mod_sites`: revised `-s` / `--sites` for targeted profiling from an HDF5 file.
+  The sites TSV is now **headerless** with columns `transcript_id`, `position`
+  (1-based), and an optional `mod_type`.  When *mod_type* is omitted, every
+  known modification type is emitted for that position; when provided, only that
+  type is profiled.  Every input site is guaranteed to appear in the output —
+  transcripts absent from the HDF5 file and positions with no reads produce
+  zero-filled rows.  Input is sorted by `(transcript_id, position)` and
+  processed transcript-by-transcript to minimise H5 I/O.  When `-s` / `--sites`
+  is not provided, behaviour is 100 % identical to the previous version.
+
+ core count.
 
 ### Added
 

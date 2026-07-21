@@ -219,7 +219,7 @@ Key options:
 | `-o, --output` | Output file | (required) |
 | `-f, --format` | Output format: `parquet` or `tsv` | `parquet` |
 | `-z, --gzip` | Gzip-compress TSV output | off |
-| `-s, --sites` | Predefined modification sites TSV (`tx_name`, `posn`) | all sites |
+| `-s, --sites` | Predefined modification sites TSV (headerless: `transcript_id`, `posn`, `[mod_type]`) | all sites |
 | `-p, --min-asp` | Minimum assignment probability filter | 0.0 |
 | `-t, --threads` | Worker threads for parallel processing | `min(4, cpu_count)` |
 | `-x, --transcripts` | Only process specified transcript IDs | all |
@@ -227,6 +227,8 @@ Key options:
 | `-v, --verbose` | Print progress | off |
 
 **Output columns (23):** `transcript_id`, `position`, `mod_type`, `n_modified`, `wt_modified`, `n_unmodified`, `wt_unmodified`, `n_canonical`, `wt_canonical`, `n_othermod`, `wt_othermod`, `n_mismatch`, `wt_mismatch`, `n_deletion`, `wt_deletion`, `n_failed`, `wt_failed`, `mod_level`, `wt_mod_level`, `gene_id`\*, `chrom`\*, `strand`\*, `gpos`\* (\*requires `--gtf`).
+
+> **Note:** It is recommended to filter `mod_sites` results by coverage and/or modification level before passing them to downstream analyses (`mod_corr`, `mod_gene`, `mod_dmc`, etc.). Sites with very low read depth or near-zero modification levels are unlikely to yield statistically meaningful results and can inflate the multiple-testing burden.
 
 ---
 
